@@ -2,6 +2,8 @@
 
 **Use Cursor from inside Claude Code.** Delegate a coding task to Cursor's agent, get structured results back, and let Claude stay in the driver's seat.
 
+![Demo](demo.gif)
+
 A Claude Code plugin that connects Claude to **cursor-agent** over the [Agent Client Protocol](https://cursor.com/docs/cli/acp). You describe the work; Claude passes a structured brief inline and hands it off. Cursor edits your repo, and Claude reviews what changed.
 
 ## What you can do
