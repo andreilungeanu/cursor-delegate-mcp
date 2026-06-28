@@ -1,0 +1,42 @@
+{
+  "name": "cursor-acp-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MCP server bridging Claude Code to cursor-agent over the Agent Client Protocol (ACP).",
+  "license": "MIT",
+  "author": "Andrei Lungeanu <alungeanu@teramind.co>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andreilungeanu/cursor-acp-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/andreilungeanu/cursor-acp-bridge/issues"
+  },
+  "homepage": "https://github.com/andreilungeanu/cursor-acp-bridge#readme",
+  "keywords": [
+    "mcp",
+    "cursor",
+    "cursor-agent",
+    "acp",
+    "agent-client-protocol",
+    "claude-code",
+    "composer"
+  ],
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  }
+}

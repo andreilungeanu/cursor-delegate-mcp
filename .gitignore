@@ -1,0 +1,26 @@
+# Dependencies (installed on first SessionStart via hooks/ensure-deps.mjs)
+node_modules/
+
+# Local / runtime config
+acp.config.json
+.env
+.env.*
+.claude/
+docs/
+spike/
+test/
+fixtures/
+.github/
+.firecrawl/
+
+# Logs and debug output
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

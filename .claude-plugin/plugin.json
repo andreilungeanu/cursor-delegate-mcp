@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "cursor-acp-bridge",
+  "displayName": "Cursor ACP Bridge",
+  "version": "1.0.0",
+  "description": "MCP server that drives cursor-agent over the Agent Client Protocol (ACP): delegate coding tasks to Cursor from Claude Code, with auto-approved writes and clarifying questions surfaced via elicitation.",
+  "author": {
+    "name": "Andrei Lungeanu",
+    "email": "alungeanu@teramind.co"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "cursor",
+    "cursor-agent",
+    "acp",
+    "agent-client-protocol",
+    "claude-code",
+    "composer",
+    "delegation"
+  ]
+}

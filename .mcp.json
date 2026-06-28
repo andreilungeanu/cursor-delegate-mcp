@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cursor-acp-bridge": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/src/server.js"]
+    }
+  }
+}
