@@ -67,7 +67,7 @@ export class AcpClient extends EventEmitter {
     });
   }
 
-  initialize() { return this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-acp-bridge", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } }); }
+  initialize() { return this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } }); }
   newSession(cwd) { return this.peer.request("session/new", { cwd, mcpServers: [] }); }
   loadSession(sessionId, cwd) { return this.peer.request("session/load", { sessionId, cwd, mcpServers: [] }); }
   setModel(sessionId, modelId) { return this.peer.request("session/set_model", { sessionId, modelId }); }

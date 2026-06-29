@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-06-29
+
+### Added
+
+- Distributable as a standalone MCP server via `npx cursor-delegate-mcp` (`bin`
+  entry) for any compatible client, alongside the Claude Code plugin.
+- Auto-answer fallback for clients without MCP elicitation: the recommended option
+  is selected and reported in the new `autoAnswered` result field.
+
 ## [1.0.0] - 2026-06-28
 
 First public release.

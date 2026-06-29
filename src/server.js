@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import process from "node:process";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -35,10 +36,20 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
     };
   }
 
+  const supportsElicitation = !!server.server.getClientCapabilities?.()?.elicitation;
+  const autoAnswered = [];
+
   const onElicit = async ({ title, questions }) => {
     const answers = [];
     for (const q of questions || []) {
       const opts = q.options || [];
+      if (!supportsElicitation) {
+        const chosenOptionId = opts[0]?.id;
+        const chosen = opts.find((o) => o.id === chosenOptionId)?.label || chosenOptionId || "";
+        autoAnswered.push({ prompt: q.prompt, chosen });
+        answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
+        continue;
+      }
       const result = await server.server.elicitInput({
         message: title ? `${title}: ${q.prompt}` : `cursor-agent asks: ${q.prompt}`,
         requestedSchema: {
@@ -85,6 +96,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
         inFlight.set(sessionId, client);
       },
     });
+    if (autoAnswered.length) out.autoAnswered = autoAnswered;
     return {
       content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
       structuredContent: out,
@@ -102,7 +114,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
 export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
-  const server = new McpServer({ name: "cursor-acp-bridge", version: pluginVersion });
+  const server = new McpServer({ name: "cursor-delegate-mcp", version: pluginVersion });
 
   server.registerTool(
     "delegate",

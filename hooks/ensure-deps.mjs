@@ -17,6 +17,6 @@ try {
     stdio: "inherit",
   });
 } catch (err) {
-  console.error(`cursor-acp-bridge: dependency install failed: ${err?.message || err}`);
+  console.error(`cursor-delegate-mcp: dependency install failed: ${err?.message || err}`);
   process.exit(1);
 }

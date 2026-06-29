@@ -1,14 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "cursor-acp-bridge",
+  "name": "cursor-delegate-mcp",
   "owner": {
     "name": "Andrei Lungeanu",
     "email": "alungeanu@teramind.co"
   },
-  "description": "Marketplace hosting the Cursor ACP Bridge plugin.",
+  "description": "Marketplace hosting the Cursor Delegate MCP plugin.",
   "plugins": [
     {
-      "name": "cursor-acp-bridge",
+      "name": "cursor-delegate-mcp",
       "source": "./",
       "description": "MCP server bridging Claude Code to cursor-agent over ACP.",
       "license": "MIT",

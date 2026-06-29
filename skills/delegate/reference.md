@@ -1,6 +1,6 @@
 # delegate tool reference
 
-Architecture: Claude Code → MCP `delegate` → cursor-acp-bridge → **cursor-agent** over ACP.
+Architecture: Claude Code → MCP `delegate` → cursor-delegate-mcp → **cursor-agent** over ACP.
 
 ## Input
 
@@ -22,8 +22,9 @@ Architecture: Claude Code → MCP `delegate` → cursor-acp-bridge → **cursor-
 | `sessionId` | Session id for resume. |
 | `touchedFiles` | Paths changed during the run. |
 | `touchedFilesSource` | `"git"` (delta from `git status`) or `"diff-only"`. |
-| `questionsAsked` | Count of clarifying questions surfaced. |
+| `questionsAsked` | List of clarifying-question prompts surfaced. |
 | `resumed` | Whether `resumeSessionId` was honored. |
+| `autoAnswered` | Present on non-elicitation clients: questions auto-answered with the recommended option (`prompt`, `chosen`). |
 | `plan` | Present when a plan was emitted (plan mode). |
 
 ### `plan` object (when present)

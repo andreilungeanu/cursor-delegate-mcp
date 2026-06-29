@@ -1,7 +1,7 @@
 ---
 name: delegate
 description: >
-  Delegate implementation to Cursor via the cursor-acp-bridge MCP delegate tool.
+  Delegate implementation to Cursor via the cursor-delegate-mcp MCP delegate tool.
   Use when the user says delegate to Cursor, Composer, or cursor-agent; use
   Composer/Cursor for coding; hand off implementation; plan before building; or
   resume a delegation session. Do not shell out to cursor-agent — use the delegate MCP tool.
@@ -9,7 +9,7 @@ description: >
 
 # Delegate to Cursor
 
-You orchestrate; Cursor implements. Use the **cursor-acp-bridge** MCP server — never run
+You orchestrate; Cursor implements. Use the **cursor-delegate-mcp** MCP server — never run
 `cursor-agent` from the shell.
 
 ## When to delegate
@@ -26,7 +26,7 @@ wants a plan with no file writes (`mode: "plan"`).
 1. **Build the brief inline** — pass structured task text in `spec` (goal, files in scope,
    acceptance criteria). This is the default; do not create a spec file unless the user
    wants one saved in the repo or the brief is very long.
-2. **Call `delegate`** on the cursor-acp-bridge MCP server with that text in `spec`.
+2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
 3. **Review** — read `touchedFiles`, inspect the git diff, run tests/lint.
 4. **Report** — summarize what changed and whether acceptance criteria are met.
 
