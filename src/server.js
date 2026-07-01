@@ -9,6 +9,12 @@ import { runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION } from "./version.js";
 
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+if (nodeMajor < 22) {
+  console.error(`cursor-delegate-mcp requires Node 22+ (found ${process.versions.node})`);
+  process.exit(1);
+}
+
 const inFlight = new Map();
 
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
