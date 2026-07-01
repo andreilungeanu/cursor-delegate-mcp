@@ -4,6 +4,8 @@ import process from "node:process";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { AcpClient } from "../src/acp-client.js";
 import { runDelegate } from "../src/delegate.js";
 
@@ -298,6 +300,84 @@ test("runDelegate resumed result excludes replayed session history", async () =>
   assert.equal(out.result, "NEW");
   assert.ok(!out.result.includes("PRIOR "));
   assert.equal(out.plan, undefined);
+});
+
+function promptTextFactory(track) {
+  return ({ onElicit, mode, onCreatePlan }) => {
+    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+    const origPrompt = client.prompt.bind(client);
+    client.prompt = async (sessionId, text) => {
+      track.promptText = text;
+      return origPrompt(sessionId, text);
+    };
+    return client;
+  };
+}
+
+test("runDelegate reads the spec from a file when spec is an existing path", async () => {
+  const specPath = path.join(tmpdir(), `delegate-spec-${process.pid}.md`);
+  const brief = "# Brief\n\nDo the persisted thing.\n";
+  writeFileSync(specPath, brief);
+  const track = {};
+  try {
+    await runDelegate({
+      spec: specPath,
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: promptTextFactory(track),
+    });
+    assert.equal(track.promptText, brief, "prompt must carry the file contents, not the path");
+  } finally {
+    try { unlinkSync(specPath); } catch {}
+  }
+});
+
+test("runDelegate sends a path-looking spec literally when the file does not exist", async () => {
+  const track = {};
+  await runDelegate({
+    spec: "missing/brief.md",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: promptTextFactory(track),
+  });
+  assert.equal(track.promptText, "missing/brief.md");
+});
+
+function askingFactory() {
+  return ({ onElicit }) => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-ask" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      // the client receives runDelegate's wrapped onElicit, which records prompts
+      await onElicit({
+        kind: "ask_question",
+        questions: [
+          { id: "q1", prompt: "Which database?", options: [{ id: "a", label: "Postgres" }] },
+          { id: "q2", prompt: "Which region?", options: [{ id: "b", label: "eu-west" }] },
+        ],
+      });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate records clarifying-question prompts in questionsAsked", async () => {
+  const out = await runDelegate({
+    spec: "task",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: askingFactory(),
+    onElicit: async () => null,
+  });
+  assert.deepEqual(out.questionsAsked, ["Which database?", "Which region?"]);
 });
 
 function exitDuringPromptFactory() {
