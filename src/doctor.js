@@ -1,16 +1,11 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
 import { resolveAcpSpawn } from "./spawn.js";
+import { VERSION } from "./version.js";
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const DEFAULT_LOG_SIZE = "2000";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pluginVersion = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version;
 
 function formatCommand({ command, args }) {
   return args?.length ? `${command} ${args.join(" ")}` : command;
@@ -78,7 +73,7 @@ export async function runDoctor({
   const agentProbe = await probeAgentVersion(spawnSpec);
 
   const out = {
-    plugin: { version: pluginVersion },
+    plugin: { version: VERSION },
     client: {
       name: version?.name ?? null,
       version: version?.version ?? null,

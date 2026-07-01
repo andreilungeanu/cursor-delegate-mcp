@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 import process from "node:process";
 import path from "node:path";
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
-
-const pluginVersion = JSON.parse(
-  readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")
-).version;
+import { VERSION } from "./version.js";
 
 const inFlight = new Map();
 
@@ -114,7 +110,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
 export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
-  const server = new McpServer({ name: "cursor-delegate-mcp", version: pluginVersion });
+  const server = new McpServer({ name: "cursor-delegate-mcp", version: VERSION });
 
   server.registerTool(
     "delegate",

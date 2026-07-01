@@ -1,17 +1,11 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
 import { resolveAcpSpawn } from "./spawn.js";
+import { VERSION } from "./version.js";
 
 const STDERR_CAP = 64 * 1024;
-
-const VERSION = JSON.parse(
-  readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")
-).version;
 
 export class AcpClient extends EventEmitter {
   constructor({ spawnSpec, onElicit, mode, onCreatePlan } = {}) {
