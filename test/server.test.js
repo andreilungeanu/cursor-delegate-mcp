@@ -201,6 +201,124 @@ test("runDelegateTool uses elicitInput when client supports elicitation", async 
   assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] });
 });
 
+test("cancel tool cancels an in-flight delegation and cleans up", async () => {
+  let cancelledWith;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-live", {
+      cancel: async (sid) => { cancelledWith = sid; release(); },
+    });
+    sessionReady();
+    await gate;
+    return { result: "stopped", stopReason: "cancelled", sessionId: "sess-live", touchedFiles: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    await ready;
+    const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
+    assert.match(cancelRes.content[0].text, /^cancelled sess-live$/);
+    assert.equal(cancelledWith, "sess-live");
+    const delegateRes = await delegateP;
+    assert.notEqual(delegateRes.isError, true);
+    // session is gone from inFlight (deleted by cancel, and again by delegate's finally)
+    const again = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
+    assert.match(again.content[0].text, /^no in-flight session sess-live$/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("cancel tool reports unknown sessions without erroring", async () => {
+  const server = buildServer({ runDelegate: async () => ({ result: "", stopReason: "end_turn", sessionId: "s", touchedFiles: [], questionsAsked: [] }) });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const res = await client.callTool({ name: "cancel", arguments: { sessionId: "never-existed" } });
+    assert.notEqual(res.isError, true);
+    assert.match(res.content[0].text, /^no in-flight session never-existed$/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("runDelegateTool onElicit returns null when the user declines elicitation", async () => {
+  const inFlight = new Map();
+  const server = {
+    server: {
+      getClientCapabilities: () => ({ elicitation: {} }),
+      elicitInput: async () => ({ action: "decline" }),
+    },
+  };
+  let elicitOut = "unset";
+  const runDelegate = async ({ onElicit }) => {
+    elicitOut = await onElicit({
+      questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }] }],
+    });
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-d", touchedFiles: [], questionsAsked: [] };
+  };
+
+  const result = await runDelegateTool({
+    args: { spec: "test", mode: "agent", model: "composer-2.5" },
+    server,
+    runDelegate,
+    inFlight,
+  });
+
+  assert.equal(elicitOut, null);
+  assert.equal(result.structuredContent.autoAnswered, undefined);
+  assert.equal(result.structuredContent.fallbackAnswers, undefined);
+});
+
+test("runDelegateTool answers multi-question elicitations, reporting only unmatched ones", async () => {
+  const inFlight = new Map();
+  const choices = ["Beta", "nothing like the options"];
+  let elicitCalls = 0;
+  const server = {
+    server: {
+      getClientCapabilities: () => ({ elicitation: {} }),
+      elicitInput: async () => ({ action: "accept", content: { choice: choices[elicitCalls++] } }),
+    },
+  };
+  let elicitOut;
+  const runDelegate = async ({ onElicit }) => {
+    elicitOut = await onElicit({
+      questions: [
+        { id: "q1", prompt: "First?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] },
+        { id: "q2", prompt: "Second?", options: [{ id: "x", label: "X-ray" }, { id: "y", label: "Yankee" }] },
+      ],
+    });
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-m", touchedFiles: [], questionsAsked: [] };
+  };
+
+  const result = await runDelegateTool({
+    args: { spec: "test", mode: "agent", model: "composer-2.5" },
+    server,
+    runDelegate,
+    inFlight,
+  });
+
+  assert.equal(elicitCalls, 2);
+  assert.deepEqual(elicitOut, {
+    answers: [
+      { questionId: "q1", selectedOptionIds: ["b"] },
+      { questionId: "q2", selectedOptionIds: ["x"] },
+    ],
+  });
+  assert.deepEqual(result.structuredContent.fallbackAnswers, [
+    { prompt: "Second?", given: "nothing like the options", chosen: "X-ray" },
+  ]);
+});
+
 test("runDelegateTool reports fallbackAnswers when a free-text answer matches no option", async () => {
   const inFlight = new Map();
   const server = {
