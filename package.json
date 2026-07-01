@@ -4,7 +4,7 @@
   "type": "module",
   "description": "MCP server bridging Claude Code to cursor-agent over the Agent Client Protocol (ACP).",
   "license": "MIT",
-  "author": "Andrei Lungeanu <alungeanu@teramind.co>",
+  "author": "Andrei Lungeanu <andrei@lungeanu.ro>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andreilungeanu/cursor-delegate-mcp.git"

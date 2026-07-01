@@ -6,7 +6,7 @@
   "description": "MCP server that drives cursor-agent over the Agent Client Protocol (ACP): delegate coding tasks to Cursor from Claude Code, with auto-approved writes and clarifying questions surfaced via elicitation.",
   "author": {
     "name": "Andrei Lungeanu",
-    "email": "alungeanu@teramind.co"
+    "email": "andrei@lungeanu.ro"
   },
   "license": "MIT",
   "keywords": [

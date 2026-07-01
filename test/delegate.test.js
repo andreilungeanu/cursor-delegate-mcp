@@ -1,0 +1,369 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import process from "node:process";
+import path from "node:path";
+import { EventEmitter } from "node:events";
+import { fileURLToPath } from "node:url";
+import { AcpClient } from "../src/acp-client.js";
+import { runDelegate } from "../src/delegate.js";
+
+// A minimal client that streams a reasoning chunk + a tool_call start + a message chunk.
+// Used to verify thinking is surfaced as progress but never folded into the result.
+function thinkingFactory() {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-think" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      client.emit("update", { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "SECRET-THOUGHT: planning" } } });
+      client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit File", kind: "edit", status: "pending" } });
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+function fakeFactory({ onElicit, mode, onCreatePlan }) {
+  return new AcpClient({
+    spawnSpec: {
+      command: process.execPath,
+      args: [fileURLToPath(new URL("./fixtures/fake-acp.js", import.meta.url))],
+      options: { shell: false },
+    },
+    onElicit,
+    mode,
+    onCreatePlan,
+  });
+}
+
+function oversizedFactory() {
+  const client = new EventEmitter();
+  client.start = async () => {};
+  client.initialize = async () => {};
+  client.newSession = async () => ({ sessionId: "sess-big" });
+  client.setModel = async () => {};
+  client.setFast = async () => {};
+  client.setMode = async () => {};
+  client.prompt = async () => {
+    const chunk = "x".repeat(1024 * 1024);
+    for (let i = 0; i < 12; i++) {
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: chunk } } });
+    }
+    return { stopReason: "end_turn" };
+  };
+  client.stop = () => {};
+  return client;
+}
+
+function fastToggleFactory({ onSetFast }) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-track" });
+    client.setModel = async () => {};
+    client.setFast = async (_sid, value) => onSetFast?.(value);
+    client.setMode = async () => {};
+    client.prompt = async () => ({ stopReason: "end_turn" });
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate returns assembled result for a fresh session", async () => {
+  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
+  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.sessionId, "sess-1");
+  assert.equal(out.result, "done");
+  assert.deepEqual(out.questionsAsked, []);
+  assert.equal(out.resumed, false);
+  assert.equal(out.plan, undefined);
+});
+
+test("runDelegate calls setFast only for Composer bare model ids", async () => {
+  let fastCalls = 0;
+  await runDelegate({
+    spec: "task",
+    model: "gpt-5",
+    fast: true,
+    workspace: process.cwd(),
+    clientFactory: fastToggleFactory({ onSetFast: () => { fastCalls++; } }),
+  });
+  assert.equal(fastCalls, 0);
+
+  fastCalls = 0;
+  let fastValue;
+  await runDelegate({
+    spec: "task",
+    model: "composer-2.5",
+    fast: true,
+    workspace: process.cwd(),
+    clientFactory: fastToggleFactory({ onSetFast: (v) => { fastCalls++; fastValue = v; } }),
+  });
+  assert.equal(fastCalls, 1);
+  assert.equal(fastValue, true);
+});
+
+test("runDelegate defaults fast to false for Composer when omitted", async () => {
+  let fastValue;
+  await runDelegate({
+    spec: "task",
+    model: "composer-2.5",
+    workspace: process.cwd(),
+    clientFactory: fastToggleFactory({ onSetFast: (v) => { fastValue = v; } }),
+  });
+  assert.equal(fastValue, false);
+});
+
+test("runDelegate captures session/update:plan with latest update winning", async () => {
+  const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
+  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.result, "plan ready");
+  assert.ok(out.plan);
+  assert.deepEqual(out.plan.entries, [
+    { content: "Create CHANGELOG.md", priority: "medium", status: "pending" },
+  ]);
+  assert.equal(out.plan.overview, "Add a changelog file");
+  assert.equal(out.plan.detail, "# Plan\n\n1. Create CHANGELOG.md");
+  assert.deepEqual(out.touchedFiles, []);
+});
+
+test("runDelegate plan-mode touchedFiles is empty (diff-only, no git)", async () => {
+  const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory, gitChangedSet: () => null });
+  assert.deepEqual(out.touchedFiles, []);
+  assert.equal(out.touchedFilesSource, "diff-only");
+});
+
+test("runDelegate omits plan when no plan was emitted", async () => {
+  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
+  assert.equal(out.plan, undefined);
+});
+
+test("runDelegate populates touchedFiles from a tool_call_update diff (real-agent shape)", async () => {
+  // fake-acp.js emits tool_call -> tool_call_update(in_progress) -> tool_call_update(completed,
+  // content:[{type:"diff", path}]) during session/prompt, mirroring a real cursor-agent edit.
+  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory, gitChangedSet: () => null });
+  assert.deepEqual(out.touchedFiles, ["hello.txt"]);
+  assert.equal(out.touchedFilesSource, "diff-only");
+});
+
+test("runDelegate touchedFiles uses git delta when available (catches shell-driven changes)", async () => {
+  // fakeFactory emits a diff for "hello.txt" (edit tool). Simulate the agent then renaming
+  // it via the shell (no diff): git's after-snapshot shows renamed.txt, not hello.txt.
+  const ws = process.cwd();
+  const before = new Set();
+  const after = new Set([path.resolve(ws, "renamed.txt")]);
+  let call = 0;
+  const out = await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: ws,
+    clientFactory: fakeFactory,
+    gitChangedSet: () => (call++ === 0 ? before : after),
+  });
+  // note.txt (diff-scraped, renamed away -> not in `after`) is correctly dropped;
+  // renamed.txt (git delta) is reported.
+  assert.deepEqual(out.touchedFiles, ["renamed.txt"]);
+  assert.equal(out.touchedFilesSource, "git");
+});
+
+test("runDelegate does not fold reasoning (thinking) into the result", async () => {
+  const progress = [];
+  const out = await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: thinkingFactory(),
+    gitChangedSet: () => null,
+    onProgress: (m) => progress.push(m),
+  });
+  assert.equal(out.result, "done");
+  assert.ok(!out.result.includes("SECRET-THOUGHT"), "reasoning must not appear in the result");
+  assert.ok(progress.some((m) => m.startsWith("thinking:")), "expected thinking progress");
+  assert.ok(progress.some((m) => m.startsWith("running:")), "expected tool_call start progress");
+});
+
+test("runDelegate calls onProgress on agent message chunks and tool-call updates", async () => {
+  const progress = [];
+  const out = await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: fakeFactory,
+    onProgress: (msg) => progress.push(msg),
+  });
+  assert.equal(out.result, "done");
+  assert.ok(progress.some((m) => m.includes("done")), "expected message-chunk progress");
+  assert.ok(progress.some((m) => m.includes("editing hello.txt")), "expected tool-call progress");
+});
+
+test("runDelegate survives a throwing onProgress callback", async () => {
+  const out = await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: fakeFactory,
+    onProgress: () => { throw new Error("progress boom"); },
+  });
+  assert.equal(out.result, "done");
+});
+
+function trackingFactory(track) {
+  return ({ onElicit, mode, onCreatePlan }) => {
+    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+    const origPrompt = client.prompt.bind(client);
+    client.prompt = async (sessionId, text) => {
+      track.promptSessionId = sessionId;
+      return origPrompt(sessionId, text);
+    };
+    return client;
+  };
+}
+
+test("runDelegate resumes a persisted session via session/load", async () => {
+  const knownId = "sess-resumed";
+  const track = {};
+  const out = await runDelegate({
+    spec: "continue the task",
+    mode: "agent",
+    resumeSessionId: knownId,
+    workspace: process.cwd(),
+    clientFactory: trackingFactory(track),
+  });
+  assert.equal(out.sessionId, knownId);
+  assert.equal(out.resumed, true);
+  assert.equal(track.promptSessionId, knownId);
+  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.result, "done");
+});
+
+test("runDelegate falls back to a fresh session when session/load fails", async () => {
+  const out = await runDelegate({
+    spec: "start over",
+    mode: "agent",
+    resumeSessionId: "unknown",
+    workspace: process.cwd(),
+    clientFactory: fakeFactory,
+  });
+  assert.equal(out.resumed, false);
+  assert.equal(out.sessionId, "sess-1");
+  assert.notEqual(out.sessionId, "unknown");
+  assert.equal(out.stopReason, "end_turn");
+});
+
+function replayHistoryFactory() {
+  return ({ onElicit, mode, onCreatePlan }) => {
+    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+    const origLoad = client.loadSession.bind(client);
+    client.loadSession = async (sessionId, cwd) => {
+      const res = await origLoad(sessionId, cwd);
+      client.emit("update", {
+        update: { sessionUpdate: "agent_message_chunk", content: { text: "PRIOR " } },
+      });
+      client.emit("update", {
+        update: {
+          sessionUpdate: "plan",
+          entries: [{ content: "stale replayed plan", priority: "low", status: "pending" }],
+        },
+      });
+      return res;
+    };
+    client.prompt = async () => {
+      client.emit("update", {
+        update: { sessionUpdate: "agent_message_chunk", content: { text: "NEW" } },
+      });
+      return { stopReason: "end_turn" };
+    };
+    return client;
+  };
+}
+
+test("runDelegate resumed result excludes replayed session history", async () => {
+  const out = await runDelegate({
+    spec: "continue",
+    mode: "agent",
+    resumeSessionId: "sess-resumed",
+    workspace: process.cwd(),
+    clientFactory: replayHistoryFactory(),
+  });
+  assert.equal(out.resumed, true);
+  assert.equal(out.result, "NEW");
+  assert.ok(!out.result.includes("PRIOR "));
+  assert.equal(out.plan, undefined);
+});
+
+function exitDuringPromptFactory() {
+  return ({ onElicit, mode, onCreatePlan }) => {
+    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+    client.prompt = () => new Promise(() => {
+      client.emit("exit", { code: 1, signal: null, stderr: "boom-trace" });
+    });
+    return client;
+  };
+}
+
+test("runDelegate rejects promptly when agent exits during prompt", async () => {
+  const start = Date.now();
+  await assert.rejects(
+    () => runDelegate({
+      spec: "do the thing",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: exitDuringPromptFactory(),
+    }),
+    (err) => {
+      assert.equal(err.reason, "agent-exit");
+      assert.match(err.message, /agent exited \(code=1\)/);
+      assert.match(err.message, /boom-trace/);
+      return true;
+    }
+  );
+  assert.ok(Date.now() - start < 2000, "expected fail-fast rejection, not full timeout");
+});
+
+test("runDelegate truncates accumulated output at 10MB", async () => {
+  const marker = "\n\n[output truncated at 10MB]";
+  const maxOutput = 10 * 1024 * 1024;
+  const out = await runDelegate({
+    spec: "big task",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: () => oversizedFactory(),
+  });
+  assert.ok(out.result.endsWith(marker));
+  assert.equal(out.result.length, maxOutput + marker.length);
+});
+
+function failingPromptFactory() {
+  return ({ onElicit, mode, onCreatePlan }) => {
+    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+    client.prompt = async () => { throw new Error("prompt failed"); };
+    return client;
+  };
+}
+
+test("runDelegate appends recent transcript to error on failure", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "do the thing",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: failingPromptFactory(),
+    }),
+    (err) => {
+      assert.match(err.message, /prompt failed/);
+      assert.match(err.message, /--- recent ACP transcript \(last 40 frames\) ---/);
+      assert.match(err.message, / out /);
+      assert.match(err.message, / in /);
+      return true;
+    }
+  );
+});
