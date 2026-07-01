@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { AcpClient } from "../src/acp-client.js";
+import { isChildAlive } from "../src/proc.js";
 
 function fakeSpawn() {
   // fileURLToPath (not .pathname) is required on Windows: pathname yields a
@@ -48,6 +49,24 @@ test("captures stderr and surfaces it on exit", async () => {
   assert.equal(info.code, 3);
   assert.match(info.stderr, /stderr-line/);
   client.stop();
+});
+
+test("stop() terminates a live agent child (regression: Windows orphaned agent)", async () => {
+  // silent-stub never exits on its own; only stop() can take it down.
+  // On win32 this exercises the treeKill path, elsewhere child.kill().
+  const client = new AcpClient({
+    spawnSpec: {
+      command: process.execPath,
+      args: [fileURLToPath(new URL("./fixtures/silent-stub.js", import.meta.url))],
+      options: { shell: false },
+    },
+  });
+  await client.start();
+  assert.ok(isChildAlive(client.child), "child must be alive before stop()");
+  const exited = new Promise((resolve) => client.child.once("exit", resolve));
+  client.stop();
+  await exited;
+  assert.ok(!isChildAlive(client.child), "child must be dead after stop()");
 });
 
 test("cancel sends session/cancel as a notification without id", async () => {
