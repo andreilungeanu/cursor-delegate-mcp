@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-07-01
+
+### Fixed
+
+- Windows: successful delegations no longer leave an orphaned cursor-agent
+  process behind — `stop()` now kills the full process tree (previously only the
+  shell wrapper died; tree-kill applied only on timeout escalation).
+
+### Changed
+
+- `delegate` tool `fast` parameter is now a real boolean (was the string enum
+  `"false"`/`"true"`); conversion to the string ACP expects happens at the
+  protocol boundary.
+
+### Added
+
+- `fallbackAnswers` result field: when a free-text elicitation answer matches no
+  offered option, the first option is submitted and the mismatch is reported
+  (`prompt`, `given`, `chosen`) instead of being silently discarded.
+- `ACP_AGENT_ARGS` supports quoted arguments containing spaces; environment
+  variables are now documented in the README.
+- Clear startup error on unsupported Node versions (requires Node 22+).
+
 ## [1.1.0] - 2026-06-29
 
 ### Added
