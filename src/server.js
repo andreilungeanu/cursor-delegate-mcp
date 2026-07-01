@@ -34,6 +34,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
 
   const supportsElicitation = !!server.server.getClientCapabilities?.()?.elicitation;
   const autoAnswered = [];
+  const fallbackAnswers = [];
 
   const onElicit = async ({ title, questions }) => {
     const answers = [];
@@ -62,14 +63,20 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       if (result.action !== "accept") return null;
       const choice = result.content?.choice || "";
       let chosenOptionId = opts[0]?.id;
+      let matched = false;
       for (const o of opts) {
         if (
           choice.toLowerCase() === String(o.id || "").toLowerCase() ||
           choice.toLowerCase() === String(o.label || "").toLowerCase()
         ) {
           chosenOptionId = o.id;
+          matched = true;
           break;
         }
+      }
+      if (!matched && opts.length) {
+        const chosen = opts.find((o) => o.id === chosenOptionId)?.label || chosenOptionId || "";
+        fallbackAnswers.push({ prompt: q.prompt, given: choice, chosen });
       }
       answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
     }
@@ -93,6 +100,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       },
     });
     if (autoAnswered.length) out.autoAnswered = autoAnswered;
+    if (fallbackAnswers.length) out.fallbackAnswers = fallbackAnswers;
     return {
       content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
       structuredContent: out,

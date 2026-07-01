@@ -25,6 +25,7 @@ Architecture: Claude Code → MCP `delegate` → cursor-delegate-mcp → **curso
 | `questionsAsked` | List of clarifying-question prompts surfaced. |
 | `resumed` | Whether `resumeSessionId` was honored. |
 | `autoAnswered` | Present on non-elicitation clients: questions auto-answered with the recommended option (`prompt`, `chosen`). |
+| `fallbackAnswers` | Present when a free-text answer matched no option: the first option was submitted instead (`prompt`, `given`, `chosen`). |
 | `plan` | Present when a plan was emitted (plan mode). |
 
 ### `plan` object (when present)
