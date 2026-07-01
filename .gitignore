@@ -9,7 +9,6 @@ acp.config.json
 docs/
 spike/
 test/
-fixtures/
 .github/
 .firecrawl/
 
