@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
 import { resolveAcpSpawn } from "./spawn.js";
+import { isChildAlive, treeKill } from "./proc.js";
 import { VERSION } from "./version.js";
 
 const STDERR_CAP = 64 * 1024;
@@ -72,5 +73,12 @@ export class AcpClient extends EventEmitter {
 
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
-  stop() { try { this.peer?.close(); } catch {} try { this.child?.kill(); } catch {} }
+  stop() {
+    try { this.peer?.close(); } catch {}
+    if (isChildAlive(this.child) && process.platform === "win32" && this.child.pid) {
+      treeKill(this.child.pid).catch(() => {});
+    } else {
+      try { this.child?.kill(); } catch {}
+    }
+  }
 }

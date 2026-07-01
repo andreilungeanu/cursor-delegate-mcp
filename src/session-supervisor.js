@@ -1,5 +1,4 @@
-import process from "node:process";
-import { execFile } from "node:child_process";
+import { isChildAlive, treeKill } from "./proc.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -7,20 +6,6 @@ function makeError(reason, message) {
   const err = new Error(message);
   err.reason = reason;
   return err;
-}
-
-function isChildAlive(child) {
-  return child && child.exitCode === null && child.signalCode === null;
-}
-
-async function treeKill(pid) {
-  if (process.platform === "win32") {
-    await new Promise((resolve) => {
-      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], () => resolve());
-    });
-    return;
-  }
-  try { process.kill(pid, "SIGKILL"); } catch {}
 }
 
 export class SessionSupervisor {
