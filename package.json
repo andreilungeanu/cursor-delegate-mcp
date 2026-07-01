@@ -7,7 +7,7 @@
   "author": "Andrei Lungeanu <alungeanu@teramind.co>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/andreilungeanu/cursor-delegate-mcp.git"
+    "url": "git+https://github.com/andreilungeanu/cursor-delegate-mcp.git"
   },
   "bugs": {
     "url": "https://github.com/andreilungeanu/cursor-delegate-mcp/issues"
