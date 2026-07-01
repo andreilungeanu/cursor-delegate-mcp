@@ -9,7 +9,7 @@ Architecture: Claude Code → MCP `delegate` → cursor-delegate-mcp → **curso
 | `spec` | — | Inline task brief (default). Optional file path if user wants a persisted spec. |
 | `mode` | `agent` | `agent`, `plan`, or `ask`. |
 | `model` | `composer-2.5` | Model id. |
-| `fast` | `"false"` | `"false"` = standard tier; `"true"` = higher costs — ONLY when user asks |
+| `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks |
 | `workspace` | cwd | Working directory for the agent. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
 

@@ -33,7 +33,7 @@ function composerFastToggleApplies(model) {
 
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
-  model = "composer-2.5", fast = "false", clientFactory, onElicit,
+  model = "composer-2.5", fast = false, clientFactory, onElicit,
   idleMs = 90000, hardCapMs, timeoutMs, cancelGraceMs = 10000, killGraceMs = 5000,
   onSessionReady, onProgress, gitChangedSet = gitChangedSetReal,
 } = {}) {

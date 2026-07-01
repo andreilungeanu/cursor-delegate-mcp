@@ -39,7 +39,7 @@ For field-level API detail, read [reference.md](reference.md) in this skill dire
 | ----------- | -------------- | -------------------------------------------------- |
 | `mode`      | `agent`        | `plan` = plan only; `ask` = read-only Q&A          |
 | `model`     | `composer-2.5` | Default model; Composer 2.5 standard tier          |
-| `fast`      | `"false"`      | `"true"` = higher costs — ONLY when user asks      |
+| `fast`      | `false`        | `true` = higher costs — ONLY when user asks        |
 | `workspace` | current cwd    | Scope to the smallest directory that fits the task |
 
 

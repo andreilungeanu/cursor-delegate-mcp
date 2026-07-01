@@ -66,7 +66,7 @@ export class AcpClient extends EventEmitter {
   newSession(cwd) { return this.peer.request("session/new", { cwd, mcpServers: [] }); }
   loadSession(sessionId, cwd) { return this.peer.request("session/load", { sessionId, cwd, mcpServers: [] }); }
   setModel(sessionId, modelId) { return this.peer.request("session/set_model", { sessionId, modelId }); }
-  setFast(sessionId, value) { return this.peer.request("session/set_config_option", { sessionId, configId: "fast", value }); } // configId, not optionId
+  setFast(sessionId, value) { return this.peer.request("session/set_config_option", { sessionId, configId: "fast", value: String(value) }); } // configId, not optionId; ACP wants a string value
   setMode(sessionId, modeId) { return this.peer.request("session/set_mode", { sessionId, modeId }); }
   prompt(sessionId, text) { return this.peer.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] }); }
   cancel(sessionId) { this.peer.notify("session/cancel", { sessionId }); return Promise.resolve(); }

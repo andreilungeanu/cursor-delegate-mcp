@@ -123,7 +123,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
         workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
         model: z.string().default("composer-2.5"),
-        fast: z.enum(["false", "true"]).default("false").describe("Speed tier override; defaults to standard (\"false\")"),
+        fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
       },
     },
     async (args, extra) => runDelegateTool({ args, extra, server, runDelegate, inFlight })
