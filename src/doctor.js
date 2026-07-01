@@ -68,6 +68,7 @@ export async function runDoctor({
   spawnSpec = resolveAcpSpawn(),
   clientFactory = (opts) => new AcpClient(opts),
   workspace,
+  handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS,
 } = {}) {
   const { capabilities, version } = getClientInfo();
   const agentProbe = await probeAgentVersion(spawnSpec);
@@ -95,7 +96,7 @@ export async function runDoctor({
       spawnSpec,
       clientFactory,
       workspace,
-      timeoutMs: HANDSHAKE_TIMEOUT_MS,
+      timeoutMs: handshakeTimeoutMs,
     });
   }
 

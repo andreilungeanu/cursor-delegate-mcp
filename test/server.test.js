@@ -251,6 +251,31 @@ test("cancel tool reports unknown sessions without erroring", async () => {
   }
 });
 
+test("doctor tool passes deep and client info through to runDoctor", async () => {
+  let captured;
+  const runDoctor = async (opts) => {
+    captured = opts;
+    return { plugin: { version: "test" }, agent: { found: true } };
+  };
+  const server = buildServer({ runDoctor });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "doctor-test-client", version: "9.9" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const res = await client.callTool({ name: "doctor", arguments: { deep: true } });
+    assert.equal(captured.deep, true);
+    const info = captured.getClientInfo();
+    assert.equal(info.version.name, "doctor-test-client");
+    assert.equal(info.version.version, "9.9");
+    assert.ok(info.capabilities, "expected client capabilities to be exposed");
+    const parsed = JSON.parse(res.content[0].text);
+    assert.deepEqual(parsed, { plugin: { version: "test" }, agent: { found: true } });
+  } finally {
+    await client.close();
+  }
+});
+
 test("runDelegateTool onElicit returns null when the user declines elicitation", async () => {
   const inFlight = new Map();
   const server = {

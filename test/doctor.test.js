@@ -117,6 +117,26 @@ test("runDoctor deep:true reports handshake error without throwing", async () =>
   assert.match(out.agent.handshake.error, /not logged in/);
 });
 
+test("runDoctor deep:true times out a hanging handshake and stops the client", async () => {
+  let stopCalls = 0;
+  const clientFactory = () => ({
+    start: () => new Promise(() => {}), // hangs forever
+    initialize: async () => {},
+    newSession: async () => ({ sessionId: "s" }),
+    stop: () => { stopCalls++; },
+  });
+  const out = await runDoctor({
+    deep: true,
+    spawnSpec: stubSpawnSpec(),
+    clientFactory,
+    handshakeTimeoutMs: 50,
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.equal(out.agent.handshake.ok, false);
+  assert.match(out.agent.handshake.error, /timed out after 50ms/);
+  assert.ok(stopCalls >= 1, "expected the hanging client to be stopped");
+});
+
 test("runDoctor reports plugin version and ACP_LOG_SIZE default", async () => {
   const prev = process.env.ACP_LOG_SIZE;
   delete process.env.ACP_LOG_SIZE;
