@@ -165,6 +165,16 @@ Applies to both the plugin and the MCP server:
 
 By default, delegation uses the **Composer 2.5** model (standard tier). Cursor includes a separate **Auto + Composer** usage pool with generous included quota, apart from the API pool other models draw from. For a different model, say so (for example, "use Opus" or "delegate with Codex").
 
+## Configuration
+
+Environment variables (optional — defaults work for a standard cursor-agent install):
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `ACP_AGENT_COMMAND` | `agent` | Launcher for the ACP agent process. |
+| `ACP_AGENT_ARGS` | `acp` | Arguments passed to the launcher. Quote arguments that contain spaces: `--config "C:\path with spaces\acp.json"`. |
+| `ACP_LOG_SIZE` | `2000` | ACP frames kept for the error transcript; `0` disables. |
+
 ## License
 
 MIT © Andrei Lungeanu
