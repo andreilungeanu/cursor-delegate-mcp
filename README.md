@@ -1,74 +1,69 @@
 # Cursor Delegate MCP
 
-**Use Cursor from inside Claude Code.** Delegate a coding task to Cursor's agent, get structured results back, and let Claude stay in the driver's seat.
+**Let Claude think. Let Cursor build.**
+
+[![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
+[![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
+[![node](https://img.shields.io/node/v/cursor-delegate-mcp)](https://nodejs.org)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+An MCP server that lets Claude Code (or any MCP client) delegate coding tasks to **Cursor's CLI agent** — and get structured results back, not a wall of terminal text.
 
 ![Demo](demo.gif)
 
-An MCP server that connects your AI client to **cursor-agent** over the [Agent Client Protocol](https://cursor.com/docs/cli/acp). You describe the work; the client passes a structured brief and hands it off. Cursor edits your repo, and you review what changed.
+## Why
 
-Ships as a **Claude Code plugin** (skill, slash command, hooks) and as a standalone **MCP server** for any compatible client.
+Frontier models like **Opus** and **Fable** are brilliant orchestrators — great at understanding intent, planning, and reviewing. Cursor's **Composer** is a fast, cheap workhorse for the actual edits, with its own generous usage pool.
 
-## What you can do
+This bridge pairs them: the big brain writes the brief and reviews the diff; Cursor does the typing. Your Claude quota goes to thinking, not boilerplate.
 
-- **Delegate implementation** — Send a task to Cursor; files are updated in your workspace.
-- **Plan before you build** — Run in plan mode, review the plan, then resume the same session to implement.
-- **Get structured output** — Session id, which files changed, stop reason, and optional plan payload — not just raw terminal text.
-- **Ask questions mid-run** — If Cursor needs a clarification, it comes back through the client's normal prompt.
-- **Check setup** — The `doctor` tool tells you if cursor-agent is missing or misconfigured.
+## How it works
 
-> Delegation **auto-approves file writes** in the target workspace.
+```
+You  →  Claude (Opus / Fable — plans & reviews)
+              │  MCP delegate tool
+              ▼
+        cursor-agent (Composer 2.5 — implements)
+              │  edits your workspace
+              ▼
+        Structured result: files changed, session id, plan
+```
 
-## Requirements
+Delegation defaults to Cursor's **Composer 2.5**, which draws from the separate **Auto + Composer** usage pool — so implementation work doesn't eat into your API-model quota. Want a different model? Just say so: *"delegate with Opus"*.
 
-- [Node.js 22+](https://nodejs.org/)
-- [cursor-agent](https://cursor.com/docs/cli/overview) installed and logged in (`cursor-agent login`)
+**Three modes:** `agent` (implement, default) · `plan` (draft a plan, review, resume to implement) · `ask` (read-only Q&A).
 
-## Claude Code plugin
+> **Note:** delegation auto-approves file writes in the target workspace — review the diff afterward, like any teammate's work.
 
-Best if you use [Claude Code](https://code.claude.com) and want delegation wired in automatically — skill, slash command, and dependency hooks included.
+## Features
 
-### Install
+- 🤝 **Perfect Claude Code integration** — ships as a plugin with a skill, slash command, and hooks. Just say *"delegate this to Cursor"* and it happens.
+- 💬 **Answers Cursor's questions** — when Cursor needs a clarification mid-run, the question surfaces in your client's normal prompt. No stalled sessions. (On clients without interactive prompts, the recommended option is auto-selected and reported back.)
+- 📦 **Structured results** — session id, files changed, stop reason, and plan payload. Claude knows exactly what happened and what to review.
+- 📋 **Plan mode** — have Cursor draft a plan first, review it, then resume the same session to implement.
+- 🔍 **Ask mode** — read-only Q&A over the codebase, zero file changes.
+- 🩺 **Built-in diagnostics** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
+- 🔌 **Works everywhere MCP does** — Claude Code, VS Code, Codex CLI, Kiro, Kilo Code, and more.
+
+## Quick start
+
+**Requirements:** [Node.js 22+](https://nodejs.org/) and [cursor-agent](https://cursor.com/docs/cli/overview) logged in (`cursor-agent login`).
+
+### Claude Code (recommended)
 
 ```shell
 /plugin marketplace add andreilungeanu/cursor-delegate-mcp
 /plugin install cursor-delegate-mcp@cursor-delegate-mcp
 ```
 
-First launch installs plugin dependencies automatically.
+Then just ask:
 
-### Use it
+> Delegate to Cursor: migrate src/api from callbacks to async/await and update the tests, then walk me through what changed.
 
-Say what you want in plain language — for example:
+Claude writes the brief, Cursor grinds through the files, and Claude reviews the diff with you — that's the whole loop.
 
-> Use Cursor to add input validation to the signup form and a test for it.
 
-Claude loads the **delegate** skill when you mention Cursor or handing off work. You don't need to know tool names or write a spec file.
-
-Optional slash command for an explicit handoff:
-
-```shell
-/cursor-delegate-mcp:delegate Add input validation to the signup form and a test for it
-```
-
-**Something not working?** Ask Claude to run `doctor`. If `agent.found` is false, install or log in to cursor-agent.
-
-## MCP server
-
-Use the same server in **any** MCP-compatible client via npx — no Claude Code plugin required:
-
-```shell
-npx -y cursor-delegate-mcp
-```
-
-**cursor-agent** must be installed and logged in (`cursor-agent login`).
-
-Clarifying-question prompts are interactive only on elicitation-capable clients (Claude Code, Cursor, VS Code). On other clients the recommended option is auto-selected and reported in the delegate result's `autoAnswered`.
-
-### Client configuration
-
-#### Antigravity 2.0
-
-`~/.gemini/config/mcp_config.json`:
+### Any other MCP client
 
 ```json
 {
@@ -81,24 +76,8 @@ Clarifying-question prompts are interactive only on elicitation-capable clients 
 }
 ```
 
-#### Cursor
-
-`~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "cursor-delegate-mcp": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
-
-#### VS Code
-
-`.vscode/mcp.json`:
+<details>
+<summary><strong>VS Code</strong> — <code>.vscode/mcp.json</code></summary>
 
 ```json
 {
@@ -112,9 +91,10 @@ Clarifying-question prompts are interactive only on elicitation-capable clients 
 }
 ```
 
-#### Codex CLI
+</details>
 
-`~/.codex/config.toml`:
+<details>
+<summary><strong>Codex CLI</strong> — <code>~/.codex/config.toml</code></summary>
 
 ```toml
 [mcp_servers.cursor-delegate-mcp]
@@ -122,9 +102,10 @@ command = "npx"
 args = ["-y", "cursor-delegate-mcp"]
 ```
 
-#### Kiro
+</details>
 
-`~/.kiro/settings/mcp.json`:
+<details>
+<summary><strong>Kiro</strong> — <code>~/.kiro/settings/mcp.json</code></summary>
 
 ```json
 {
@@ -137,9 +118,10 @@ args = ["-y", "cursor-delegate-mcp"]
 }
 ```
 
-#### Kilo Code
+</details>
 
-`~/.config/kilo/kilo.jsonc`:
+<details>
+<summary><strong>Kilo Code</strong> — <code>~/.config/kilo/kilo.jsonc</code></summary>
 
 ```jsonc
 {
@@ -153,28 +135,26 @@ args = ["-y", "cursor-delegate-mcp"]
 }
 ```
 
-Call the **`delegate`** MCP tool with your task. Use **`doctor`** to verify cursor-agent is available.
+</details>
 
-## Delegation modes
+<details>
+<summary><strong>Antigravity 2.0</strong> — <code>~/.gemini/config/mcp_config.json</code></summary>
 
-Applies to both the plugin and the MCP server:
+```json
+{
+  "mcpServers": {
+    "cursor-delegate-mcp": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"]
+    }
+  }
+}
+```
 
-- **Agent (default)** — Cursor implements in your workspace; you review the diff afterward.
-- **Plan** — Cursor drafts a plan first; review it, then resume and implement.
-- **Ask** — Read-only Q&A over the codebase; no file changes.
+</details>
 
-By default, delegation uses the **Composer 2.5** model (standard tier). Cursor includes a separate **Auto + Composer** usage pool with generous included quota, apart from the API pool other models draw from. For a different model, say so (for example, "use Opus" or "delegate with Codex").
-
-## Configuration
-
-Environment variables (optional — defaults work for a standard cursor-agent install):
-
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `ACP_AGENT_COMMAND` | `agent` | Launcher for the ACP agent process. |
-| `ACP_AGENT_ARGS` | `acp` | Arguments passed to the launcher. Quote arguments that contain spaces: `--config "C:\path with spaces\acp.json"`. |
-| `ACP_LOG_SIZE` | `2000` | ACP frames kept for the error transcript; `0` disables. |
+Call the **`delegate`** tool with your task; run **`doctor`** if anything seems off.
 
 ## License
 
-MIT © Andrei Lungeanu
+MIT © [Andrei Lungeanu](https://github.com/andreilungeanu)
