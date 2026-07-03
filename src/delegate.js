@@ -35,7 +35,7 @@ export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = "composer-2.5", fast = false, clientFactory, onElicit,
   idleMs = 90000, hardCapMs, timeoutMs, cancelGraceMs = 10000, killGraceMs = 5000,
-  onSessionReady, onProgress, gitChangedSet = gitChangedSetReal,
+  onSessionReady, onProgress, progressThrottleMs = 2000, gitChangedSet = gitChangedSetReal,
 } = {}) {
   const capMs = hardCapMs ?? timeoutMs ?? 3600000;
   const MAX_OUTPUT = 10 * 1024 * 1024;
@@ -67,19 +67,54 @@ export async function runDelegate({
   let textLength = 0;
   let truncated = false;
   const touched = new Set();
+
+  // The client shows one progress line at a time, so each stream reports the
+  // most recent complete sentence, at most one per throttle window.
+  // Capital-letter boundary: cursor-agent thought summaries arrive as
+  // back-to-back sentences with no separator ("…expected input.A concrete…").
+  const SENTENCE_END = /[.!?](?=\s|[A-Z])|\n/;
+  const MARKDOWN_LINE = /^(?:[|#>`~*_=+-]|\d+[.)]\s)/;
+  const progressStream = (prefix) => {
+    let buf = "", pending = null, lastEmit = 0;
+    const flush = (force) => {
+      if (pending === null || (!force && Date.now() - lastEmit < progressThrottleMs)) return;
+      lastEmit = Date.now();
+      try { onProgress?.(prefix + pending); } catch {}
+      pending = null;
+    };
+    const take = (s) => {
+      const line = s.replace(/\s+/g, " ").trim().slice(0, 200);
+      if (line.length > 3 && !MARKDOWN_LINE.test(line)) pending = line;
+      flush(false);
+    };
+    return {
+      push(text) {
+        buf += text;
+        for (let m; (m = SENTENCE_END.exec(buf)); buf = buf.slice(m.index + 1)) {
+          take(buf.slice(0, m.index + 1));
+        }
+        if (buf.length > 300) { take(buf); buf = ""; }
+      },
+      end() { take(buf); buf = ""; flush(true); },
+      reset() { buf = ""; pending = null; },
+    };
+  };
+  const thoughtProgress = progressStream("thinking: ");
+  const messageProgress = progressStream("Cursor: ");
+
   client.on("update", (u) => {
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
       planEntries = up.entries || [];
     }
     if (up.sessionUpdate === "agent_thought_chunk" && up.content?.text) {
-      const text = up.content.text;
-      const tail = text.length > 200 ? text.slice(-200) : text;
-      try { onProgress?.("thinking: " + (tail.trim() || text.slice(0, 200))); } catch {}
+      thoughtProgress.push(up.content.text);
     }
     if (up.sessionUpdate === "tool_call") {
       const label = up.title || up.kind || "tool";
-      try { onProgress?.("running: " + String(label).slice(0, 200)); } catch {}
+      const path = up.locations?.[0]?.path;
+      const line = "running: " + String(label) + (path ? " — " + path : "");
+      try { onProgress?.(line.slice(0, 200)); } catch {}
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
       const text = up.content.text;
@@ -96,8 +131,7 @@ export async function runDelegate({
           truncated = true;
         }
       }
-      const tail = text.length > 200 ? text.slice(-200) : text;
-      try { onProgress?.(tail.trim() || text.slice(0, 200)); } catch {}
+      messageProgress.push(text);
     }
     if (up.sessionUpdate === "tool_call_update") {
       for (const c of up.content || []) {
@@ -125,12 +159,16 @@ export async function runDelegate({
       textChunks.length = 0;
       textLength = 0;
       truncated = false;
+      thoughtProgress.reset();
+      messageProgress.reset();
       planEntries = [];
       planOverview = undefined;
       planDetail = undefined;
       touched.clear();
       return client.prompt(sessionId, resolveSpec(spec));
     });
+    thoughtProgress.end();
+    messageProgress.end();
     let result = textChunks.join("");
     if (truncated) result += TRUNCATION_MARKER;
     const gitAfter = gitChangedSet(workspace);

@@ -207,6 +207,101 @@ test("runDelegate calls onProgress on agent message chunks and tool-call updates
   assert.ok(progress.some((m) => m.includes("editing hello.txt")), "expected tool-call progress");
 });
 
+// Minimal client whose prompt() replays the given updates, for progress-shaping tests.
+const replayFactory = (updates) => () => {
+  const client = new EventEmitter();
+  client.start = async () => {};
+  client.initialize = async () => {};
+  client.newSession = async () => ({ sessionId: "sess-replay" });
+  client.setModel = async () => {};
+  client.setFast = async () => {};
+  client.setMode = async () => {};
+  client.prompt = async () => {
+    for (const update of updates) client.emit("update", { update });
+    return { stopReason: "end_turn" };
+  };
+  client.getTranscript = () => "";
+  client.stop = () => {};
+  return client;
+};
+
+const msgChunk = (text) => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+const thoughtChunk = (text) => ({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
+
+async function collectProgress(updates, opts = {}) {
+  const progress = [];
+  await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: replayFactory(updates),
+    gitChangedSet: () => null,
+    onProgress: (m) => progress.push(m),
+    ...opts,
+  });
+  return progress;
+}
+
+test("runDelegate joins streamed fragments into complete-sentence progress", async () => {
+  const progress = await collectProgress([
+    thoughtChunk("checking the call si"),
+    thoughtChunk("tes in src/api. Then the tests"),
+    msgChunk("Convert"),
+    msgChunk("ing getUser to asy"),
+    msgChunk("nc now. Updating expo"),
+    msgChunk("rts next"),
+  ]);
+  assert.ok(progress.includes("thinking: checking the call sites in src/api."), "thought fragments joined at sentence boundary");
+  assert.ok(progress.includes("Cursor: Converting getUser to async now."), "message fragments joined at sentence boundary");
+  assert.ok(progress.includes("Cursor: Updating exports next"), "trailing buffer flushed at end of turn");
+  assert.ok(!progress.some((m) => m.includes("asy") && !m.includes("async")), "no mid-word fragments emitted");
+});
+
+test("runDelegate splits cursor thought summaries that arrive with no separator", async () => {
+  // Real cursor-agent behavior: thought chunks are whole sentences with no
+  // whitespace between them, e.g. "…expected input." + "A concrete bug…".
+  const progress = await collectProgress([
+    thoughtChunk("This mismatch prevents the utility from receiving its expected input."),
+    thoughtChunk("A concrete bug was identified in write-settings-conf."),
+    thoughtChunk("The script only reads from standard input."),
+  ]);
+  assert.ok(progress.includes("thinking: This mismatch prevents the utility from receiving its expected input."), "first summary emits as its own line");
+  assert.ok(!progress.some((m) => m.includes("input.A")), "no jammed sentence boundaries");
+});
+
+test("runDelegate throttles progress: newest sentence wins, middle ones drop", async () => {
+  const progress = await collectProgress(
+    [msgChunk("First point. Second point. Third point. ")],
+    { progressThrottleMs: 60000 },
+  );
+  assert.ok(progress.includes("Cursor: First point."), "first sentence emits immediately");
+  assert.ok(!progress.includes("Cursor: Second point."), "throttled middle sentence is dropped");
+  assert.ok(progress.includes("Cursor: Third point."), "latest pending sentence flushes at end of turn");
+});
+
+test("runDelegate skips markdown structure in progress (tables, headings, fences, bullets)", async () => {
+  const progress = await collectProgress([
+    msgChunk("| Privileged ops | 23 bash sbin scripts |\n"),
+    msgChunk("## Assessment\n"),
+    msgChunk("```\ncode line\n```\n"),
+    msgChunk("- bullet item\n"),
+    msgChunk("The build script downloads binaries without checksums.\n"),
+  ]);
+  assert.ok(!progress.some((m) => m.includes("Privileged ops")), "table rows are not progress");
+  assert.ok(!progress.some((m) => m.includes("Assessment")), "headings are not progress");
+  assert.ok(!progress.some((m) => m.includes("bullet item")), "bullets are not progress");
+  assert.ok(progress.includes("Cursor: The build script downloads binaries without checksums."), "prose still flows through");
+});
+
+test("runDelegate includes the tool location in running: progress when present", async () => {
+  const progress = await collectProgress([
+    { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read File", kind: "read", status: "pending", locations: [{ path: "src/api/user.js" }] },
+    { sessionUpdate: "tool_call", toolCallId: "t2", title: "grep", kind: "search", status: "pending", rawInput: {} },
+  ]);
+  assert.ok(progress.includes("running: Read File — src/api/user.js"), "location path shown");
+  assert.ok(progress.includes("running: grep"), "bare label when the agent sends no location");
+});
+
 test("runDelegate survives a throwing onProgress callback", async () => {
   const out = await runDelegate({
     spec: "do the thing",

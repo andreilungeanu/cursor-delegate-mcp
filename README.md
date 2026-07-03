@@ -38,7 +38,7 @@ Delegation defaults to Cursor's **Composer 2.5**, which draws from the separate 
 ## Features
 
 - 🤝 **Perfect Claude Code integration** — ships as a plugin with a skill, slash command, and hooks. Just say *"delegate this to Cursor"* and it happens.
-- 💬 **Answers Cursor's questions** — when Cursor needs a clarification mid-run, the question surfaces in your client's normal prompt. No stalled sessions. (On clients without interactive prompts, the recommended option is auto-selected and reported back.)
+- 💬 **Answers Cursor's questions** — when Cursor needs a clarification mid-run, the question surfaces in your client's normal prompt. No stalled sessions.
 - 📦 **Structured results** — session id, files changed, stop reason, and plan payload. Claude knows exactly what happened and what to review.
 - 📋 **Plan mode** — have Cursor draft a plan first, review it, then resume the same session to implement.
 - 🔍 **Ask mode** — read-only Q&A over the codebase, zero file changes.

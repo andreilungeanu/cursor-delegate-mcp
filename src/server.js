@@ -24,11 +24,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
   let onProgress = () => {};
   if (progressToken != null) {
     let progress = 0;
-    let lastSent = 0;
     onProgress = (message) => {
-      const now = Date.now();
-      if (progress > 0 && now - lastSent < 100) return;
-      lastSent = now;
       try {
         extra.sendNotification({
           method: "notifications/progress",
