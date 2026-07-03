@@ -19,7 +19,6 @@ test("client initializes, opens a session, prompts and emits updates", async () 
   await client.start();
   const caps = await client.initialize();
   assert.equal(caps.protocolVersion, 1);
-  // initialize must request the parameterized model picker (so bare model + fast are settable)
   assert.equal(caps._meta.parameterizedModelPicker, true);
   const s = await client.newSession(process.cwd());
   assert.equal(s.sessionId, "sess-1");
@@ -52,8 +51,6 @@ test("captures stderr and surfaces it on exit", async () => {
 });
 
 test("stop() terminates a live agent child (regression: Windows orphaned agent)", async () => {
-  // silent-stub never exits on its own; only stop() can take it down.
-  // On win32 this exercises the treeKill path, elsewhere child.kill().
   const client = new AcpClient({
     spawnSpec: {
       command: process.execPath,

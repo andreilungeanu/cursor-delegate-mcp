@@ -1,7 +1,5 @@
-// A fake ACP server: reads newline JSON-RPC on stdin, replies on stdout.
-// Streams a tool_call/tool_call_update pair (matching the real agent's diff-edit
-// shape, see fixtures note in delegate.test.js) + an agent_message_chunk + end_turn.
-// In plan mode, emits session/update:plan (twice, latest wins) + cursor/create_plan.
+// A fake ACP server: reads newline JSON-RPC on stdin, replies on stdout. Prompt streams a
+// diff-edit tool_call pair + message chunk + end_turn; plan mode adds session/update:plan (twice, latest wins) + cursor/create_plan.
 import readline from "node:readline";
 
 const CREATE_PLAN_REQ_ID = 9001;

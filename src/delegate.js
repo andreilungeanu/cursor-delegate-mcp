@@ -68,10 +68,8 @@ export async function runDelegate({
   let truncated = false;
   const touched = new Set();
 
-  // The client shows one progress line at a time, so each stream reports the
-  // most recent complete sentence, at most one per throttle window.
-  // Capital-letter boundary: cursor-agent thought summaries arrive as
-  // back-to-back sentences with no separator ("…expected input.A concrete…").
+  // Each stream reports its newest complete sentence, at most one per throttle window.
+  // Capital-letter boundary: cursor-agent thoughts arrive as sentences with no separator.
   const SENTENCE_END = /[.!?](?=\s|[A-Z])|\n/;
   const MARKDOWN_LINE = /^(?:[|#>`~*_=+-]|\d+[.)]\s)/;
   const progressStream = (prefix) => {
@@ -145,7 +143,7 @@ export async function runDelegate({
 
   try {
     let sessionId;
-    const gitBefore = gitChangedSet(workspace); // before/after delta catches shell edits
+    const gitBefore = gitChangedSet(workspace);
     const res = await supervisor.supervise(async () => {
       await client.start();
       await client.initialize();

@@ -29,5 +29,4 @@ rl.on("line", (line) => {
     process.stderr.write("got-cancel\n");
     return;
   }
-  // session/prompt: hang
 });

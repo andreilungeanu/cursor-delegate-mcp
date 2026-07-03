@@ -228,7 +228,6 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     assert.equal(cancelledWith, "sess-live");
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
-    // session is gone from inFlight (deleted by cancel, and again by delegate's finally)
     const again = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
     assert.match(again.content[0].text, /^no in-flight session sess-live$/);
   } finally {

@@ -16,5 +16,4 @@ rl.on("line", (line) => {
   if (m.method === "session/set_model") return out({ jsonrpc: "2.0", id: m.id, result: {} });
   if (m.method === "session/set_config_option") return out({ jsonrpc: "2.0", id: m.id, result: {} });
   if (m.method === "session/set_mode") return out({ jsonrpc: "2.0", id: m.id, result: {} });
-  // session/prompt and session/cancel: intentionally silent
 });

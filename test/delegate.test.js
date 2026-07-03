@@ -9,8 +9,6 @@ import { tmpdir } from "node:os";
 import { AcpClient } from "../src/acp-client.js";
 import { runDelegate } from "../src/delegate.js";
 
-// A minimal client that streams a reasoning chunk + a tool_call start + a message chunk.
-// Used to verify thinking is surfaced as progress but never folded into the result.
 function thinkingFactory() {
   return () => {
     const client = new EventEmitter();
@@ -150,16 +148,12 @@ test("runDelegate omits plan when no plan was emitted", async () => {
 });
 
 test("runDelegate populates touchedFiles from a tool_call_update diff (real-agent shape)", async () => {
-  // fake-acp.js emits tool_call -> tool_call_update(in_progress) -> tool_call_update(completed,
-  // content:[{type:"diff", path}]) during session/prompt, mirroring a real cursor-agent edit.
   const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory, gitChangedSet: () => null });
   assert.deepEqual(out.touchedFiles, ["hello.txt"]);
   assert.equal(out.touchedFilesSource, "diff-only");
 });
 
 test("runDelegate touchedFiles uses git delta when available (catches shell-driven changes)", async () => {
-  // fakeFactory emits a diff for "hello.txt" (edit tool). Simulate the agent then renaming
-  // it via the shell (no diff): git's after-snapshot shows renamed.txt, not hello.txt.
   const ws = process.cwd();
   const before = new Set();
   const after = new Set([path.resolve(ws, "renamed.txt")]);
@@ -171,8 +165,6 @@ test("runDelegate touchedFiles uses git delta when available (catches shell-driv
     clientFactory: fakeFactory,
     gitChangedSet: () => (call++ === 0 ? before : after),
   });
-  // note.txt (diff-scraped, renamed away -> not in `after`) is correctly dropped;
-  // renamed.txt (git delta) is reported.
   assert.deepEqual(out.touchedFiles, ["renamed.txt"]);
   assert.equal(out.touchedFilesSource, "git");
 });
@@ -207,7 +199,6 @@ test("runDelegate calls onProgress on agent message chunks and tool-call updates
   assert.ok(progress.some((m) => m.includes("editing hello.txt")), "expected tool-call progress");
 });
 
-// Minimal client whose prompt() replays the given updates, for progress-shaping tests.
 const replayFactory = (updates) => () => {
   const client = new EventEmitter();
   client.start = async () => {};
@@ -258,8 +249,6 @@ test("runDelegate joins streamed fragments into complete-sentence progress", asy
 });
 
 test("runDelegate splits cursor thought summaries that arrive with no separator", async () => {
-  // Real cursor-agent behavior: thought chunks are whole sentences with no
-  // whitespace between them, e.g. "…expected input." + "A concrete bug…".
   const progress = await collectProgress([
     thoughtChunk("This mismatch prevents the utility from receiving its expected input."),
     thoughtChunk("A concrete bug was identified in write-settings-conf."),
@@ -448,7 +437,6 @@ function askingFactory() {
     client.setFast = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
-      // the client receives runDelegate's wrapped onElicit, which records prompts
       await onElicit({
         kind: "ask_question",
         questions: [

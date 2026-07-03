@@ -1,6 +1,5 @@
 import process from "node:process";
 
-// Shell-like tokenizer: whitespace splits, double/single quotes group.
 export function splitArgs(raw) {
   const args = [];
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
