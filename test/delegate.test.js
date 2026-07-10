@@ -21,6 +21,7 @@ function thinkingFactory() {
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "SECRET-THOUGHT: planning" } } });
       client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit File", kind: "edit", status: "pending" } });
+      client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" } });
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } } });
       return { stopReason: "end_turn" };
     };
@@ -83,6 +84,8 @@ test("runDelegate returns assembled result for a fresh session", async () => {
   assert.equal(out.stopReason, "end_turn");
   assert.equal(out.sessionId, "sess-1");
   assert.equal(out.result, "done");
+  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.finalMessageAvailable, true);
   assert.deepEqual(out.questionsAsked, []);
   assert.equal(out.resumed, false);
   assert.equal(out.plan, undefined);
@@ -218,6 +221,18 @@ const replayFactory = (updates) => () => {
 
 const msgChunk = (text) => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 const thoughtChunk = (text) => ({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
+const toolCall = (toolCallId, status = "pending") => ({ sessionUpdate: "tool_call", toolCallId, title: "tool", status });
+const toolUpdate = (toolCallId, status) => ({ sessionUpdate: "tool_call_update", toolCallId, status });
+
+async function replayResult(updates) {
+  return runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: replayFactory(updates),
+    gitChangedSet: () => null,
+  });
+}
 
 async function collectProgress(updates, opts = {}) {
   const progress = [];
@@ -289,6 +304,87 @@ test("runDelegate includes the tool location in running: progress when present",
   ]);
   assert.ok(progress.includes("running: Read File — src/api/user.js"), "location path shown");
   assert.ok(progress.includes("running: grep"), "bare label when the agent sends no location");
+});
+
+test("runDelegate returns the complete stream when the turn uses no tools", async () => {
+  const out = await replayResult([msgChunk("Code:\n"), msgChunk("```js\nrun();\n```")]);
+  assert.equal(out.result, "Code:\n```js\nrun();\n```");
+  assert.equal(out.resultSource, "tool-free-stream");
+  assert.equal(out.finalMessageAvailable, true);
+});
+
+test("runDelegate returns only text emitted after the final tool completes", async () => {
+  const out = await replayResult([
+    msgChunk("', '', raw, flags=re.DOTALL).strip()\n"),
+    toolCall("edit-1"),
+    msgChunk("text emitted while the tool is active"),
+    toolUpdate("edit-1", "completed"),
+    msgChunk("Updated `sbin/setup-llm` and validated it."),
+  ]);
+  assert.equal(out.result, "Updated `sbin/setup-llm` and validated it.");
+  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.finalMessageAvailable, true);
+});
+
+test("runDelegate discards text that is followed by another tool call", async () => {
+  const out = await replayResult([
+    msgChunk("Inspecting the implementation."),
+    toolCall("read-1"),
+    toolUpdate("read-1", "completed"),
+    msgChunk("Found the likely issue; checking callers."),
+    toolCall("search-1"),
+    toolUpdate("search-1", "completed"),
+    msgChunk("The callers are updated and tests pass."),
+  ]);
+  assert.equal(out.result, "The callers are updated and tests pass.");
+  assert.equal(out.resultSource, "post-tool");
+});
+
+test("runDelegate waits for all active tools before collecting final text", async () => {
+  const out = await replayResult([
+    toolCall("read-1"),
+    toolCall("read-2"),
+    toolUpdate("read-1", "completed"),
+    msgChunk("one tool is still active"),
+    toolUpdate("read-2", "completed"),
+    msgChunk("Both reads completed; here is the answer."),
+  ]);
+  assert.equal(out.result, "Both reads completed; here is the answer.");
+  assert.equal(out.resultSource, "post-tool");
+});
+
+test("runDelegate reports no final message instead of inventing a fallback", async () => {
+  const out = await replayResult([
+    msgChunk("I will make the edit."),
+    toolCall("edit-1"),
+    toolUpdate("edit-1", "completed"),
+  ]);
+  assert.equal(out.result, "");
+  assert.equal(out.resultSource, "none");
+  assert.equal(out.finalMessageAvailable, false);
+});
+
+test("runDelegate keeps the final message when a duplicate terminal tool update arrives late", async () => {
+  const out = await replayResult([
+    toolCall("edit-1"),
+    toolUpdate("edit-1", "completed"),
+    msgChunk("Fixed the parser and added a regression test."),
+    toolUpdate("edit-1", "completed"),
+  ]);
+  assert.equal(out.result, "Fixed the parser and added a regression test.");
+  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.finalMessageAvailable, true);
+});
+
+test("runDelegate preserves a legitimate code-only final response", async () => {
+  const code = "```js\nexport const answer = 42;\n```";
+  const out = await replayResult([
+    toolCall("read-1"),
+    toolUpdate("read-1", "completed"),
+    msgChunk(code),
+  ]);
+  assert.equal(out.result, code);
+  assert.equal(out.resultSource, "post-tool");
 });
 
 test("runDelegate survives a throwing onProgress callback", async () => {

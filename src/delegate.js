@@ -63,10 +63,62 @@ export async function runDelegate({
   const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan });
   const supervisor = new SessionSupervisor(client, { idleMs, hardCapMs: capMs, cancelGraceMs, killGraceMs });
 
-  const textChunks = [];
-  let textLength = 0;
+  const resultChunks = [];
+  let resultLength = 0;
   let truncated = false;
+  let sawToolCall = false;
+  let collectingPostToolResult = false;
+  const activeToolCalls = new Set();
   const touched = new Set();
+
+  const resetResult = () => {
+    resultChunks.length = 0;
+    resultLength = 0;
+    truncated = false;
+  };
+  const appendResult = (text) => {
+    if (truncated) return;
+    const remaining = MAX_OUTPUT - resultLength;
+    if (text.length <= remaining) {
+      resultChunks.push(text);
+      resultLength += text.length;
+    } else if (remaining > 0) {
+      resultChunks.push(text.slice(0, remaining));
+      resultLength += remaining;
+      truncated = true;
+    } else {
+      truncated = true;
+    }
+  };
+  const isTerminalToolStatus = (status) =>
+    status === "completed" || status === "failed" || status === "cancelled";
+  const startTool = (toolCallId, status) => {
+    sawToolCall = true;
+    collectingPostToolResult = false;
+    resetResult();
+    if (toolCallId != null && !isTerminalToolStatus(status)) activeToolCalls.add(toolCallId);
+    if (isTerminalToolStatus(status) && activeToolCalls.size === 0) collectingPostToolResult = true;
+  };
+  const updateToolStatus = (toolCallId, status) => {
+    if (!status) return;
+    if (!sawToolCall) {
+      sawToolCall = true;
+      resetResult();
+    }
+    if (isTerminalToolStatus(status)) {
+      if (toolCallId != null) activeToolCalls.delete(toolCallId);
+      if (activeToolCalls.size === 0 && !collectingPostToolResult) {
+        // Discard any message text emitted while tools were still running.
+        // A duplicate or late terminal update must not wipe an already-collected final message.
+        resetResult();
+        collectingPostToolResult = true;
+      }
+    } else {
+      collectingPostToolResult = false;
+      resetResult();
+      if (toolCallId != null) activeToolCalls.add(toolCallId);
+    }
+  };
 
   // Each stream reports its newest complete sentence, at most one per throttle window.
   // Capital-letter boundary: cursor-agent thoughts arrive as sentences with no separator.
@@ -109,6 +161,7 @@ export async function runDelegate({
       thoughtProgress.push(up.content.text);
     }
     if (up.sessionUpdate === "tool_call") {
+      startTool(up.toolCallId, up.status);
       const label = up.title || up.kind || "tool";
       const path = up.locations?.[0]?.path;
       const line = "running: " + String(label) + (path ? " — " + path : "");
@@ -116,22 +169,11 @@ export async function runDelegate({
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
       const text = up.content.text;
-      if (!truncated) {
-        const remaining = MAX_OUTPUT - textLength;
-        if (text.length <= remaining) {
-          textChunks.push(text);
-          textLength += text.length;
-        } else if (remaining > 0) {
-          textChunks.push(text.slice(0, remaining));
-          textLength += remaining;
-          truncated = true;
-        } else {
-          truncated = true;
-        }
-      }
+      if (!sawToolCall || (collectingPostToolResult && activeToolCalls.size === 0)) appendResult(text);
       messageProgress.push(text);
     }
     if (up.sessionUpdate === "tool_call_update") {
+      updateToolStatus(up.toolCallId, up.status);
       for (const c of up.content || []) {
         if (c.type === "diff" && c.path) {
           touched.add(c.path);
@@ -154,9 +196,10 @@ export async function runDelegate({
       await client.setModel(sessionId, model);
       if (composerFastToggleApplies(model)) await client.setFast(sessionId, fast);
       await client.setMode(sessionId, mode);
-      textChunks.length = 0;
-      textLength = 0;
-      truncated = false;
+      resetResult();
+      sawToolCall = false;
+      collectingPostToolResult = false;
+      activeToolCalls.clear();
       thoughtProgress.reset();
       messageProgress.reset();
       planEntries = [];
@@ -167,12 +210,18 @@ export async function runDelegate({
     });
     thoughtProgress.end();
     messageProgress.end();
-    let result = textChunks.join("");
+    let result = resultChunks.join("");
     if (truncated) result += TRUNCATION_MARKER;
+    const finalMessageAvailable = result.length > 0;
+    const resultSource = finalMessageAvailable
+      ? (sawToolCall ? "post-tool" : "tool-free-stream")
+      : "none";
     const gitAfter = gitChangedSet(workspace);
     const touchedResult = computeTouched({ before: gitBefore, after: gitAfter, diffTouched: [...touched], workspace });
     const out = {
       result,
+      resultSource,
+      finalMessageAvailable,
       stopReason: res?.stopReason,
       sessionId,
       touchedFiles: touchedResult.files,

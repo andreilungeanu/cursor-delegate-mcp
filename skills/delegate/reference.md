@@ -17,7 +17,9 @@ Architecture: Claude Code → MCP `delegate` → cursor-delegate-mcp → **curso
 
 | Field | Description |
 | ----- | ----------- |
-| `result` | Agent text for this turn (reasoning is progress-only, not included). |
+| `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. |
+| `resultSource` | How `result` was selected: `"tool-free-stream"`, `"post-tool"`, or `"none"`. |
+| `finalMessageAvailable` | Whether Cursor emitted final agent text for this turn. When false, inspect `touchedFiles`, the diff, and tests without assuming success. |
 | `stopReason` | ACP stop reason (e.g. `end_turn`). |
 | `sessionId` | Session id for resume. |
 | `touchedFiles` | Paths changed during the run. |
@@ -48,5 +50,5 @@ Cross-process resume via `session/load`. Unknown ids fall back to a fresh sessio
 
 ## Progress
 
-`agent_thought_chunk` and tool starts arrive as ephemeral MCP progress notifications — not
-folded into `result`.
+Thinking, streamed response sentences, and tool starts arrive as ephemeral MCP progress
+notifications — separate from `result`.

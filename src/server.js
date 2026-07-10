@@ -126,7 +126,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; surfaces clarifying questions via elicitation. Returns result, stopReason, sessionId, touchedFiles, and plan (in plan mode). See plugin delegate skill for orchestration.",
+        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; surfaces clarifying questions via elicitation. Returns the final agent result selected after the last tool call, resultSource, finalMessageAvailable, stopReason, sessionId, touchedFiles, and plan (in plan mode). See plugin delegate skill for orchestration.",
       inputSchema: {
         spec: z.string().describe("Inline task brief (default): goal, scope, acceptance criteria. Optional file path if the user wants a persisted spec."),
         mode: z.enum(["agent", "plan", "ask"]).default("agent"),
