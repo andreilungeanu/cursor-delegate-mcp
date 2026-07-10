@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-07-10
+
+### Fixed
+
+- `result` no longer mixes mid-task code and narration into the final response.
+  Turns that used tools return only the agent's message after its last tool
+  call; tool-free turns still return the complete response.
+
+### Added
+
+- `resultSource` (`"post-tool"`, `"tool-free-stream"`, or `"none"`) and
+  `finalMessageAvailable` response fields. When the agent finishes its tools
+  without a final message, `result` is empty — check `touchedFiles` and the
+  diff instead of trusting intermediate text.
+
 ## [1.3.0] - 2026-07-03
 
 ### Changed
