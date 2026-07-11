@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -43,14 +43,29 @@ try {
     assert.ok(!existsSync(join(installed, rel)), `packed artifact must not ship ${rel}`);
   }
 
+  // Launch through an aliased directory so entrypoint detection cannot rely on
+  // the command-line spelling matching the module loader's canonical path.
+  const installedAlias = join(temp, "installed-alias");
+  symlinkSync(installed, installedAlias, process.platform === "win32" ? "junction" : "dir");
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [join(installed, "src", "server.js")],
+    args: [join(installedAlias, "src", "server.js")],
     cwd: temp,
     stderr: "pipe",
   });
+  let serverStderr = "";
+  transport.stderr?.on("data", (chunk) => {
+    serverStderr = (serverStderr + chunk.toString()).slice(-8192);
+  });
   const client = new Client({ name: "packed-artifact-smoke", version: "1.0.0" });
-  await client.connect(transport);
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    const stderr = serverStderr.trim() || "<empty>";
+    throw new Error(`packed server failed to connect: ${error?.message || error}\nserver stderr:\n${stderr}`, {
+      cause: error,
+    });
+  }
   try {
     const listed = await client.listTools();
     assert.deepEqual(listed.tools.map((tool) => tool.name).sort(), ["cancel", "delegate", "doctor"]);

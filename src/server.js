@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -268,7 +268,14 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
 }
 
 const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename);
+let isMain = false;
+if (process.argv[1]) {
+  try {
+    isMain = realpathSync(process.argv[1]) === realpathSync(__filename);
+  } catch {
+    // An imported module must not fail just because argv[1] is not a file.
+  }
+}
 
 if (isMain) {
   const server = buildServer();
