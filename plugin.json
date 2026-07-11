@@ -1,0 +1,16 @@
+{
+  "name": "cursor-delegate-mcp",
+  "version": "1.5.0",
+  "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
+  "author": {
+    "name": "Andrei Lungeanu",
+    "email": "andrei@lungeanu.ro",
+    "url": "https://github.com/andreilungeanu"
+  },
+  "homepage": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "repository": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "cursor", "copilot", "delegation", "coding-agent"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.copilot.json"
+}

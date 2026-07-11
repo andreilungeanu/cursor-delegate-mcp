@@ -1,0 +1,21 @@
+{
+  "name": "cursor-delegate-mcp",
+  "interface": {
+    "displayName": "Cursor Delegate MCP"
+  },
+  "plugins": [
+    {
+      "name": "cursor-delegate-mcp",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/andreilungeanu/cursor-delegate-mcp.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

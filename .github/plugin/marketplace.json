@@ -1,0 +1,19 @@
+{
+  "name": "cursor-delegate-mcp",
+  "owner": {
+    "name": "Andrei Lungeanu",
+    "email": "andrei@lungeanu.ro"
+  },
+  "metadata": {
+    "description": "Plugins for delegating coding work to Cursor through MCP.",
+    "version": "1.5.0"
+  },
+  "plugins": [
+    {
+      "name": "cursor-delegate-mcp",
+      "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
+      "version": "1.5.0",
+      "source": "./"
+    }
+  ]
+}

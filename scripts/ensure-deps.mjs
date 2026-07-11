@@ -1,4 +1,4 @@
-// npm install on SessionStart when node_modules is missing
+// Install runtime dependencies on SessionStart when the plugin cache has none.
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

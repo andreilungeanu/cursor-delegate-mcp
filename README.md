@@ -1,53 +1,57 @@
 # Cursor Delegate MCP
 
-**Let Claude think. Let Cursor build.**
+**Stop rationing your smartest model.**
 
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![node](https://img.shields.io/node/v/cursor-delegate-mcp)](https://nodejs.org)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-An MCP server that lets Claude Code (or any MCP client) delegate coding tasks to **Cursor's CLI agent** — and get structured results back, not a wall of terminal text.
+<img src="assets/logo-light.png" alt="Cursor Delegate MCP logo" width="150" align="left" hspace="15">
+
+You know the drill: **Fable**, **Sol**, or **Opus** starts grinding through a refactor, and you watch your subscription's 5-hour window melt — or your API bill climb. Here's the thing: most of what burns your quota isn't intelligence work. It's typing.
+
+Cursor Delegate is an MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot — or any MCP client — keep the thinking and hand the typing to **Cursor's CLI agent**.
+
+<br clear="left">
 
 ![Demo](demo.gif)
 
-## Why
+## 🧠 Frontier quality, kept
 
-Frontier models like **Opus** and **Fable** are brilliant orchestrators — great at understanding intent, planning, and reviewing. Cursor's **Composer** is a fast, cheap workhorse for the actual edits, with its own generous usage pool.
+Your assistant does what frontier models are actually for: understands the task, writes a precise brief, reviews the finished diff. And **Composer 2.5** holds its own — a seriously capable coding model, just guided and checked by a smarter one. The result reads like frontier work, because a frontier model planned it and signed off on it.
 
-This bridge pairs them: the big brain writes the brief and reviews the diff; Cursor does the typing. Your Claude quota goes to thinking, not boilerplate.
+## ⚡ Done faster
 
-## How it works
+Composer 2.5 is built for speed. It tears through multi-file edits while a frontier model would still be streaming the first file. You delegate, keep working with your assistant, and the diff shows up done.
+
+## 🔋 Your limits stop being the bottleneck
+
+Delegated work bills to Composer's **own usage pool** — separate from Cursor's API-priced main quota, and so generous most users never hit its ceiling. Your Claude or Codex subscription spends tokens only on the brief and the review, so the 5-hour window and weekly limits go a lot further. On API? That's the per-token grind moved off your bill.
 
 ```
-You  →  Claude (Opus / Fable — plans & reviews)
+You  →  your agent (plans & reviews)
               │  MCP delegate tool
               ▼
         cursor-agent (Composer 2.5 — implements)
               │  edits your workspace
               ▼
-        Structured result: files changed, session id, plan
+        Clean result: what changed, which files, the plan
 ```
-
-Delegation defaults to Cursor's **Composer 2.5**, which draws from the separate **Auto + Composer** usage pool — so implementation work doesn't eat into your API-model quota. Want a different model? Just say so: *"delegate with Opus"*.
-
-**Three modes:** `agent` (implement, default) · `plan` (draft a plan, review, resume to implement) · `ask` (read-only Q&A).
-
-> **Note:** delegation auto-approves file writes in the target workspace — review the diff afterward, like any teammate's work.
 
 ## Features
 
-- 🤝 **Perfect Claude Code integration** — ships as a plugin with a skill, slash command, and hooks. Just say *"delegate this to Cursor"* and it happens.
-- 💬 **Answers Cursor's questions** — when Cursor needs a clarification mid-run, the question surfaces in your client's normal prompt. No stalled sessions.
-- 📦 **Structured results** — final agent response, result source, session id, files changed, stop reason, and plan payload. Claude knows exactly what happened and what to review.
-- 📋 **Plan mode** — have Cursor draft a plan first, review it, then resume the same session to implement.
-- 🔍 **Ask mode** — read-only Q&A over the codebase, zero file changes.
-- 🩺 **Built-in diagnostics** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
-- 🔌 **Works everywhere MCP does** — Claude Code, VS Code, Codex CLI, Kiro, Kilo Code, and more.
+- 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
+- 💬 **No stalled runs** — if Cursor asks a question mid-task, it pops up as a normal prompt in your client. In clients without that support, the recommended option is picked automatically and reported back, so nothing hangs.
+- 📦 **Clean, typed results** — final answer, changed files, session id, and the plan, returned as validated structured output. Nothing to parse, nothing to guess.
+- 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
+- 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase, zero file changes.
+- 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
+- 🔌 **Works everywhere MCP does** — VS Code, JetBrains, Windsurf, Visual Studio, and more.
 
 ## Quick start
 
-**Requirements:** [Node.js 22+](https://nodejs.org/) and [cursor-agent](https://cursor.com/docs/cli/overview) logged in (`cursor-agent login`).
+You need [Node.js 22+](https://nodejs.org/) and the [Cursor CLI](https://cursor.com/docs/cli/overview), logged in (`cursor-agent login`).
 
 ### Claude Code (recommended)
 
@@ -60,8 +64,22 @@ Then just ask:
 
 > Delegate to Cursor: migrate src/api from callbacks to async/await and update the tests, then walk me through what changed.
 
-Claude writes the brief, Cursor grinds through the files, and Claude reviews the diff with you — that's the whole loop.
+That's the whole loop — Claude writes the brief, Cursor grinds through the files, Claude walks you through the diff. Claude Code runs the server bundled with the plugin; dependencies install automatically on first session.
 
+### ChatGPT desktop / Codex
+
+```shell
+codex plugin marketplace add andreilungeanu/cursor-delegate-mcp
+codex plugin add cursor-delegate-mcp@cursor-delegate-mcp
+```
+
+### GitHub Copilot CLI
+
+```shell
+copilot plugin install andreilungeanu/cursor-delegate-mcp
+```
+
+Both plugins bundle the delegation skill and start the published npm release via `npx` — nothing else to set up.
 
 ### Any other MCP client
 
@@ -91,21 +109,19 @@ Claude writes the brief, Cursor grinds through the files, and Claude reviews the
 }
 ```
 
-</details>
-
-<details>
-<summary><strong>Codex CLI</strong> — <code>~/.codex/config.toml</code></summary>
-
-```toml
-[mcp_servers.cursor-delegate-mcp]
-command = "npx"
-args = ["-y", "cursor-delegate-mcp"]
-```
+Or run **Chat: Install Plugin From Source** with this repository's URL.
 
 </details>
 
 <details>
-<summary><strong>Kiro</strong> — <code>~/.kiro/settings/mcp.json</code></summary>
+<summary><strong>JetBrains AI Assistant</strong> — Settings → Tools → AI Assistant → MCP</summary>
+
+Import the standard definition above via **Settings → Tools → AI Assistant → Model Context Protocol (MCP)**.
+
+</details>
+
+<details>
+<summary><strong>Windsurf</strong> — <code>~/.codeium/windsurf/mcp_config.json</code></summary>
 
 ```json
 {
@@ -118,32 +134,18 @@ args = ["-y", "cursor-delegate-mcp"]
 }
 ```
 
-</details>
-
-<details>
-<summary><strong>Kilo Code</strong> — <code>~/.config/kilo/kilo.jsonc</code></summary>
-
-```jsonc
-{
-  "mcp": {
-    "cursor-delegate-mcp": {
-      "type": "local",
-      "command": ["npx", "-y", "cursor-delegate-mcp"],
-      "enabled": true
-    }
-  }
-}
-```
+Heads-up: Cascade caps you at 100 tools across all servers.
 
 </details>
 
 <details>
-<summary><strong>Antigravity 2.0</strong> — <code>~/.gemini/config/mcp_config.json</code></summary>
+<summary><strong>Visual Studio 2022</strong> — <code>%USERPROFILE%\.mcp.json</code></summary>
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "cursor-delegate-mcp": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp"]
     }
@@ -151,10 +153,21 @@ args = ["-y", "cursor-delegate-mcp"]
 }
 ```
 
+Requires 17.14+. Note the top-level key is `servers`, not `mcpServers`.
+
 </details>
 
-Call the **`delegate`** tool with your task; run **`doctor`** if anything seems off.
+<details>
+<summary><strong>Kiro, Kilo Code, Zed, and friends</strong></summary>
+
+Any MCP client works — drop the standard `npx` definition above into the client's MCP config.
+
+</details>
+
+Give the **`delegate`** tool a task. If anything seems off, run **`doctor`**.
 
 ## License
 
 MIT © [Andrei Lungeanu](https://github.com/andreilungeanu)
+
+<sub>[Security](SECURITY.md) · [Privacy](PRIVACY.md) · [Terms](TERMS.md) · [Changelog](CHANGELOG.md)</sub>

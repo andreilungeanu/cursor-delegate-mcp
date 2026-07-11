@@ -1,0 +1,40 @@
+{
+  "name": "cursor-delegate-mcp",
+  "version": "1.5.0",
+  "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
+  "author": {
+    "name": "Andrei Lungeanu",
+    "email": "andrei@lungeanu.ro",
+    "url": "https://github.com/andreilungeanu"
+  },
+  "homepage": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "repository": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "cursor", "codex", "delegation", "coding-agent"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "cursor-delegate-mcp": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp@1.5.0"]
+    }
+  },
+  "interface": {
+    "displayName": "Cursor Delegate MCP",
+    "shortDescription": "Delegate coding tasks to Cursor",
+    "longDescription": "Plan and orchestrate in ChatGPT or Codex, delegate local implementation to Cursor's CLI agent, then review structured results and changed files.",
+    "developerName": "Andrei Lungeanu",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+    "privacyPolicyURL": "https://github.com/andreilungeanu/cursor-delegate-mcp/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/andreilungeanu/cursor-delegate-mcp/blob/main/TERMS.md",
+    "defaultPrompt": [
+      "Delegate this implementation to Cursor and review the diff.",
+      "Ask Cursor to draft a plan for this change.",
+      "Use Cursor to inspect this code without editing files."
+    ],
+    "brandColor": "#12D8E8",
+    "composerIcon": "./assets/logo-light.png",
+    "logo": "./assets/logo-light.png"
+  }
+}

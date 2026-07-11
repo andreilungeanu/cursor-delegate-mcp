@@ -1,4 +1,4 @@
-# Dependencies (installed on first SessionStart via hooks/ensure-deps.mjs)
+# Dependencies (installed on first SessionStart for the bundled Claude Code plugin)
 node_modules/
 
 # Local / runtime config
@@ -8,7 +8,6 @@ acp.config.json
 .claude/
 docs/
 spike/
-.github/
 .firecrawl/
 
 # Logs and debug output

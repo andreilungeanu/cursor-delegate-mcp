@@ -10,9 +10,9 @@
     {
       "name": "cursor-delegate-mcp",
       "source": "./",
-      "description": "MCP server bridging Claude Code to cursor-agent over ACP.",
+      "description": "MCP server bridging AI coding hosts to cursor-agent over ACP.",
       "license": "MIT",
-      "keywords": ["mcp", "cursor", "acp", "claude-code"]
+      "keywords": ["mcp", "cursor", "acp", "claude-code", "codex", "copilot"]
     }
   ]
 }

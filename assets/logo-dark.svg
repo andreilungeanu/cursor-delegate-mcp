@@ -1,0 +1,12 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Docked cube, dual color: cream terminal, coral faceted cube -->
+  <rect width="1024" height="1024" rx="224" fill="#16171C"/>
+  <rect x="190" y="390" width="644" height="440" rx="64" fill="none" stroke="#F4EFE4" stroke-width="44"/>
+  <path d="M320 540 L400 605 L320 670" fill="none" stroke="#F4EFE4" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="452" y1="670" x2="562" y2="670" stroke="#F4EFE4" stroke-width="40" stroke-linecap="round"/>
+  <g stroke="#16171C" stroke-width="24" stroke-linejoin="round">
+    <polygon points="512,120 668,210 512,300 356,210" fill="#FF8E7E"/>
+    <polygon points="356,210 512,300 512,480 356,390" fill="#FF6B6B"/>
+    <polygon points="512,300 668,210 668,390 512,480" fill="#E14F4A"/>
+  </g>
+</svg>

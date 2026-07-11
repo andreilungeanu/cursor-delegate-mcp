@@ -20,7 +20,7 @@ Treat every `delegate` call like handing an engineer write access to that tree.
 
 ## Reporting vulnerabilities
 
-If you find a security issue in this bridge (not in cursor-agent or Claude Code itself),
+If you find a security issue in this bridge (not in cursor-agent or an MCP host),
 please open a [GitHub Security Advisory](https://github.com/andreilungeanu/cursor-delegate-mcp/security/advisories/new)
 or email the maintainer listed in `package.json` instead of filing a public issue with
 exploit details.
