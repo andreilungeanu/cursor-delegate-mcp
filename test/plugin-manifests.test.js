@@ -60,8 +60,8 @@ test("Claude plugin launches bundled code and bootstraps its runtime dependencie
 
   const hooks = read(".claude-plugin/hooks.json");
   const command = hooks.hooks.SessionStart[0].hooks[0].command;
-  assert.match(command, /scripts\/ensure-deps\.mjs/);
-  assert.ok(existsSync(resolve(ROOT, "scripts/ensure-deps.mjs")));
+  assert.match(command, /\.claude-plugin\/ensure-deps\.mjs/);
+  assert.ok(existsSync(resolve(ROOT, ".claude-plugin/ensure-deps.mjs")));
 });
 
 // Copilot CLI reads a root .mcp.json regardless of the manifest, and Codex

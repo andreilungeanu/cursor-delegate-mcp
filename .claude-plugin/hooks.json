@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ensure-deps.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/.claude-plugin/ensure-deps.mjs\""
           }
         ]
       }
