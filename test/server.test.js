@@ -63,6 +63,29 @@ test('delegate tool defaults fast to false end-to-end when the caller omits it',
   }
 });
 
+test("server advertises instructions, output schemas, and conservative tool annotations", async () => {
+  const server = buildServer();
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "contract-test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    assert.match(client.getInstructions(), /review touchedFiles plus the git diff/);
+    const listed = await client.listTools();
+    const tools = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
+    assert.deepEqual(Object.keys(tools).sort(), ["cancel", "delegate", "doctor"]);
+    assert.ok(tools.delegate.outputSchema);
+    assert.equal(tools.delegate.annotations.readOnlyHint, false);
+    assert.equal(tools.delegate.annotations.destructiveHint, true);
+    assert.equal(tools.delegate.annotations.idempotentHint, false);
+    assert.equal(tools.delegate.annotations.openWorldHint, true);
+    assert.equal(tools.doctor.annotations.readOnlyHint, true);
+    assert.equal(tools.cancel.annotations.idempotentHint, true);
+  } finally {
+    await client.close();
+  }
+});
+
 test("runDelegateTool sends progress notifications when progressToken is set", async () => {
   const inFlight = new Map();
   const server = { server: { elicitInput: async () => ({ action: "reject" }) } };
@@ -142,7 +165,7 @@ test("runDelegateTool survives sendNotification failures", async () => {
   assert.match(result.content[0].text, /"result": "ok"/);
 });
 
-test("runDelegateTool auto-answers clarifying questions when client lacks elicitation", async () => {
+test("runDelegateTool auto-answers clarifying questions by default when client lacks elicitation", async () => {
   const inFlight = new Map();
   const server = { server: { getClientCapabilities: () => ({}) } };
   let elicitCalls = 0;
@@ -254,7 +277,18 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
   let captured;
   const runDoctor = async (opts) => {
     captured = opts;
-    return { plugin: { version: "test" }, agent: { found: true } };
+    return {
+      plugin: { version: "test" },
+      client: {
+        name: "doctor-test-client",
+        version: "9.9",
+        capabilities: {},
+        supportsElicitation: false,
+      },
+      agent: { found: true },
+      runtime: { node: "22.0.0", platform: "test", arch: "test", cwd: "/test", transport: "stdio" },
+      env: {},
+    };
   };
   const server = buildServer({ runDoctor });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -269,7 +303,7 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
     assert.equal(info.version.version, "9.9");
     assert.ok(info.capabilities, "expected client capabilities to be exposed");
     const parsed = JSON.parse(res.content[0].text);
-    assert.deepEqual(parsed, { plugin: { version: "test" }, agent: { found: true } });
+    assert.equal(parsed.runtime.transport, "stdio");
   } finally {
     await client.close();
   }
@@ -370,4 +404,42 @@ test("runDelegateTool reports fallbackAnswers when a free-text answer matches no
   assert.deepEqual(result.structuredContent.fallbackAnswers, [
     { prompt: "Which?", given: "something else entirely", chosen: "Alpha" },
   ]);
+});
+
+test("delegate tool call survives malformed ACP plan frames end-to-end", async () => {
+  const { runDelegate } = await import("../src/delegate.js");
+  const { EventEmitter } = await import("node:events");
+  const clientFactory = () => {
+    const acp = new EventEmitter();
+    acp.start = async () => {};
+    acp.initialize = async () => {};
+    acp.newSession = async () => ({ sessionId: "sess-malformed" });
+    acp.setModel = async () => {};
+    acp.setFast = async () => {};
+    acp.setMode = async () => {};
+    acp.prompt = async () => {
+      acp.emit("update", { update: { sessionUpdate: "plan", entries: [{ content: { text: "not a string" } }] } });
+      acp.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "implemented" } } });
+      return { stopReason: "end_turn" };
+    };
+    acp.getTranscript = () => "";
+    acp.stop = () => {};
+    return acp;
+  };
+  const server = buildServer({
+    runDelegate: (opts) => runDelegate({ ...opts, clientFactory, gitChangedSet: () => null }),
+  });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "malformed-plan-e2e", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const res = await client.callTool({ name: "delegate", arguments: { spec: "do the thing" } });
+    assert.equal(res.isError ?? false, false, "completed work must not become an MCP error");
+    assert.equal(res.structuredContent.result, "implemented");
+    assert.equal(res.structuredContent.sessionId, "sess-malformed");
+    assert.deepEqual(res.structuredContent.plan.entries, []);
+    assert.match(res.structuredContent.protocolWarnings[0], /plan entry 0 dropped/);
+  } finally {
+    await client.close();
+  }
 });

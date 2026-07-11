@@ -626,3 +626,74 @@ test("runDelegate appends recent transcript to error on failure", async () => {
     }
   );
 });
+
+function scriptedFactory({ planEntries, stopReason = "end_turn", message = "plan ready" }) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-scripted" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      if (planEntries) client.emit("update", { update: { sessionUpdate: "plan", entries: planEntries } });
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: message } } });
+      return { stopReason };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    gitChangedSet: () => null,
+    clientFactory: scriptedFactory({
+      planEntries: [
+        { content: "valid step", priority: "high", status: "pending" },
+        { content: { text: "object content violates ACP" } },
+        { content: "loose fields", priority: "urgent", status: "done" },
+      ],
+    }),
+  });
+  assert.equal(out.result, "plan ready");
+  assert.equal(out.stopReason, "end_turn");
+  assert.deepEqual(out.plan.entries, [
+    { content: "valid step", priority: "high", status: "pending" },
+    { content: "loose fields" },
+  ]);
+  assert.equal(out.protocolWarnings.length, 3);
+  assert.match(out.protocolWarnings[0], /plan entry 1 dropped/);
+  assert.match(out.protocolWarnings[1], /priority/);
+  assert.match(out.protocolWarnings[2], /status/);
+});
+
+test("runDelegate drops a non-string stopReason with a protocol warning", async () => {
+  const out = await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    gitChangedSet: () => null,
+    clientFactory: scriptedFactory({ stopReason: { code: 7 }, message: "done" }),
+  });
+  assert.equal(out.stopReason, undefined);
+  assert.equal(out.result, "done");
+  assert.deepEqual(out.protocolWarnings, ["stopReason dropped: ACP requires a string stop reason"]);
+});
+
+test("runDelegate omits protocolWarnings when frames are well-formed", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    gitChangedSet: () => null,
+    clientFactory: scriptedFactory({ planEntries: [{ content: "ok", priority: "low", status: "completed" }] }),
+  });
+  assert.equal(out.protocolWarnings, undefined);
+  assert.deepEqual(out.plan.entries, [{ content: "ok", priority: "low", status: "completed" }]);
+});

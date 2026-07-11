@@ -44,7 +44,7 @@ export async function runDelegate({
   const recordQuestions = (q) => {
     if (q.kind !== "ask_question") return;
     for (const question of q.questions || []) {
-      if (question?.prompt) questionsAsked.push(question.prompt);
+      if (typeof question?.prompt === "string" && question.prompt) questionsAsked.push(question.prompt);
     }
   };
   const wrappedElicit = onElicit
@@ -57,6 +57,41 @@ export async function runDelegate({
   const recordCreatePlan = (body) => {
     if (body?.overview !== undefined) planOverview = body.overview;
     if (body?.plan !== undefined) planDetail = body.plan;
+  };
+
+  // ACP requires plan entry content to be a string and bounds priority/status to
+  // known values. Frames that violate that must not fail the MCP call after the
+  // work is done — drop the bad data and report it as a protocol diagnostic.
+  const PLAN_PRIORITIES = ["high", "medium", "low"];
+  const PLAN_STATUSES = ["pending", "in_progress", "completed"];
+  const sanitizePlan = (warnings) => {
+    const entries = [];
+    planEntries.forEach((raw, i) => {
+      if (typeof raw?.content !== "string") {
+        warnings.push(`plan entry ${i} dropped: ACP requires string content, got ${raw === null ? "null" : typeof raw?.content}`);
+        return;
+      }
+      const entry = { ...raw };
+      if (entry.priority !== undefined && !PLAN_PRIORITIES.includes(entry.priority)) {
+        warnings.push(`plan entry ${i}: non-ACP priority ${JSON.stringify(entry.priority)} removed`);
+        delete entry.priority;
+      }
+      if (entry.status !== undefined && !PLAN_STATUSES.includes(entry.status)) {
+        warnings.push(`plan entry ${i}: non-ACP status ${JSON.stringify(entry.status)} removed`);
+        delete entry.status;
+      }
+      entries.push(entry);
+    });
+    const plan = { entries };
+    if (planOverview !== undefined) {
+      if (typeof planOverview === "string") plan.overview = planOverview;
+      else warnings.push("plan overview dropped: expected string");
+    }
+    if (planDetail !== undefined) {
+      if (typeof planDetail === "string") plan.detail = planDetail;
+      else warnings.push("plan detail dropped: expected string");
+    }
+    return plan;
   };
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
@@ -218,11 +253,17 @@ export async function runDelegate({
       : "none";
     const gitAfter = gitChangedSet(workspace);
     const touchedResult = computeTouched({ before: gitBefore, after: gitAfter, diffTouched: [...touched], workspace });
+    const protocolWarnings = [];
+    let stopReason;
+    if (res?.stopReason !== undefined) {
+      if (typeof res.stopReason === "string") stopReason = res.stopReason;
+      else protocolWarnings.push("stopReason dropped: ACP requires a string stop reason");
+    }
     const out = {
       result,
       resultSource,
       finalMessageAvailable,
-      stopReason: res?.stopReason,
+      stopReason,
       sessionId,
       touchedFiles: touchedResult.files,
       touchedFilesSource: touchedResult.source,
@@ -230,8 +271,9 @@ export async function runDelegate({
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
-      out.plan = { entries: planEntries, overview: planOverview, detail: planDetail };
+      out.plan = sanitizePlan(protocolWarnings);
     }
+    if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {
     try {

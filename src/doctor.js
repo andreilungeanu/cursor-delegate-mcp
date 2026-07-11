@@ -86,6 +86,13 @@ export async function runDoctor({
       command: formatCommand(spawnSpec),
       version: agentProbe.version,
     },
+    runtime: {
+      node: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      cwd: process.cwd(),
+      transport: "stdio",
+    },
     env: {
       ACP_LOG_SIZE: process.env.ACP_LOG_SIZE !== undefined ? process.env.ACP_LOG_SIZE : DEFAULT_LOG_SIZE,
     },

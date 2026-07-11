@@ -17,6 +17,53 @@ if (nodeMajor < 22) {
 
 const inFlight = new Map();
 
+export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. The delegate tool can create, modify, or delete files in its workspace, so scope workspace to the smallest relevant directory and review touchedFiles plus the git diff after every write-capable run. For approval-gated work, call delegate with mode="plan", review the returned plan and sessionId, then resume with mode="agent" and resumeSessionId. Use mode="ask" for read-only questions and doctor for setup diagnostics.`;
+
+const planEntrySchema = z.object({
+  content: z.string(),
+  priority: z.enum(["high", "medium", "low"]).optional(),
+  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+}).passthrough();
+
+const delegateOutputSchema = z.object({
+  result: z.string(),
+  resultSource: z.enum(["tool-free-stream", "post-tool", "none"]).optional(),
+  finalMessageAvailable: z.boolean().optional(),
+  stopReason: z.string().optional(),
+  sessionId: z.string(),
+  touchedFiles: z.array(z.string()),
+  touchedFilesSource: z.enum(["git", "diff-only"]).optional(),
+  questionsAsked: z.array(z.string()).optional(),
+  resumed: z.boolean().optional(),
+  autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
+  fallbackAnswers: z.array(z.object({ prompt: z.string(), given: z.string(), chosen: z.string() })).optional(),
+  protocolWarnings: z.array(z.string()).optional(),
+  plan: z.object({
+    entries: z.array(planEntrySchema),
+    overview: z.string().optional(),
+    detail: z.string().optional(),
+  }).optional(),
+}).passthrough();
+
+const doctorOutputSchema = z.object({
+  plugin: z.object({ version: z.string() }).passthrough(),
+  client: z.object({
+    name: z.string().nullable(),
+    version: z.string().nullable(),
+    capabilities: z.record(z.unknown()),
+    supportsElicitation: z.boolean(),
+  }).passthrough(),
+  agent: z.object({ found: z.boolean() }).passthrough(),
+  runtime: z.object({
+    node: z.string(),
+    platform: z.string(),
+    arch: z.string(),
+    cwd: z.string(),
+    transport: z.literal("stdio"),
+  }),
+  env: z.record(z.unknown()),
+}).passthrough();
+
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
   const { spec, mode, resumeSessionId, workspace, model, fast } = args;
 
@@ -45,7 +92,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       if (!supportsElicitation) {
         const chosenOptionId = opts[0]?.id;
         const chosen = opts.find((o) => o.id === chosenOptionId)?.label || chosenOptionId || "";
-        autoAnswered.push({ prompt: q.prompt, chosen });
+        autoAnswered.push({ prompt: String(q.prompt ?? ""), chosen: String(chosen) });
         answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
         continue;
       }
@@ -78,7 +125,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       }
       if (!matched && opts.length) {
         const chosen = opts.find((o) => o.id === chosenOptionId)?.label || chosenOptionId || "";
-        fallbackAnswers.push({ prompt: q.prompt, given: choice, chosen });
+        fallbackAnswers.push({ prompt: String(q.prompt ?? ""), given: String(choice), chosen: String(chosen) });
       }
       answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
     }
@@ -120,13 +167,16 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
 export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
-  const server = new McpServer({ name: "cursor-delegate-mcp", version: VERSION });
+  const server = new McpServer(
+    { name: "cursor-delegate-mcp", version: VERSION },
+    { instructions: SERVER_INSTRUCTIONS }
+  );
 
   server.registerTool(
     "delegate",
     {
       description:
-        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; surfaces clarifying questions via elicitation. Returns the final agent result selected after the last tool call, resultSource, finalMessageAvailable, stopReason, sessionId, touchedFiles, and plan (in plan mode). See plugin delegate skill for orchestration.",
+        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, changed files, and optional plan. See the delegate skill for orchestration.",
       inputSchema: {
         spec: z.string().describe("Inline task brief (default): goal, scope, acceptance criteria. Optional file path if the user wants a persisted spec."),
         mode: z.enum(["agent", "plan", "ask"]).default("agent"),
@@ -135,6 +185,14 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         model: z.string().default("composer-2.5"),
         fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
       },
+      outputSchema: delegateOutputSchema,
+      annotations: {
+        title: "Delegate coding task to Cursor",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (args, extra) => runDelegateTool({ args, extra, server, runDelegate, inFlight })
   );
@@ -142,15 +200,32 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
   // cancel is best-effort: MCP tool calls are serialized, so delegate must finish first.
   server.registerTool(
     "cancel",
-    { description: "Cancel an in-flight ACP delegation by sessionId.", inputSchema: { sessionId: z.string() } },
+    {
+      description: "Cancel an in-flight ACP delegation by sessionId.",
+      inputSchema: { sessionId: z.string() },
+      outputSchema: z.object({ status: z.enum(["cancelled", "not-found"]), sessionId: z.string() }),
+      annotations: {
+        title: "Cancel Cursor delegation",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
     async ({ sessionId }) => {
       const client = inFlight.get(sessionId);
       if (client) {
         await client.cancel(sessionId).catch(() => {});
         inFlight.delete(sessionId);
-        return { content: [{ type: "text", text: `cancelled ${sessionId}` }] };
+        return {
+          content: [{ type: "text", text: `cancelled ${sessionId}` }],
+          structuredContent: { status: "cancelled", sessionId },
+        };
       }
-      return { content: [{ type: "text", text: `no in-flight session ${sessionId}` }] };
+      return {
+        content: [{ type: "text", text: `no in-flight session ${sessionId}` }],
+        structuredContent: { status: "not-found", sessionId },
+      };
     }
   );
 
@@ -165,6 +240,14 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
           .default(false)
           .describe("When true, run a lightweight ACP handshake (start → initialize → newSession) to verify the agent is usable"),
       },
+      outputSchema: doctorOutputSchema,
+      annotations: {
+        title: "Diagnose Cursor delegation setup",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ deep }) => {
       const out = await runDoctor({
@@ -174,7 +257,10 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
           version: server.server.getClientVersion(),
         }),
       });
-      return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
+      return {
+        content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
+        structuredContent: out,
+      };
     }
   );
 

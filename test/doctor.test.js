@@ -152,3 +152,15 @@ test("runDoctor reports plugin version and ACP_LOG_SIZE default", async () => {
     else process.env.ACP_LOG_SIZE = prev;
   }
 });
+
+test("runDoctor reports portable runtime diagnostics", async () => {
+  const out = await runDoctor({
+    getClientInfo: () => ({ capabilities: { elicitation: {} }, version: { name: "host", version: "1" } }),
+    spawnSpec: stubSpawnSpec(),
+  });
+
+  assert.equal(out.runtime.transport, "stdio");
+  assert.equal(out.runtime.node, process.versions.node);
+  assert.equal(out.runtime.platform, process.platform);
+  assert.equal(out.client.supportsElicitation, true);
+});

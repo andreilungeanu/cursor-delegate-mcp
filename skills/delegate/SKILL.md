@@ -15,7 +15,7 @@ You orchestrate; Cursor implements. Use the **cursor-delegate-mcp** MCP server �
 ## When to delegate
 
 Delegate when the user wants Cursor to edit the repo (they may say **Cursor**,
-**Composer**, or **cursor-agent** — same handoff). Not for Claude Code subagents —
+**Composer**, or **cursor-agent** — same handoff). Not for the MCP host's own subagents —
 use the `delegate` MCP tool to reach cursor-agent only.
 
 Do it yourself when the change is tiny, purely advisory (`mode: "ask"`), or the user only
@@ -62,7 +62,8 @@ clarification or follow-up in the same session. Unknown or stale ids fall back t
 ## Clarifying questions
 
 If Cursor asks mid-run, the bridge surfaces it via MCP elicitation — answer through the
-normal prompt flow, then delegation continues.
+normal prompt flow, then delegation continues. Clients without elicitation choose each first
+option and report those choices in `autoAnswered`.
 
 ## Security
 

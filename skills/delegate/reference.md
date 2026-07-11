@@ -1,6 +1,6 @@
 # delegate tool reference
 
-Architecture: Claude Code → MCP `delegate` → cursor-delegate-mcp → **cursor-agent** over ACP.
+Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-agent** over ACP.
 
 ## Input
 
@@ -26,9 +26,10 @@ Architecture: Claude Code → MCP `delegate` → cursor-delegate-mcp → **curso
 | `touchedFilesSource` | `"git"` (delta from `git status`) or `"diff-only"`. |
 | `questionsAsked` | List of clarifying-question prompts surfaced. |
 | `resumed` | Whether `resumeSessionId` was honored. |
-| `autoAnswered` | Present on non-elicitation clients: questions auto-answered with the recommended option (`prompt`, `chosen`). |
+| `autoAnswered` | Present on non-elicitation clients using the default first-option fallback (`prompt`, `chosen`). |
 | `fallbackAnswers` | Present when a free-text answer matched no option: the first option was submitted instead (`prompt`, `given`, `chosen`). |
 | `plan` | Present when a plan was emitted (plan mode). |
+| `protocolWarnings` | Present when malformed ACP data (plan entries, stop reason) was dropped instead of failing the call. |
 
 ### `plan` object (when present)
 
