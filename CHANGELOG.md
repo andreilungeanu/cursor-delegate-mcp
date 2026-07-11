@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-07-11
+
+### Changed
+
+- Default ACP launcher is `cursor-agent acp` instead of bare `agent acp`, avoiding
+  PATH collisions with other CLIs (e.g. Grok Build) that also ship an `agent` command.
+  Error messages and docs now reference `cursor-agent` throughout.
+
 ## [1.5.0] - 2026-07-11
 
 ### Added
