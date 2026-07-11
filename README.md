@@ -1,7 +1,8 @@
 # Cursor Delegate MCP
 
-**Stop rationing your smartest model.**
+**Keep the brains. Delegate the build.**
 
+[![tests](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml)
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![node](https://img.shields.io/node/v/cursor-delegate-mcp)](https://nodejs.org)
@@ -9,9 +10,9 @@
 
 <img src="assets/logo-light.png" alt="Cursor Delegate MCP logo" width="150" align="left" hspace="15">
 
-You know the drill: **Fable**, **Sol**, or **Opus** starts grinding through a refactor, and you watch your subscription's 5-hour window melt — or your API bill climb. Here's the thing: most of what burns your quota isn't intelligence work. It's typing.
+Use your best coding agent where its judgment matters most: understanding the task, shaping the plan, and reviewing the result.
 
-Cursor Delegate is an MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot — or any MCP client — keep the thinking and hand the typing to **Cursor's CLI agent**.
+Cursor Delegate is the MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot — or any MCP client — hand implementation to **Cursor's CLI agent**, then get a clean, structured result back for review.
 
 <br clear="left">
 
@@ -53,7 +54,7 @@ You  →  your agent (plans & reviews)
 
 You need [Node.js 22+](https://nodejs.org/) and the [Cursor CLI](https://cursor.com/docs/cli/overview), logged in (`cursor-agent login`).
 
-### Claude Code (recommended)
+### Claude Code
 
 ```shell
 /plugin marketplace add andreilungeanu/cursor-delegate-mcp
@@ -64,7 +65,7 @@ Then just ask:
 
 > Delegate to Cursor: migrate src/api from callbacks to async/await and update the tests, then walk me through what changed.
 
-That's the whole loop — Claude writes the brief, Cursor grinds through the files, Claude walks you through the diff. Claude Code runs the server bundled with the plugin; dependencies install automatically on first session.
+That's the whole loop — Claude writes the brief, Cursor grinds through the files, Claude walks you through the diff.
 
 ### ChatGPT desktop / Codex
 
@@ -79,20 +80,7 @@ codex plugin add cursor-delegate-mcp@cursor-delegate-mcp
 copilot plugin install andreilungeanu/cursor-delegate-mcp
 ```
 
-Both plugins bundle the delegation skill and start the published npm release via `npx` — nothing else to set up.
-
-### Any other MCP client
-
-```json
-{
-  "mcpServers": {
-    "cursor-delegate-mcp": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
+### More clients
 
 <details>
 <summary><strong>VS Code</strong> — <code>.vscode/mcp.json</code></summary>
@@ -116,7 +104,7 @@ Or run **Chat: Install Plugin From Source** with this repository's URL.
 <details>
 <summary><strong>JetBrains AI Assistant</strong> — Settings → Tools → AI Assistant → MCP</summary>
 
-Import the standard definition above via **Settings → Tools → AI Assistant → Model Context Protocol (MCP)**.
+Under **Settings → Tools → AI Assistant → Model Context Protocol (MCP)**, add a server with command `npx` and arguments `-y cursor-delegate-mcp`.
 
 </details>
 
@@ -157,14 +145,20 @@ Requires 17.14+. Note the top-level key is `servers`, not `mcpServers`.
 
 </details>
 
-<details>
-<summary><strong>Kiro, Kilo Code, Zed, and friends</strong></summary>
+### Kiro, Kilo Code, and any other MCP client
 
-Any MCP client works — drop the standard `npx` definition above into the client's MCP config.
+Add the following server to the client's MCP config:
 
-</details>
-
-Give the **`delegate`** tool a task. If anything seems off, run **`doctor`**.
+```json
+{
+  "mcpServers": {
+    "cursor-delegate-mcp": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"]
+    }
+  }
+}
+```
 
 ## License
 
