@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-07-11
+
+### Added
+
+- ChatGPT/Codex and GitHub Copilot plugin manifests and marketplace catalogs,
+  alongside the existing Claude Code plugin. Non-Claude installs launch the
+  published npm package through `npx`.
+- MCP server instructions, formal tool output schemas with `structuredContent`,
+  tool annotations, and `doctor` runtime diagnostics (Node version, platform,
+  arch, cwd, transport).
+- `protocolWarnings` in delegate results: malformed ACP plan frames and
+  non-string stop reasons are dropped with an explicit diagnostic instead of
+  failing the MCP call after the delegation already ran.
+- CI: cross-platform test matrix plus a minimum-dependency job that runs the
+  suite against the declared `@modelcontextprotocol/sdk` floor.
+
+### Changed
+
+- Claude-only configuration moved out of cross-host auto-discovery paths:
+  the plugin MCP config lives at `.claude-plugin/mcp.json` and the SessionStart
+  hook config at `.claude-plugin/hooks.json`, both referenced from the plugin
+  manifest. This keeps Copilot from picking up the bundled-server config and
+  Codex from auto-discovering the Claude bootstrap hook.
+- Minimum `@modelcontextprotocol/sdk` raised to `^1.22.0`; older versions
+  cannot serialize the tool output schemas.
+- The npm package is runtime-only (`src/`, README, LICENSE, legal files);
+  plugin manifests, skills, and assets ship via Git installs.
+
+### Documentation
+
+- Setup paths for Codex, GitHub Copilot, VS Code, JetBrains AI Assistant,
+  Windsurf, Visual Studio, and Cursor, with host statuses stated factually
+  (packaged and contract-tested vs. documented configuration).
+
 ## [1.4.0] - 2026-07-10
 
 ### Fixed
