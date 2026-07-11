@@ -1,0 +1,52 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Space-separated tags to release (empty = every tag missing a release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create GitHub releases with notes from CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tags="$GITHUB_REF_NAME"
+          else
+            tags="${{ inputs.tags }}"
+            [ -n "$tags" ] || tags=$(git tag -l 'v*' | sort -V)
+          fi
+          newest=$(git tag -l 'v*' | sort -V | tail -1)
+          for tag in $tags; do
+            if gh release view "$tag" --json tagName >/dev/null 2>&1; then
+              echo "$tag: release already exists, skipping"
+              continue
+            fi
+            version="${tag#v}"
+            awk -v ver="$version" '
+              index($0, "## [" ver "]") == 1 { found = 1; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md > notes.md
+            if ! grep -q '[^[:space:]]' notes.md; then
+              echo "See [CHANGELOG.md](CHANGELOG.md)." > notes.md
+            fi
+            latest="--latest=false"
+            [ "$tag" = "$newest" ] && latest="--latest"
+            gh release create "$tag" --verify-tag --title "$tag" --notes-file notes.md "$latest"
+            echo "$tag: release created"
+          done
