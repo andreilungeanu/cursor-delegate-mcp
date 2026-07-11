@@ -24,14 +24,14 @@ test("splitArgs handles empty and undefined input", () => {
   assert.deepEqual(splitArgs(undefined), []);
 });
 
-test("resolveAcpSpawn defaults to agent acp when env vars are unset", () => {
+test("resolveAcpSpawn defaults to cursor-agent acp when env vars are unset", () => {
   const prevCmd = process.env.ACP_AGENT_COMMAND;
   const prevArgs = process.env.ACP_AGENT_ARGS;
   delete process.env.ACP_AGENT_COMMAND;
   delete process.env.ACP_AGENT_ARGS;
   try {
     const spec = resolveAcpSpawn();
-    assert.equal(spec.command, "agent");
+    assert.equal(spec.command, "cursor-agent");
     assert.deepEqual(spec.args, ["acp"]);
   } finally {
     if (prevCmd !== undefined) process.env.ACP_AGENT_COMMAND = prevCmd;

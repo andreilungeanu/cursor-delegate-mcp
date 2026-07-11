@@ -26,7 +26,7 @@ async function openSession(client, resumeSessionId, workspace) {
 }
 
 // Composer bare ids (e.g. composer-2.5) expose standard vs fast via set_config_option.
-// Other models use separate ids (e.g. gpt-5-fast) — see agent --list-models.
+// Other models use separate ids (e.g. gpt-5-fast) — see cursor-agent --list-models.
 function composerFastToggleApplies(model) {
   return /^composer-\d+(?:\.\d+)?$/i.test(model);
 }

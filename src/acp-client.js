@@ -57,7 +57,7 @@ export class AcpClient extends EventEmitter {
     });
     return new Promise((resolve, reject) => {
       this.child.once("error", (e) =>
-        reject(new Error(`Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'agent login'.`)));
+        reject(new Error(`Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'cursor-agent login'.`)));
       this.child.once("spawn", () => resolve());
     });
   }

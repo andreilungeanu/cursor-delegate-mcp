@@ -2,11 +2,11 @@
 
 **Keep the brains. Delegate the build.**
 
-[![tests](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml)
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![node](https://img.shields.io/node/v/cursor-delegate-mcp)](https://nodejs.org)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![tests](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml)
 
 <img src="assets/logo-light.png" alt="Cursor Delegate MCP logo" width="150" align="left" hspace="15">
 

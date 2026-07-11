@@ -10,7 +10,7 @@ export function splitArgs(raw) {
 }
 
 export function resolveAcpSpawn() {
-  const command = process.env.ACP_AGENT_COMMAND || "agent";
+  const command = process.env.ACP_AGENT_COMMAND || "cursor-agent";
   const args = process.env.ACP_AGENT_ARGS
     ? splitArgs(process.env.ACP_AGENT_ARGS)
     : ["acp"];
