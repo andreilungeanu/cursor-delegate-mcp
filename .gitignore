@@ -6,9 +6,12 @@ acp.config.json
 .env
 .env.*
 .claude/
-docs/
+/docs/
 spike/
 .firecrawl/
+
+# Bench artifacts
+bench/
 
 # Logs and debug output
 *.log

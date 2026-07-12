@@ -2,9 +2,10 @@
 name: delegate
 description: >
   Delegate implementation to Cursor via the cursor-delegate-mcp MCP delegate tool.
-  Use when the user says delegate to Cursor, Composer, or cursor-agent; use
-  Composer/Cursor for coding; hand off implementation; plan before building; or
-  resume a delegation session. Do not shell out to cursor-agent — use the delegate MCP tool.
+  Use when the user says delegate to Cursor, Composer, or cursor-agent; have Cursor
+  handle or do this; offload this; send this to Composer; use Composer/Cursor for
+  coding; hand off implementation; plan before building; or resume a delegation
+  session. Do not shell out to cursor-agent — use the delegate MCP tool.
 ---
 
 # Delegate to Cursor
@@ -18,16 +19,49 @@ Delegate when the user wants Cursor to edit the repo (they may say **Cursor**,
 **Composer**, or **cursor-agent** — same handoff). Not for the MCP host's own subagents —
 use the `delegate` MCP tool to reach cursor-agent only.
 
-Do it yourself when the change is tiny, purely advisory (`mode: "ask"`), or the user only
-wants a plan with no file writes (`mode: "plan"`).
+Scale effort to the task:
+
+- **Trivial** (one-liner, rename, typo): do it yourself — delegation overhead exceeds the task.
+- **Medium** (multi-file feature or refactor): one `delegate` call.
+- **Large or risky** (architecture, wide rewrites): `mode: "plan"` first; implement after approval.
+- Never delegate a task you cannot write acceptance criteria for.
+- Purely advisory questions → `mode: "ask"`; plan with no file writes → `mode: "plan"`.
+  For these, state what form the answer or plan should take — there's no diff, so the
+  output format is the deliverable.
 
 ## Workflow
 
-1. **Build the brief inline** — pass structured task text in `spec` (goal, files in scope,
-   acceptance criteria). This is the default; do not create a spec file unless the user
-   wants one saved in the repo or the brief is very long.
+1. **Build the brief inline** — pass task text in `spec` that answers all four:
+   - **Goal** — the outcome, precisely.
+   - **Scope** — which files/directories are in play.
+   - **Decisions already made** — constraints and fixed choices the user stated or implied.
+     This is what prevents wrong assumptions and clarifying questions. Transmit them
+     faithfully; don't invent constraints the user didn't state.
+   - **Done when** — verifiable acceptance criteria.
+
+   **Point, don't paste**: reference files to read or mimic ("follow the middleware
+   pattern in src/api/middleware/auth.js") instead of pasting code — Cursor reads the
+   repo itself; the brief carries judgment, not content.
+
+   **Quote, don't paraphrase**: when the user states exact values or behaviors
+   (delimiters, limits, error messages, response wording, timestamp formats), carry their
+   words verbatim into the brief — paraphrase silently drops decisions. Example brief:
+
+   > Goal: per-user rate limiting on all REST endpoints. Scope: src/api/middleware/,
+   > src/config/. Read src/api/middleware/auth.js first and follow that middleware
+   > pattern. Decisions: sliding window, config-driven; user's words: "100 requests per
+   > minute, 429 with body {"error":"rate_limited"}"; no new dependencies. Done when:
+   > every endpoint is covered, existing tests pass, and a unit test for the limiter is added.
+
+   Do not create a spec file unless the user wants one saved in the repo.
 2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
-3. **Review** — read `touchedFiles`, inspect the git diff, run tests/lint.
+3. **Review** — read `touchedFiles`, inspect the git diff, run tests/lint, and check the
+   result against the brief's acceptance criteria.
+   - If criteria fail: resume the **same session** with the specific failure
+     ("tests X and Y fail with <error>; fix without changing the public API") — not a
+     re-run of the whole brief.
+   - After 2 failed resume attempts, start a fresh session with a rewritten brief.
+   - Report the honest outcome either way.
 4. **Report** — summarize what changed and whether acceptance criteria are met.
 
 For field-level API detail, read [reference.md](reference.md) in this skill directory.
@@ -58,12 +92,18 @@ Use bare model ids (e.g. `composer-2.5`), not exploded `--list-models` strings.
 - **New session (default):** wrong approach, failed run, or substantial rework — pass a fresh inline brief.
 - **`resumeSessionId`:** only when the prior run was on the right track and needs a small
 clarification or follow-up in the same session. Unknown or stale ids fall back to a new session.
+- Never guess a `resumeSessionId`. After any resume call, check `resumed` in the
+response — if `false`, the run had **zero** prior context, so re-send a full brief.
 
 ## Clarifying questions
 
-If Cursor asks mid-run, the bridge surfaces it via MCP elicitation — answer through the
-normal prompt flow, then delegation continues. Clients without elicitation choose each first
-option and report those choices in `autoAnswered`.
+When Cursor needs a decision it usually asks in its final message and ends the turn
+(`finalMessageAvailable: true`, no files changed). Read the question in `result` and
+continue by resuming the **same session** with a free-text answer in `spec` — you are not
+limited to any options Cursor listed. (On clients that support MCP elicitation a structured
+question may instead surface as a prompt; answer it there. When a response includes
+`autoAnswered`, check each choice against the brief's decisions and resume with a
+correction if any conflicts.)
 
 ## Security
 

@@ -178,7 +178,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       description:
         "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, changed files, and optional plan. See the delegate skill for orchestration.",
       inputSchema: {
-        spec: z.string().describe("Inline task brief (default): goal, scope, acceptance criteria. Optional file path if the user wants a persisted spec."),
+        spec: z.string().describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
         mode: z.enum(["agent", "plan", "ask"]).default("agent"),
         resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
         workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
