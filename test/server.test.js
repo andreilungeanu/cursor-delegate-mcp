@@ -43,6 +43,67 @@ test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-def
   assert.equal(capturedArgs.fast, false);
 });
 
+test('delegate tool rejects empty model before runDelegate is called', async () => {
+  let called = false;
+  const runDelegate = async () => {
+    called = true;
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-empty-model", touchedFiles: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const res = await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent", model: "" } });
+    assert.equal(res.isError, true);
+    assert.match(res.content[0].text, /model must be a non-empty string/);
+    assert.equal(called, false);
+  } finally {
+    await client.close();
+  }
+});
+
+test('delegate tool trims whitespace from model before runDelegate', async () => {
+  const captured = [];
+  const runDelegate = async (args) => {
+    captured.push(args);
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-trim-model", touchedFiles: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent", model: "  composer-2.5  " } });
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].model, "composer-2.5");
+  } finally {
+    await client.close();
+  }
+});
+
+test('delegate tool defaults model to composer-2.5 when omitted', async () => {
+  const captured = [];
+  const runDelegate = async (args) => {
+    captured.push(args);
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-default-model", touchedFiles: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent" } });
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].model, "composer-2.5");
+  } finally {
+    await client.close();
+  }
+});
+
 test('delegate tool defaults fast to false end-to-end when the caller omits it', async () => {
   const captured = [];
   const runDelegate = async (args) => {

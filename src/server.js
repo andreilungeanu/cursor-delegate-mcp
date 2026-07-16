@@ -187,7 +187,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         mode: z.enum(["agent", "plan", "ask"]).default("agent"),
         resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
         workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
-        model: z.string().default("composer-2.5"),
+        model: z.string().trim().min(1, "model must be a non-empty string").default("composer-2.5"),
         fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
       },
       outputSchema: delegateOutputSchema,
