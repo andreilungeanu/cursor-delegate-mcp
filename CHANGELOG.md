@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-07-16
+
+### Added
+
+- Delegate results now carry `cancelRequested: true` when a cancel was issued
+  mid-run, so hosts can tell a genuinely clean finish from one where the agent
+  ignored the cancel and completed the turn anyway.
+- `cancel` tool gains a `force` option: after sending `session/cancel`, it waits
+  a short grace period and, if the turn is still running, kills the agent process
+  (tree-kill on Windows). Reports `status: "killed"` when it does.
+
+### Changed
+
+- Aborting the MCP delegate request (host interrupt, e.g. Esc in Claude Code)
+  now terminates the agent process instead of leaving it running until the idle
+  timeout. The delegation rejects promptly with reason `aborted`.
+- `cancel` tool description states the honest contract: `session/cancel` is
+  best-effort and the agent may finish the turn; serialized MCP hosts cannot run
+  it while a delegation is in flight.
+
+### Fixed
+
+- Empty or whitespace-only `model` values are rejected with a clear validation
+  error before any agent process starts, instead of failing mid-handshake with a
+  transcript dump. Provided model ids are trimmed.
+
 ## [1.6.0] - 2026-07-11
 
 ### Changed
