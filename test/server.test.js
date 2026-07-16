@@ -259,6 +259,78 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
   }
 });
 
+test("cancel tool with force kills the agent when delegation does not settle", async () => {
+  let cancelledWith;
+  let stopCalled = false;
+  let releaseStop;
+  const gate = new Promise((r) => { releaseStop = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-force-kill", {
+      cancel: async (sid) => { cancelledWith = sid; },
+      stop: () => { stopCalled = true; releaseStop(); },
+    });
+    sessionReady();
+    await gate;
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-force-kill", touchedFiles: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 50 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    await ready;
+    const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-kill", force: true } });
+    assert.equal(cancelRes.structuredContent.status, "killed");
+    assert.match(cancelRes.content[0].text, /^killed sess-force-kill$/);
+    assert.equal(cancelledWith, "sess-force-kill");
+    assert.equal(stopCalled, true);
+    const delegateRes = await delegateP;
+    assert.notEqual(delegateRes.isError, true);
+    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+  } finally {
+    await client.close();
+  }
+});
+
+test("cancel tool with force returns cancelled when delegation settles during grace", async () => {
+  let settleDuringGrace;
+  const gate = new Promise((r) => { settleDuringGrace = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  let stopCalled = false;
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-force-settle", {
+      cancel: async () => { settleDuringGrace(); },
+      stop: () => { stopCalled = true; },
+    });
+    sessionReady();
+    await gate;
+    return { result: "done", stopReason: "end_turn", sessionId: "sess-force-settle", touchedFiles: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 50 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "task" } });
+    await ready;
+    const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-settle", force: true } });
+    assert.equal(cancelRes.structuredContent.status, "cancelled");
+    assert.match(cancelRes.content[0].text, /^cancelled sess-force-settle$/);
+    assert.equal(stopCalled, false);
+    const delegateRes = await delegateP;
+    assert.notEqual(delegateRes.isError, true);
+    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+  } finally {
+    await client.close();
+  }
+});
+
 test("delegate output omits cancelRequested when no cancel was requested", async () => {
   const runDelegate = async () => ({
     result: "done",

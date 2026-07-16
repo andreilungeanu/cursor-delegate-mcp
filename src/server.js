@@ -168,7 +168,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
   }
 }
 
-export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected } = {}) {
+export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000 } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
   const server = new McpServer(
@@ -205,9 +205,12 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "cancel",
     {
       description:
-        "Best-effort cancel of an in-flight ACP delegation by sessionId. Sends session/cancel; the agent may finish the turn anyway. The delegate result carries cancelRequested: true when the turn was cancelled mid-run. MCP hosts that serialize tool calls cannot run this while delegate is in flight.",
-      inputSchema: { sessionId: z.string() },
-      outputSchema: z.object({ status: z.enum(["cancelled", "not-found"]), sessionId: z.string() }),
+        "Best-effort cancel of an in-flight ACP delegation by sessionId. Sends session/cancel; the agent may finish the turn anyway. The delegate result carries cancelRequested: true when the turn was cancelled mid-run. MCP hosts that serialize tool calls cannot run this while delegate is in flight. With force: true, the agent process is killed if the turn is still running after a short grace period.",
+      inputSchema: {
+        sessionId: z.string(),
+        force: z.boolean().default(false).describe("After the cancel notify, wait a short grace period and kill the agent process if the delegation is still running"),
+      },
+      outputSchema: z.object({ status: z.enum(["cancelled", "killed", "not-found"]), sessionId: z.string() }),
       annotations: {
         title: "Cancel Cursor delegation",
         readOnlyHint: false,
@@ -216,20 +219,35 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: false,
       },
     },
-    async ({ sessionId }) => {
+    async ({ sessionId, force }) => {
       const handle = inFlight.get(sessionId);
-      if (handle) {
-        handle.cancelRequested = true;
-        await handle.client.cancel(sessionId).catch(() => {});
+      if (!handle) {
+        return {
+          content: [{ type: "text", text: `no in-flight session ${sessionId}` }],
+          structuredContent: { status: "not-found", sessionId },
+        };
+      }
+      handle.cancelRequested = true;
+      await handle.client.cancel(sessionId).catch(() => {});
+      if (!force) {
         inFlight.delete(sessionId);
         return {
           content: [{ type: "text", text: `cancelled ${sessionId}` }],
           structuredContent: { status: "cancelled", sessionId },
         };
       }
+      await new Promise((r) => setTimeout(r, forceGraceMs));
+      if (!inFlight.has(sessionId)) {
+        return {
+          content: [{ type: "text", text: `cancelled ${sessionId}` }],
+          structuredContent: { status: "cancelled", sessionId },
+        };
+      }
+      handle.client.stop();
+      inFlight.delete(sessionId);
       return {
-        content: [{ type: "text", text: `no in-flight session ${sessionId}` }],
-        structuredContent: { status: "not-found", sessionId },
+        content: [{ type: "text", text: `killed ${sessionId}` }],
+        structuredContent: { status: "killed", sessionId },
       };
     }
   );
