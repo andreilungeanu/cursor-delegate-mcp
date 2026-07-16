@@ -70,12 +70,16 @@ export class SessionSupervisor {
     }, this.idleMs);
   }
 
+  abort() {
+    this._trip("aborted", "delegation aborted by MCP host");
+  }
+
   _trip(reason, message) {
     if (this._settled) return;
     this._settled = true;
     this.disarm();
     const err = makeError(reason, message);
-    if (reason === "idle-timeout" || reason === "hard-cap") {
+    if (reason === "idle-timeout" || reason === "hard-cap" || reason === "aborted") {
       if (!this._escalation) this._escalation = this._runEscalation();
     }
     this._guardReject?.(err);

@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
+import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { AcpClient } from "../src/acp-client.js";
+import { SessionSupervisor } from "../src/session-supervisor.js";
 import { runDelegate } from "../src/delegate.js";
 
 const TIMING = { idleMs: 200, hardCapMs: 1500, cancelGraceMs: 200, killGraceMs: 100 };
@@ -237,4 +239,45 @@ test("inline spec equal to an existing filename is sent literally (Bug C)", asyn
   } finally {
     try { unlinkSync(path); } catch {}
   }
+});
+
+test("abort() rejects supervised work and runs escalation", async () => {
+  const sessionId = "sess-abort";
+  const cancelCalls = [];
+  let killCalled = false;
+  const child = new EventEmitter();
+  child.pid = process.pid;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.kill = () => {
+    killCalled = true;
+    child.exitCode = 1;
+    child.signalCode = "SIGTERM";
+    child.emit("exit", 1, "SIGTERM");
+  };
+
+  const client = new EventEmitter();
+  client.on = (...args) => EventEmitter.prototype.on.call(client, ...args);
+  client.off = (...args) => EventEmitter.prototype.off.call(client, ...args);
+  client.cancel = async (sid) => { cancelCalls.push(sid); };
+  client.child = child;
+
+  const supervisor = new SessionSupervisor(client, {
+    cancelGraceMs: 50,
+    killGraceMs: 50,
+  });
+  supervisor.setSessionId(sessionId);
+
+  const work = supervisor.supervise(() => new Promise(() => {}));
+  supervisor.abort();
+
+  await assert.rejects(work, (err) => {
+    assert.equal(err.reason, "aborted");
+    assert.match(err.message, /aborted by MCP host/i);
+    return true;
+  });
+
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepEqual(cancelCalls, [sessionId]);
+  assert.ok(killCalled, "expected child.kill during escalation");
 });

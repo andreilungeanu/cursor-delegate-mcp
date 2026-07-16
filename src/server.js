@@ -145,6 +145,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       fast,
       onElicit,
       onProgress,
+      signal: extra?.signal,
       onSessionReady: (sessionId, client) => {
         capturedSessionId = sessionId;
         handle = { client, cancelRequested: false };

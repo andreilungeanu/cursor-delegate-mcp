@@ -36,7 +36,13 @@ export async function runDelegate({
   model = "composer-2.5", fast = false, clientFactory, onElicit,
   idleMs = 90000, hardCapMs, timeoutMs, cancelGraceMs = 10000, killGraceMs = 5000,
   onSessionReady, onProgress, progressThrottleMs = 2000, gitChangedSet = gitChangedSetReal,
+  signal,
 } = {}) {
+  if (signal?.aborted) {
+    const err = new Error("delegation aborted by MCP host");
+    err.reason = "aborted";
+    throw err;
+  }
   const capMs = hardCapMs ?? timeoutMs ?? 3600000;
   const MAX_OUTPUT = 10 * 1024 * 1024;
   const TRUNCATION_MARKER = "\n\n[output truncated at 10MB]";
@@ -97,6 +103,8 @@ export async function runDelegate({
   const make = clientFactory || ((opts) => new AcpClient(opts));
   const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan });
   const supervisor = new SessionSupervisor(client, { idleMs, hardCapMs: capMs, cancelGraceMs, killGraceMs });
+  const onAbort = () => supervisor.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   const resultChunks = [];
   let resultLength = 0;
@@ -282,6 +290,7 @@ export async function runDelegate({
     } catch {}
     throw err;
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
     client.stop();
   }

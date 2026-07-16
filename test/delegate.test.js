@@ -697,3 +697,69 @@ test("runDelegate omits protocolWarnings when frames are well-formed", async () 
   assert.equal(out.protocolWarnings, undefined);
   assert.deepEqual(out.plan.entries, [{ content: "ok", priority: "low", status: "completed" }]);
 });
+
+function abortablePromptFactory({ onAbortReady, track }) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-abort" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.on = (...args) => EventEmitter.prototype.on.call(client, ...args);
+    client.off = (...args) => EventEmitter.prototype.off.call(client, ...args);
+    client.cancel = async () => {};
+    client.child = { pid: null, exitCode: null, signalCode: null, kill() {} };
+    client.prompt = () => new Promise((resolve) => { onAbortReady?.(resolve); });
+    client.getTranscript = () => "";
+    client.stop = () => { track.stopped = true; };
+    return client;
+  };
+}
+
+test("runDelegate rejects with aborted when signal fires during prompt", async () => {
+  const track = {};
+  const ac = new AbortController();
+  let resolvePrompt;
+  const run = runDelegate({
+    spec: "task",
+    mode: "agent",
+    workspace: process.cwd(),
+    signal: ac.signal,
+    cancelGraceMs: 50,
+    killGraceMs: 50,
+    clientFactory: abortablePromptFactory({
+      track,
+      onAbortReady: (resolve) => { resolvePrompt = resolve; },
+    }),
+  });
+  await new Promise((r) => setTimeout(r, 50));
+  ac.abort();
+  await assert.rejects(run, (err) => {
+    assert.equal(err.reason, "aborted");
+    return true;
+  });
+  assert.equal(track.stopped, true);
+  resolvePrompt?.({ stopReason: "end_turn" });
+});
+
+test("runDelegate rejects immediately when signal is already aborted", async () => {
+  const ac = new AbortController();
+  ac.abort();
+  let factoryCalls = 0;
+  await assert.rejects(
+    () => runDelegate({
+      spec: "task",
+      mode: "agent",
+      workspace: process.cwd(),
+      signal: ac.signal,
+      clientFactory: () => { factoryCalls++; return new EventEmitter(); },
+    }),
+    (err) => {
+      assert.equal(err.reason, "aborted");
+      return true;
+    }
+  );
+  assert.equal(factoryCalls, 0);
+});
