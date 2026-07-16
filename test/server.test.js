@@ -236,7 +236,7 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     });
     sessionReady();
     await gate;
-    return { result: "stopped", stopReason: "cancelled", sessionId: "sess-live", touchedFiles: [], questionsAsked: [] };
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-live", touchedFiles: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -251,8 +251,31 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     assert.equal(cancelledWith, "sess-live");
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
+    assert.equal(delegateRes.structuredContent.cancelRequested, true);
     const again = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
     assert.match(again.content[0].text, /^no in-flight session sess-live$/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("delegate output omits cancelRequested when no cancel was requested", async () => {
+  const runDelegate = async () => ({
+    result: "done",
+    stopReason: "end_turn",
+    sessionId: "sess-clean",
+    touchedFiles: [],
+    questionsAsked: [],
+  });
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const res = await client.callTool({ name: "delegate", arguments: { spec: "short task" } });
+    assert.notEqual(res.isError, true);
+    assert.equal("cancelRequested" in res.structuredContent, false);
   } finally {
     await client.close();
   }

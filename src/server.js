@@ -37,6 +37,7 @@ const delegateOutputSchema = z.object({
   resumed: z.boolean().optional(),
   autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
   fallbackAnswers: z.array(z.object({ prompt: z.string(), given: z.string(), chosen: z.string() })).optional(),
+  cancelRequested: z.boolean().optional(),
   protocolWarnings: z.array(z.string()).optional(),
   plan: z.object({
     entries: z.array(planEntrySchema),
@@ -133,6 +134,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
   };
 
   let capturedSessionId;
+  let handle;
   try {
     const out = await runDelegate({
       spec,
@@ -145,11 +147,13 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       onProgress,
       onSessionReady: (sessionId, client) => {
         capturedSessionId = sessionId;
-        inFlight.set(sessionId, client);
+        handle = { client, cancelRequested: false };
+        inFlight.set(sessionId, handle);
       },
     });
     if (autoAnswered.length) out.autoAnswered = autoAnswered;
     if (fallbackAnswers.length) out.fallbackAnswers = fallbackAnswers;
+    if (handle?.cancelRequested) out.cancelRequested = true;
     return {
       content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
       structuredContent: out,
@@ -197,11 +201,11 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     async (args, extra) => runDelegateTool({ args, extra, server, runDelegate, inFlight })
   );
 
-  // cancel is best-effort: MCP tool calls are serialized, so delegate must finish first.
   server.registerTool(
     "cancel",
     {
-      description: "Cancel an in-flight ACP delegation by sessionId.",
+      description:
+        "Best-effort cancel of an in-flight ACP delegation by sessionId. Sends session/cancel; the agent may finish the turn anyway. The delegate result carries cancelRequested: true when the turn was cancelled mid-run. MCP hosts that serialize tool calls cannot run this while delegate is in flight.",
       inputSchema: { sessionId: z.string() },
       outputSchema: z.object({ status: z.enum(["cancelled", "not-found"]), sessionId: z.string() }),
       annotations: {
@@ -213,9 +217,10 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       },
     },
     async ({ sessionId }) => {
-      const client = inFlight.get(sessionId);
-      if (client) {
-        await client.cancel(sessionId).catch(() => {});
+      const handle = inFlight.get(sessionId);
+      if (handle) {
+        handle.cancelRequested = true;
+        await handle.client.cancel(sessionId).catch(() => {});
         inFlight.delete(sessionId);
         return {
           content: [{ type: "text", text: `cancelled ${sessionId}` }],
