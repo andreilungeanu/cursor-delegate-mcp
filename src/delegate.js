@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
-import { gitChangedSet as gitChangedSetReal, computeTouched } from "./touched-files.js";
+import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 
 function resolveSpec(spec) {
   if (typeof spec !== "string") return spec;
@@ -35,7 +35,7 @@ export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = "composer-2.5", fast = false, clientFactory, onElicit,
   idleMs = 90000, hardCapMs, timeoutMs,
-  onSessionReady, onProgress, progressThrottleMs = 2000, gitChangedSet = gitChangedSetReal,
+  onSessionReady, onProgress, progressThrottleMs = 2000,
   signal,
 } = {}) {
   if (signal?.aborted) {
@@ -228,7 +228,6 @@ export async function runDelegate({
 
   try {
     let sessionId;
-    const gitBefore = gitChangedSet(workspace);
     const res = await supervisor.supervise(async () => {
       await client.start();
       await client.initialize();
@@ -259,8 +258,6 @@ export async function runDelegate({
     const resultSource = finalMessageAvailable
       ? (sawToolCall ? "post-tool" : "tool-free-stream")
       : "none";
-    const gitAfter = gitChangedSet(workspace);
-    const touchedResult = computeTouched({ before: gitBefore, after: gitAfter, diffTouched: [...touched], workspace });
     const protocolWarnings = [];
     let stopReason;
     if (res?.stopReason !== undefined) {
@@ -273,8 +270,7 @@ export async function runDelegate({
       finalMessageAvailable,
       stopReason,
       sessionId,
-      touchedFiles: touchedResult.files,
-      touchedFilesSource: touchedResult.source,
+      filesReportedByAgent: normalizeAgentReportedFiles([...touched], workspace),
       questionsAsked,
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };

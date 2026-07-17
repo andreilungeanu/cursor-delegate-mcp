@@ -55,8 +55,8 @@ Scale effort to the task:
 
    Do not create a spec file unless the user wants one saved in the repo.
 2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
-3. **Review** — read `touchedFiles`, inspect the git diff, run tests/lint, and check the
-   result against the brief's acceptance criteria.
+3. **Review** — read `filesReportedByAgent`, inspect the git diff, run tests/lint, and check
+   the result against the brief's acceptance criteria.
    - If criteria fail: resume the **same session** with the specific failure
      ("tests X and Y fail with <error>; fix without changing the public API") — not a
      re-run of the whole brief.

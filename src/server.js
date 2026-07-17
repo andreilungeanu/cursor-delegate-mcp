@@ -17,7 +17,7 @@ if (nodeMajor < 22) {
 
 const inFlight = new Map();
 
-export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. The delegate tool can create, modify, or delete files in its workspace, so scope workspace to the smallest relevant directory and review touchedFiles plus the git diff after every write-capable run. For approval-gated work, call delegate with mode="plan", review the returned plan and sessionId, then resume with mode="agent" and resumeSessionId. Use mode="ask" for read-only questions and doctor for setup diagnostics.`;
+export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. The delegate tool can create, modify, or delete files in its workspace, so scope workspace to the smallest relevant directory and review the git diff after every write-capable run; filesReportedByAgent lists the files the agent reported editing. For approval-gated work, call delegate with mode="plan", review the returned plan and sessionId, then resume with mode="agent" and resumeSessionId. Use mode="ask" for read-only questions and doctor for setup diagnostics.`;
 
 const planEntrySchema = z.object({
   content: z.string(),
@@ -31,8 +31,9 @@ const delegateOutputSchema = z.object({
   finalMessageAvailable: z.boolean().optional(),
   stopReason: z.string().optional(),
   sessionId: z.string(),
-  touchedFiles: z.array(z.string()),
-  touchedFilesSource: z.enum(["git", "diff-only"]).optional(),
+  filesReportedByAgent: z.array(z.string()).describe(
+    "Files the agent reported editing via native ACP diff events (may omit shell-driven edits)."
+  ),
   questionsAsked: z.array(z.string()).optional(),
   resumed: z.boolean().optional(),
   autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
@@ -181,7 +182,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, changed files, and optional plan. See the delegate skill for orchestration.",
+        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.",
       inputSchema: {
         spec: z.string().describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
         mode: z.enum(["agent", "plan", "ask"]).default("agent"),

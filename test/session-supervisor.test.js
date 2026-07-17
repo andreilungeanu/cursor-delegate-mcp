@@ -179,7 +179,7 @@ test("escalation order idle→cancel→kill with child dead afterward", async ()
   );
 });
 
-test("resumed touchedFiles excludes diff replayed during session/load (Bug B)", async () => {
+test("resumed filesReportedByAgent excludes diff replayed during session/load (Bug B)", async () => {
   function replayTouchedFactory() {
     return ({ onElicit, mode, onCreatePlan }) => {
       const client = stubFactory("fake-acp.js")({ onElicit, mode, onCreatePlan });
@@ -204,11 +204,10 @@ test("resumed touchedFiles excludes diff replayed during session/load (Bug B)", 
     resumeSessionId: "sess-resumed",
     workspace: process.cwd(),
     clientFactory: replayTouchedFactory(),
-    gitChangedSet: () => null, // isolate the replay-exclusion logic from real git state (diff-only)
   });
   assert.equal(out.resumed, true);
-  assert.deepEqual(out.touchedFiles, ["hello.txt"]);
-  assert.ok(!out.touchedFiles.includes("stale-replay.txt"));
+  assert.deepEqual(out.filesReportedByAgent, ["hello.txt"]);
+  assert.ok(!out.filesReportedByAgent.includes("stale-replay.txt"));
 });
 
 test("inline spec equal to an existing filename is sent literally (Bug C)", async () => {

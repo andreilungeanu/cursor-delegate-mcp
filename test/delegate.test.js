@@ -136,13 +136,12 @@ test("runDelegate captures session/update:plan with latest update winning", asyn
   ]);
   assert.equal(out.plan.overview, "Add a changelog file");
   assert.equal(out.plan.detail, "# Plan\n\n1. Create CHANGELOG.md");
-  assert.deepEqual(out.touchedFiles, []);
+  assert.deepEqual(out.filesReportedByAgent, []);
 });
 
-test("runDelegate plan-mode touchedFiles is empty (diff-only, no git)", async () => {
-  const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory, gitChangedSet: () => null });
-  assert.deepEqual(out.touchedFiles, []);
-  assert.equal(out.touchedFilesSource, "diff-only");
+test("runDelegate plan-mode filesReportedByAgent is empty (no diff events)", async () => {
+  const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
+  assert.deepEqual(out.filesReportedByAgent, []);
 });
 
 test("runDelegate omits plan when no plan was emitted", async () => {
@@ -150,26 +149,15 @@ test("runDelegate omits plan when no plan was emitted", async () => {
   assert.equal(out.plan, undefined);
 });
 
-test("runDelegate populates touchedFiles from a tool_call_update diff (real-agent shape)", async () => {
-  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory, gitChangedSet: () => null });
-  assert.deepEqual(out.touchedFiles, ["hello.txt"]);
-  assert.equal(out.touchedFilesSource, "diff-only");
+test("runDelegate populates filesReportedByAgent from a tool_call_update diff (real-agent shape)", async () => {
+  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
+  assert.deepEqual(out.filesReportedByAgent, ["hello.txt"]);
 });
 
-test("runDelegate touchedFiles uses git delta when available (catches shell-driven changes)", async () => {
-  const ws = process.cwd();
-  const before = new Set();
-  const after = new Set([path.resolve(ws, "renamed.txt")]);
-  let call = 0;
-  const out = await runDelegate({
-    spec: "do the thing",
-    mode: "agent",
-    workspace: ws,
-    clientFactory: fakeFactory,
-    gitChangedSet: () => (call++ === 0 ? before : after),
-  });
-  assert.deepEqual(out.touchedFiles, ["renamed.txt"]);
-  assert.equal(out.touchedFilesSource, "git");
+test("runDelegate reports diff-event paths in a non-git workspace", async () => {
+  // Attribution comes only from native ACP diff events, so git state is irrelevant.
+  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: tmpdir(), clientFactory: fakeFactory });
+  assert.deepEqual(out.filesReportedByAgent, ["hello.txt"]);
 });
 
 test("runDelegate does not fold reasoning (thinking) into the result", async () => {
@@ -179,7 +167,6 @@ test("runDelegate does not fold reasoning (thinking) into the result", async () 
     mode: "agent",
     workspace: process.cwd(),
     clientFactory: thinkingFactory(),
-    gitChangedSet: () => null,
     onProgress: (m) => progress.push(m),
   });
   assert.equal(out.result, "done");
@@ -230,7 +217,6 @@ async function replayResult(updates) {
     mode: "agent",
     workspace: process.cwd(),
     clientFactory: replayFactory(updates),
-    gitChangedSet: () => null,
   });
 }
 
@@ -241,7 +227,6 @@ async function collectProgress(updates, opts = {}) {
     mode: "agent",
     workspace: process.cwd(),
     clientFactory: replayFactory(updates),
-    gitChangedSet: () => null,
     onProgress: (m) => progress.push(m),
     ...opts,
   });
@@ -652,7 +637,6 @@ test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them"
     spec: "plan it",
     mode: "plan",
     workspace: process.cwd(),
-    gitChangedSet: () => null,
     clientFactory: scriptedFactory({
       planEntries: [
         { content: "valid step", priority: "high", status: "pending" },
@@ -678,7 +662,6 @@ test("runDelegate drops a non-string stopReason with a protocol warning", async 
     spec: "do the thing",
     mode: "agent",
     workspace: process.cwd(),
-    gitChangedSet: () => null,
     clientFactory: scriptedFactory({ stopReason: { code: 7 }, message: "done" }),
   });
   assert.equal(out.stopReason, undefined);
@@ -691,7 +674,6 @@ test("runDelegate omits protocolWarnings when frames are well-formed", async () 
     spec: "plan it",
     mode: "plan",
     workspace: process.cwd(),
-    gitChangedSet: () => null,
     clientFactory: scriptedFactory({ planEntries: [{ content: "ok", priority: "low", status: "completed" }] }),
   });
   assert.equal(out.protocolWarnings, undefined);

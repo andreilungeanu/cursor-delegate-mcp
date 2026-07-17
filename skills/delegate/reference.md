@@ -19,11 +19,10 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | ----- | ----------- |
 | `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. |
 | `resultSource` | How `result` was selected: `"tool-free-stream"`, `"post-tool"`, or `"none"`. |
-| `finalMessageAvailable` | Whether Cursor emitted final agent text for this turn. When false, inspect `touchedFiles`, the diff, and tests without assuming success. |
+| `finalMessageAvailable` | Whether Cursor emitted final agent text for this turn. When false, inspect `filesReportedByAgent`, the diff, and tests without assuming success. |
 | `stopReason` | ACP stop reason (e.g. `end_turn`). |
 | `sessionId` | Session id for resume. |
-| `touchedFiles` | Paths changed during the run. |
-| `touchedFilesSource` | `"git"` (delta from `git status`) or `"diff-only"`. |
+| `filesReportedByAgent` | Files the agent reported editing (native ACP diff events). Not a complete change record — shell-driven edits may be absent; the git diff is authoritative. |
 | `questionsAsked` | List of clarifying-question prompts surfaced. |
 | `resumed` | Whether `resumeSessionId` was honored. |
 | `autoAnswered` | Present on non-elicitation clients using the default first-option fallback (`prompt`, `chosen`). |

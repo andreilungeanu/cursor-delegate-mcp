@@ -30,7 +30,7 @@ test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-def
   let capturedArgs;
   const runDelegate = async (args) => {
     capturedArgs = args;
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-y", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-y", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   await runDelegateTool({
@@ -47,7 +47,7 @@ test('delegate tool rejects empty model before runDelegate is called', async () 
   let called = false;
   const runDelegate = async () => {
     called = true;
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-empty-model", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-empty-model", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -68,7 +68,7 @@ test('delegate tool trims whitespace from model before runDelegate', async () =>
   const captured = [];
   const runDelegate = async (args) => {
     captured.push(args);
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-trim-model", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-trim-model", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -88,7 +88,7 @@ test('delegate tool defaults model to composer-2.5 when omitted', async () => {
   const captured = [];
   const runDelegate = async (args) => {
     captured.push(args);
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-default-model", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-default-model", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -108,7 +108,7 @@ test('delegate tool defaults fast to false end-to-end when the caller omits it',
   const captured = [];
   const runDelegate = async (args) => {
     captured.push(args);
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-z", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-z", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -131,7 +131,8 @@ test("server advertises instructions, output schemas, and conservative tool anno
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    assert.match(client.getInstructions(), /review touchedFiles plus the git diff/);
+    assert.match(client.getInstructions(), /review the git diff after every write-capable run/);
+    assert.match(client.getInstructions(), /filesReportedByAgent lists the files the agent reported editing/);
     const listed = await client.listTools();
     const tools = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
     assert.deepEqual(Object.keys(tools).sort(), ["cancel", "delegate", "doctor"]);
@@ -158,7 +159,7 @@ test("runDelegateTool sends progress notifications when progressToken is set", a
   const runDelegate = async ({ onProgress, onSessionReady }) => {
     onSessionReady("sess-p", { cancel: async () => {} });
     onProgress("tick");
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-p", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-p", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -185,7 +186,7 @@ test("runDelegateTool skips progress notifications when progressToken is absent"
   const runDelegate = async ({ onProgress, onSessionReady }) => {
     onSessionReady("sess-q", { cancel: async () => {} });
     onProgress("tick");
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-q", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-q", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -211,7 +212,7 @@ test("runDelegateTool survives sendNotification failures", async () => {
   const runDelegate = async ({ onProgress, onSessionReady }) => {
     onSessionReady("sess-r", { cancel: async () => {} });
     onProgress("tick");
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-r", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-r", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -237,7 +238,7 @@ test("runDelegateTool auto-answers clarifying questions by default when client l
       title: "Pick one",
       questions: [{ id: "q1", prompt: "Which approach?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] }],
     });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-a", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-a", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -271,7 +272,7 @@ test("runDelegateTool uses elicitInput when client supports elicitation", async 
     elicitOut = await onElicit({
       questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] }],
     });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-b", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-b", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   await runDelegateTool({
@@ -297,7 +298,7 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     });
     sessionReady();
     await gate;
-    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-live", touchedFiles: [], questionsAsked: [] };
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-live", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -334,7 +335,7 @@ test("cancel tool with force kills the agent when delegation does not settle", a
     });
     sessionReady();
     await gate;
-    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-force-kill", touchedFiles: [], questionsAsked: [] };
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-force-kill", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate, forceGraceMs: 50 });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -370,7 +371,7 @@ test("cancel tool with force returns cancelled when delegation settles during gr
     });
     sessionReady();
     await gate;
-    return { result: "done", stopReason: "end_turn", sessionId: "sess-force-settle", touchedFiles: [], questionsAsked: [] };
+    return { result: "done", stopReason: "end_turn", sessionId: "sess-force-settle", filesReportedByAgent: [], questionsAsked: [] };
   };
   const server = buildServer({ runDelegate, forceGraceMs: 50 });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -397,7 +398,7 @@ test("delegate output omits cancelRequested when no cancel was requested", async
     result: "done",
     stopReason: "end_turn",
     sessionId: "sess-clean",
-    touchedFiles: [],
+    filesReportedByAgent: [],
     questionsAsked: [],
   });
   const server = buildServer({ runDelegate });
@@ -415,7 +416,7 @@ test("delegate output omits cancelRequested when no cancel was requested", async
 });
 
 test("cancel tool reports unknown sessions without erroring", async () => {
-  const server = buildServer({ runDelegate: async () => ({ result: "", stopReason: "end_turn", sessionId: "s", touchedFiles: [], questionsAsked: [] }) });
+  const server = buildServer({ runDelegate: async () => ({ result: "", stopReason: "end_turn", sessionId: "s", filesReportedByAgent: [], questionsAsked: [] }) });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0" });
 
@@ -478,7 +479,7 @@ test("runDelegateTool onElicit returns null when the user declines elicitation",
     elicitOut = await onElicit({
       questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }] }],
     });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-d", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-d", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -511,7 +512,7 @@ test("runDelegateTool answers multi-question elicitations, reporting only unmatc
         { id: "q2", prompt: "Second?", options: [{ id: "x", label: "X-ray" }, { id: "y", label: "Yankee" }] },
       ],
     });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-m", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-m", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -546,7 +547,7 @@ test("runDelegateTool reports fallbackAnswers when a free-text answer matches no
     elicitOut = await onElicit({
       questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] }],
     });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-c", touchedFiles: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-c", filesReportedByAgent: [], questionsAsked: [] };
   };
 
   const result = await runDelegateTool({
@@ -583,7 +584,7 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
     return acp;
   };
   const server = buildServer({
-    runDelegate: (opts) => runDelegate({ ...opts, clientFactory, gitChangedSet: () => null }),
+    runDelegate: (opts) => runDelegate({ ...opts, clientFactory }),
   });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "malformed-plan-e2e", version: "1.0" });
