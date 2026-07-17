@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { runDelegateTool, buildServer } from "../src/server.js";
+import { DEFAULT_MODEL } from "../src/delegate.js";
+import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server.js";
 
 test("runDelegateTool cleans up inFlight and returns isError when runDelegate throws", async () => {
   const inFlight = new Map();
@@ -136,6 +137,8 @@ test("server advertises instructions, output schemas, and conservative tool anno
     const listed = await client.listTools();
     const tools = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
     assert.deepEqual(Object.keys(tools).sort(), ["cancel", "delegate", "doctor"]);
+    assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
+    assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
     assert.ok(tools.delegate.outputSchema);
     assert.equal(tools.delegate.annotations.readOnlyHint, false);
     assert.equal(tools.delegate.annotations.destructiveHint, true);

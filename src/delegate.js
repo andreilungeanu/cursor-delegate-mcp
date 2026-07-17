@@ -3,6 +3,8 @@ import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 
+export const DEFAULT_MODEL = "composer-2.5";
+
 function resolveSpec(spec) {
   if (typeof spec !== "string") return spec;
   const looksLikePath = !spec.includes("\n")
@@ -33,7 +35,7 @@ function composerFastToggleApplies(model) {
 
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
-  model = "composer-2.5", fast = false, clientFactory, onElicit,
+  model = DEFAULT_MODEL, fast = false, clientFactory, onElicit,
   idleMs = 90000, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
   signal,

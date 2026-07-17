@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { runDelegate as runDelegateDefault } from "./delegate.js";
+import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION } from "./version.js";
 
@@ -65,6 +65,15 @@ const doctorOutputSchema = z.object({
   }),
   env: z.record(z.unknown()),
 }).passthrough();
+
+export const delegateInputSchema = z.object({
+  spec: z.string().describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
+  mode: z.enum(["agent", "plan", "ask"]).default("agent"),
+  resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
+  workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
+  model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL),
+  fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
+});
 
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
   const { spec, mode, resumeSessionId, workspace, model, fast } = args;
@@ -182,15 +191,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        "Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=composer-2.5, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.",
-      inputSchema: {
-        spec: z.string().describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
-        mode: z.enum(["agent", "plan", "ask"]).default("agent"),
-        resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
-        workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
-        model: z.string().trim().min(1, "model must be a non-empty string").default("composer-2.5"),
-        fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
-      },
+        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
+      inputSchema: delegateInputSchema,
       outputSchema: delegateOutputSchema,
       annotations: {
         title: "Delegate coding task to Cursor",
