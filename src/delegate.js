@@ -34,7 +34,7 @@ function composerFastToggleApplies(model) {
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = "composer-2.5", fast = false, clientFactory, onElicit,
-  idleMs = 90000, hardCapMs, timeoutMs, cancelGraceMs = 10000, killGraceMs = 5000,
+  idleMs = 90000, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000, gitChangedSet = gitChangedSetReal,
   signal,
 } = {}) {
@@ -102,7 +102,7 @@ export async function runDelegate({
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
   const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan });
-  const supervisor = new SessionSupervisor(client, { idleMs, hardCapMs: capMs, cancelGraceMs, killGraceMs });
+  const supervisor = new SessionSupervisor(client, { idleMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
 

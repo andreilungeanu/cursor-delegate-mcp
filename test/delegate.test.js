@@ -727,8 +727,6 @@ test("runDelegate rejects with aborted when signal fires during prompt", async (
     mode: "agent",
     workspace: process.cwd(),
     signal: ac.signal,
-    cancelGraceMs: 50,
-    killGraceMs: 50,
     clientFactory: abortablePromptFactory({
       track,
       onAbortReady: (resolve) => { resolvePrompt = resolve; },

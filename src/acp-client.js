@@ -75,7 +75,7 @@ export class AcpClient extends EventEmitter {
 
   stop() {
     try { this.peer?.close(); } catch {}
-    if (isChildAlive(this.child) && process.platform === "win32" && this.child.pid) {
+    if (isChildAlive(this.child) && this.child.pid) {
       treeKill(this.child.pid).catch(() => {});
     } else {
       try { this.child?.kill(); } catch {}

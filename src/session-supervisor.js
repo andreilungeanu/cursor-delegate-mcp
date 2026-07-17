@@ -1,7 +1,3 @@
-import { isChildAlive, treeKill } from "./proc.js";
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 function makeError(reason, message) {
   const err = new Error(message);
   err.reason = reason;
@@ -12,20 +8,15 @@ export class SessionSupervisor {
   constructor(client, {
     idleMs = 90000,
     hardCapMs = 3600000,
-    cancelGraceMs = 10000,
-    killGraceMs = 5000,
   } = {}) {
     this.client = client;
     this.idleMs = idleMs;
     this.hardCapMs = hardCapMs;
-    this.cancelGraceMs = cancelGraceMs;
-    this.killGraceMs = killGraceMs;
     this.sessionId = null;
     this._idleTimer = null;
     this._hardCapTimer = null;
     this._armed = false;
     this._settled = false;
-    this._escalation = null;
     this._guardReject = null;
     this._onActivity = () => this._resetIdle();
     this._onExit = (info) => {
@@ -80,28 +71,12 @@ export class SessionSupervisor {
     this.disarm();
     const err = makeError(reason, message);
     if (reason === "idle-timeout" || reason === "hard-cap" || reason === "aborted") {
-      if (!this._escalation) this._escalation = this._runEscalation();
+      if (this.sessionId) { try { this.client.cancel(this.sessionId); } catch {} }
     }
     this._guardReject?.(err);
   }
 
-  async _runEscalation() {
-    const { client, sessionId } = this;
-    if (sessionId) {
-      try { await client.cancel(sessionId); } catch {}
-      await sleep(this.cancelGraceMs);
-    }
-    const child = client.child;
-    if (!isChildAlive(child)) return;
-    try { child.kill(); } catch {}
-    await sleep(this.killGraceMs);
-    if (!isChildAlive(child)) return;
-    const pid = child.pid;
-    if (pid) await treeKill(pid);
-  }
-
   finish() {
-    this._escalation?.catch(() => {});
     this.disarm();
   }
 

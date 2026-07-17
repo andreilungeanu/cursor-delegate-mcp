@@ -9,7 +9,7 @@ import { AcpClient } from "../src/acp-client.js";
 import { SessionSupervisor } from "../src/session-supervisor.js";
 import { runDelegate } from "../src/delegate.js";
 
-const TIMING = { idleMs: 200, hardCapMs: 1500, cancelGraceMs: 200, killGraceMs: 100 };
+const TIMING = { idleMs: 200, hardCapMs: 1500 };
 
 function stubFactory(stubFile) {
   return ({ onElicit, mode, onCreatePlan }) => new AcpClient({
@@ -34,8 +34,6 @@ test("idle timeout rejects promptly without waiting for escalation grace periods
       clientFactory: stubFactory("silent-stub.js"),
       idleMs: 150,
       hardCapMs: 10000,
-      cancelGraceMs: 2000,
-      killGraceMs: 2000,
     }),
     (err) => {
       assert.equal(err.reason, "idle-timeout");
@@ -88,8 +86,6 @@ test("hard-cap fires on a stub that streams forever", async () => {
       clientFactory: stubFactory("infinite-stream-stub.js"),
       idleMs: 800,
       hardCapMs: 400,
-      cancelGraceMs: 100,
-      killGraceMs: 100,
     }),
     (err) => {
       assert.equal(err.reason, "hard-cap");
@@ -241,31 +237,16 @@ test("inline spec equal to an existing filename is sent literally (Bug C)", asyn
   }
 });
 
-test("abort() rejects supervised work and runs escalation", async () => {
+test("abort() rejects supervised work and sends a courtesy cancel", async () => {
   const sessionId = "sess-abort";
   const cancelCalls = [];
-  let killCalled = false;
-  const child = new EventEmitter();
-  child.pid = process.pid;
-  child.exitCode = null;
-  child.signalCode = null;
-  child.kill = () => {
-    killCalled = true;
-    child.exitCode = 1;
-    child.signalCode = "SIGTERM";
-    child.emit("exit", 1, "SIGTERM");
-  };
 
   const client = new EventEmitter();
   client.on = (...args) => EventEmitter.prototype.on.call(client, ...args);
   client.off = (...args) => EventEmitter.prototype.off.call(client, ...args);
   client.cancel = async (sid) => { cancelCalls.push(sid); };
-  client.child = child;
 
-  const supervisor = new SessionSupervisor(client, {
-    cancelGraceMs: 50,
-    killGraceMs: 50,
-  });
+  const supervisor = new SessionSupervisor(client);
   supervisor.setSessionId(sessionId);
 
   const work = supervisor.supervise(() => new Promise(() => {}));
@@ -277,7 +258,37 @@ test("abort() rejects supervised work and runs escalation", async () => {
     return true;
   });
 
-  await new Promise((r) => setTimeout(r, 200));
   assert.deepEqual(cancelCalls, [sessionId]);
-  assert.ok(killCalled, "expected child.kill during escalation");
+});
+
+test("_trip sends courtesy cancel when sessionId is set but not when null", async () => {
+  const cancelCalls = [];
+
+  const makeClient = () => {
+    const client = new EventEmitter();
+    client.on = (...args) => EventEmitter.prototype.on.call(client, ...args);
+    client.off = (...args) => EventEmitter.prototype.off.call(client, ...args);
+    client.cancel = async (sid) => { cancelCalls.push(sid); };
+    return client;
+  };
+
+  // With sessionId set
+  const client1 = makeClient();
+  const sup1 = new SessionSupervisor(client1, { idleMs: 50, hardCapMs: 10000 });
+  sup1.setSessionId("sess-1");
+  await assert.rejects(
+    sup1.supervise(() => new Promise(() => {})),
+    (err) => err.reason === "idle-timeout"
+  );
+  assert.deepEqual(cancelCalls, ["sess-1"]);
+
+  // Without sessionId
+  cancelCalls.length = 0;
+  const client2 = makeClient();
+  const sup2 = new SessionSupervisor(client2, { idleMs: 50, hardCapMs: 10000 });
+  await assert.rejects(
+    sup2.supervise(() => new Promise(() => {})),
+    (err) => err.reason === "idle-timeout"
+  );
+  assert.deepEqual(cancelCalls, []);
 });
