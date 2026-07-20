@@ -74,3 +74,6 @@ Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
 fails fast regardless of these.
 
 A delegation is still cancellable at any time via the `cancel` tool or a host interrupt.
+
+The orchestrator runs long verification itself (SKILL.md step 3) — it sees full command
+output, while a delegated command reports only after it exits.
