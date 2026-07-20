@@ -160,6 +160,24 @@ test("post-handshake silence does not trip by default", async () => {
   );
 });
 
+test("timeout errors name the last tool call and frame age", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: stubFactory("silent-stub.js"),
+      handshakeMs: 200,
+      hardCapMs: 700,
+    }),
+    (err) => {
+      assert.match(err.message, /Last ACP frame \d+s ago/);
+      assert.match(err.message, /does not stream shell output over ACP/);
+      return true;
+    }
+  );
+});
+
 test("the handshake deadline does not fire once the prompt is in flight", async () => {
   const out = await runDelegate({
     spec: "stream",

@@ -322,6 +322,15 @@ export async function runDelegate({
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {
+    // A bare duration says nothing about whether the agent wedged or a command was just
+    // slow. Name what was outstanding so the caller can tell the two apart.
+    if (err?.reason === "hard-cap" || err?.reason === "idle-timeout") {
+      const age = fmtDuration(supervisor.msSinceActivity());
+      err.message += `\n\nLast ACP frame ${age} ago${lastToolLabel ? `; last tool call: ${lastToolLabel}` : ""}.`
+        + " cursor-agent does not stream shell output over ACP, so a long-running command emits"
+        + " nothing until it exits. Split the command, run it in the background and poll, or raise"
+        + " CURSOR_DELEGATE_HARD_CAP_MS.";
+    }
     try {
       const transcript = client.getTranscript?.(40);
       if (transcript) err.message += "\n\n--- recent ACP transcript (last 40 frames) ---\n" + transcript;
