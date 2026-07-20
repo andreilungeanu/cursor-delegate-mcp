@@ -52,3 +52,25 @@ Cross-process resume via `session/load`. Unknown ids fall back to a fresh sessio
 
 Thinking, streamed response sentences, and tool starts arrive as ephemeral MCP progress
 notifications — separate from `result`.
+
+While a turn is running, a `still working — <elapsed>, last agent frame <age> ago, running: <tool>`
+heartbeat is emitted periodically. A large frame age is normal during a long shell command; it is
+not by itself a sign of trouble.
+
+## Timeouts
+
+cursor-agent does not stream shell output over ACP: a command emits nothing until it exits, so
+mid-turn silence carries no information about liveness. The bridge therefore reports silence
+rather than acting on it.
+
+| Guard | Default | Scope |
+| ----- | ------- | ----- |
+| Handshake deadline | 60 s | Spawn through session setup only, where silence really does mean a wedged agent. |
+| Hard cap | 1 h | Whole delegation, absolute. |
+| Mid-turn idle guard | off | Opt-in; silence during a turn does not settle the session. |
+
+Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
+`CURSOR_DELEGATE_IDLE_MS` (unset or `0` = disabled). Agent process exit is detected directly and
+fails fast regardless of these.
+
+A delegation is still cancellable at any time via the `cancel` tool or a host interrupt.

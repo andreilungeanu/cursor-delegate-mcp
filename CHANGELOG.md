@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Long-running shell commands no longer kill the session. cursor-agent buffers
+  command output and emits no ACP frames until the command exits, so the 90s idle
+  timer could not tell a healthy 2-minute test suite from a hung agent and killed
+  the session after the work was already done. The prompt-phase idle timer is gone:
+  silence during a turn is now reported, not acted on.
+
+### Changed
+
+- The idle timer is replaced by a 60s **handshake deadline** covering spawn through
+  session setup, where silence genuinely does mean a wedged agent. The 1h hard cap
+  and agent-exit detection are unchanged.
+- A periodic `still working — <elapsed>, last agent frame <age> ago, running: <tool>`
+  progress heartbeat is emitted during a turn, so a long command is visible instead
+  of looking like a stall.
+- Timeout errors now name the last tool call and how long the wire has been quiet
+  instead of only a duration.
+- New env overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
+  and `CURSOR_DELEGATE_IDLE_MS` (unset or `0` disables mid-turn idle detection).
+
 ## [1.7.0] - 2026-07-16
 
 ### Added
