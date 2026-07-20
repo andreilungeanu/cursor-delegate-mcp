@@ -1,9 +1,25 @@
+import process from "node:process";
 import { readFileSync, statSync } from "node:fs";
 import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
+export const DEFAULT_HANDSHAKE_MS = 60000;
+export const DEFAULT_HEARTBEAT_MS = 30000;
+
+// Malformed values fall back to the default rather than failing the call.
+function envMs(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function fmtDuration(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
 
 function resolveSpec(spec) {
   if (typeof spec !== "string") return spec;
@@ -36,8 +52,9 @@ function composerFastToggleApplies(model) {
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, clientFactory, onElicit,
-  idleMs = 90000, hardCapMs, timeoutMs,
+  idleMs, handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
+  heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
   if (signal?.aborted) {
@@ -45,7 +62,9 @@ export async function runDelegate({
     err.reason = "aborted";
     throw err;
   }
-  const capMs = hardCapMs ?? timeoutMs ?? 3600000;
+  const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
+  const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
+  const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
   const MAX_OUTPUT = 10 * 1024 * 1024;
   const TRUNCATION_MARKER = "\n\n[output truncated at 10MB]";
   const questionsAsked = [];
@@ -104,7 +123,7 @@ export async function runDelegate({
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
   const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan });
-  const supervisor = new SessionSupervisor(client, { idleMs, hardCapMs: capMs });
+  const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -197,6 +216,24 @@ export async function runDelegate({
   const thoughtProgress = progressStream("thinking: ");
   const messageProgress = progressStream("Cursor: ");
 
+  // The bridge cannot see inside a running shell command, so a long silence is reported
+  // rather than acted on: the caller gets elapsed time and frame age and can decide.
+  let lastToolLabel = null;
+  let heartbeat = null;
+  const startHeartbeat = () => {
+    if (!(heartbeatMs > 0)) return;
+    const startedAt = Date.now();
+    heartbeat = setInterval(() => {
+      const parts = [
+        `still working — ${fmtDuration(Date.now() - startedAt)} elapsed`,
+        `last agent frame ${fmtDuration(supervisor.msSinceActivity())} ago`,
+      ];
+      if (lastToolLabel) parts.push(`running: ${lastToolLabel}`);
+      try { onProgress?.(parts.join(", ").slice(0, 200)); } catch {}
+    }, heartbeatMs);
+    heartbeat.unref?.();
+  };
+
   client.on("update", (u) => {
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
@@ -209,8 +246,8 @@ export async function runDelegate({
       startTool(up.toolCallId, up.status);
       const label = up.title || up.kind || "tool";
       const path = up.locations?.[0]?.path;
-      const line = "running: " + String(label) + (path ? " — " + path : "");
-      try { onProgress?.(line.slice(0, 200)); } catch {}
+      lastToolLabel = String(label) + (path ? " — " + path : "");
+      try { onProgress?.(("running: " + lastToolLabel).slice(0, 200)); } catch {}
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
       const text = up.content.text;
@@ -250,6 +287,9 @@ export async function runDelegate({
       planOverview = undefined;
       planDetail = undefined;
       touched.clear();
+      lastToolLabel = null;
+      supervisor.promptStarted();
+      startHeartbeat();
       return client.prompt(sessionId, resolveSpec(spec));
     });
     thoughtProgress.end();
@@ -288,6 +328,7 @@ export async function runDelegate({
     } catch {}
     throw err;
   } finally {
+    clearInterval(heartbeat);
     signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
     client.stop();

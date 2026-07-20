@@ -9,7 +9,8 @@ import { AcpClient } from "../src/acp-client.js";
 import { SessionSupervisor } from "../src/session-supervisor.js";
 import { runDelegate } from "../src/delegate.js";
 
-const TIMING = { idleMs: 200, hardCapMs: 1500 };
+// Mid-turn idle detection is opt-in, so tests that exercise it pass idleMs explicitly.
+const TIMING = { idleMs: 200, handshakeMs: 400, hardCapMs: 1500 };
 
 function stubFactory(stubFile) {
   return ({ onElicit, mode, onCreatePlan }) => new AcpClient({
@@ -117,7 +118,7 @@ test("handshake exit rejects promptly", async () => {
   assert.ok(Date.now() - start < 2000, "expected fail-fast handshake exit");
 });
 
-test("handshake hang rejects via idle timeout", async () => {
+test("handshake hang rejects via the handshake deadline, with idle detection off", async () => {
   const start = Date.now();
   await assert.rejects(
     () => runDelegate({
@@ -125,7 +126,61 @@ test("handshake hang rejects via idle timeout", async () => {
       mode: "agent",
       workspace: process.cwd(),
       clientFactory: stubFactory("handshake-hang-stub.js"),
-      ...TIMING,
+      idleMs: 0,
+      handshakeMs: 300,
+      hardCapMs: 10000,
+    }),
+    (err) => {
+      assert.equal(err.reason, "handshake-timeout");
+      assert.match(err.message, /handshake timeout/i);
+      return true;
+    }
+  );
+  assert.ok(Date.now() - start < 2000, "expected handshake deadline during handshake");
+});
+
+// The reported bug: cursor-agent emits nothing while a shell command runs, so a healthy
+// long command was indistinguishable from a hang and got killed at 90s.
+// docs/acp-probes/2026-07-21-client-terminal-capability measured 26.9s of dead wire for a
+// 20s command. Post-handshake silence must no longer settle the session by default.
+test("post-handshake silence does not trip by default", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: stubFactory("silent-stub.js"),
+      handshakeMs: 200,
+      hardCapMs: 900,
+    }),
+    (err) => {
+      assert.equal(err.reason, "hard-cap", "silence during the turn must not read as a hang");
+      return true;
+    }
+  );
+});
+
+test("the handshake deadline does not fire once the prompt is in flight", async () => {
+  const out = await runDelegate({
+    spec: "stream",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: stubFactory("streaming-stub.js"),
+    handshakeMs: 250,
+    hardCapMs: 10000,
+  });
+  assert.equal(out.stopReason, "end_turn");
+});
+
+test("opt-in idle guard trips on mid-turn silence when configured", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: stubFactory("silent-stub.js"),
+      idleMs: 200,
+      handshakeMs: 10000,
       hardCapMs: 10000,
     }),
     (err) => {
@@ -133,7 +188,26 @@ test("handshake hang rejects via idle timeout", async () => {
       return true;
     }
   );
-  assert.ok(Date.now() - start < 2000, "expected idle timeout during handshake");
+});
+
+test("heartbeat progress reports elapsed time and frame age during a silent turn", async () => {
+  const lines = [];
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: stubFactory("silent-stub.js"),
+      handshakeMs: 10000,
+      hardCapMs: 700,
+      heartbeatMs: 100,
+      onProgress: (m) => lines.push(m),
+    }),
+    (err) => err.reason === "hard-cap"
+  );
+  const beats = lines.filter((l) => l.startsWith("still working"));
+  assert.ok(beats.length >= 2, `expected repeated heartbeats, got ${JSON.stringify(beats)}`);
+  assert.match(beats[0], /elapsed, last agent frame \d+s ago/);
 });
 
 test("escalation order idle→cancel→kill with child dead afterward", async () => {
@@ -164,6 +238,7 @@ test("escalation order idle→cancel→kill with child dead afterward", async ()
       workspace: process.cwd(),
       clientFactory: factory,
       ...TIMING,
+      handshakeMs: 10000,
       hardCapMs: 10000,
     }),
     (err) => err.reason === "idle-timeout"
@@ -273,21 +348,21 @@ test("_trip sends courtesy cancel when sessionId is set but not when null", asyn
 
   // With sessionId set
   const client1 = makeClient();
-  const sup1 = new SessionSupervisor(client1, { idleMs: 50, hardCapMs: 10000 });
+  const sup1 = new SessionSupervisor(client1, { handshakeMs: 50, hardCapMs: 10000 });
   sup1.setSessionId("sess-1");
   await assert.rejects(
     sup1.supervise(() => new Promise(() => {})),
-    (err) => err.reason === "idle-timeout"
+    (err) => err.reason === "handshake-timeout"
   );
   assert.deepEqual(cancelCalls, ["sess-1"]);
 
   // Without sessionId
   cancelCalls.length = 0;
   const client2 = makeClient();
-  const sup2 = new SessionSupervisor(client2, { idleMs: 50, hardCapMs: 10000 });
+  const sup2 = new SessionSupervisor(client2, { handshakeMs: 50, hardCapMs: 10000 });
   await assert.rejects(
     sup2.supervise(() => new Promise(() => {})),
-    (err) => err.reason === "idle-timeout"
+    (err) => err.reason === "handshake-timeout"
   );
   assert.deepEqual(cancelCalls, []);
 });
