@@ -364,7 +364,6 @@ test("_trip sends courtesy cancel when sessionId is set but not when null", asyn
     return client;
   };
 
-  // With sessionId set
   const client1 = makeClient();
   const sup1 = new SessionSupervisor(client1, { handshakeMs: 50, hardCapMs: 10000 });
   sup1.setSessionId("sess-1");
@@ -374,7 +373,6 @@ test("_trip sends courtesy cancel when sessionId is set but not when null", asyn
   );
   assert.deepEqual(cancelCalls, ["sess-1"]);
 
-  // Without sessionId
   cancelCalls.length = 0;
   const client2 = makeClient();
   const sup2 = new SessionSupervisor(client2, { handshakeMs: 50, hardCapMs: 10000 });

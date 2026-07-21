@@ -542,7 +542,7 @@ export async function runDelegate({
     // Opt-in, because the frames land in the caller's context and nothing there is
     // actionable: the forensics above already carry everything a caller can act on. Raw
     // frames only help someone debugging the bridge, and that has always been done with a
-    // probe under docs/acp-probes, never with an error dump.
+    // protocol probe, never with an error dump.
     const frames = Number(process.env.CURSOR_DELEGATE_TRANSCRIPT);
     if (frames > 0) {
       try {

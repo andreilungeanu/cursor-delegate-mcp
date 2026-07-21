@@ -64,8 +64,8 @@ export class AcpClient extends EventEmitter {
     });
   }
 
-  // The handshake replies carry the agent's live capabilities, model list and mode list.
-  // Keep them; every caller still gets the reply unchanged.
+  // Stashed so the unknown-model pre-flight and doctor --deep can read the agent's real
+  // capability and model lists without paying for a second handshake.
   async initialize() {
     const res = await this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } });
     this.protocolVersion = res?.protocolVersion;

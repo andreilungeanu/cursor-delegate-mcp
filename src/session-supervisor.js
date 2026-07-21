@@ -15,7 +15,7 @@ export class SessionSupervisor {
     this.hardCapMs = hardCapMs;
     // Mid-turn idle detection is opt-in and off by default. cursor-agent emits no ACP
     // frames while a shell command runs, so silence during a prompt turn says nothing
-    // about liveness — see docs/acp-probes/2026-07-21-client-terminal-capability.
+    // about liveness: a probe measured 26.9s of dead wire for a healthy 20s command.
     this.idleMs = idleMs > 0 ? idleMs : 0;
     this.sessionId = null;
     this.lastActivityAt = Date.now();
