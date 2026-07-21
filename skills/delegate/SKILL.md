@@ -4,8 +4,9 @@ description: >
   Delegate implementation to Cursor via the cursor-delegate-mcp MCP delegate tool.
   Use when the user says delegate to Cursor, Composer, or cursor-agent; have Cursor
   handle or do this; offload this; send this to Composer; use Composer/Cursor for
-  coding; hand off implementation; plan before building; or resume a delegation
-  session. Do not shell out to cursor-agent — use the delegate MCP tool.
+  coding; hand off implementation; plan before building; ask Cursor a read-only question
+  about the codebase; resume a delegation session; or diagnose delegation that is failing
+  or not set up. Do not shell out to cursor-agent — use the delegate MCP tool.
 ---
 
 # Delegate to Cursor
@@ -31,16 +32,20 @@ Scale effort to the task:
 
 ## Workflow
 
-1. **Build the brief inline** — pass task text in `spec` that answers all four:
+1. **Build the brief inline** — pass task text in `spec` that answers all four, and asks
+   for one thing back:
    - **Goal** — the outcome, precisely.
    - **Scope** — which files/directories are in play.
    - **Decisions already made** — constraints and fixed choices the user stated or implied.
      This is what prevents wrong assumptions and clarifying questions. Transmit them
      faithfully; don't invent constraints the user didn't state.
-   - **Done when** — verifiable acceptance criteria. Describe the **end state, not the
-     commands that prove it** — you verify in step 3. Shell output does not cross the ACP
-     wire, so a delegated test run returns Cursor's summary of it, not the run. Keep any
-     command you do ask for short.
+   - **Done when** — verifiable acceptance criteria, stated as end state. Have Cursor run
+     tests as it works; that loop is what makes the code good. Its report is not evidence,
+     though — you re-check in step 3, because command output never crosses the ACP wire and
+     the author of a change is not an independent verifier of it.
+   - **Gaps to report back** — close the brief by asking for any acceptance criterion it
+     could not meet and any assumption it had to make. Assumptions are the one thing no
+     response field captures.
 
    **Point, don't paste**: reference files to read or mimic ("follow the middleware
    pattern in src/api/middleware/auth.js") instead of pasting code — Cursor reads the
@@ -60,9 +65,8 @@ Scale effort to the task:
 
    Do not create a spec file unless the user wants one saved in the repo.
 2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
-3. **Review** — read `filesReportedByAgent`, inspect the git diff, run tests/lint **yourself**
-   (you see full command output; Cursor cannot show it to you), and check the result against
-   the brief's acceptance criteria.
+3. **Review** — read `filesReportedByAgent`, inspect the git diff, run tests/lint **yourself**,
+   and check the result against the brief's acceptance criteria.
    - If `modeChanged` is set, the run was write-capable regardless of the mode you asked
      for — review the diff before reporting a plan-only outcome.
    - If `todoProgress` is present and `completed < total`, the agent left work unfinished —
@@ -74,15 +78,13 @@ Scale effort to the task:
    - After 2 failed resume attempts, start a fresh session with a rewritten brief.
    - Report the honest outcome either way.
 
-   On failure, the error is tagged `delegate failed [reason]: …`. `unknown-model` and
-   `agent-error` mean an argument was rejected — fix it, retrying is pointless.
-   `hard-cap`, `idle-timeout` and `aborted` carry a `resumeSessionId` — resume it if the
-   work should continue (`aborted` means the host interrupted you, so often it shouldn't).
-   `agent-exit` means the process died: resume once, then run `doctor` if it repeats.
-   `handshake-timeout` never reached a session; run `doctor`.
+   On failure the error is tagged `delegate failed [reason]: …` — fix the argument for
+   `unknown-model` and `agent-error`, otherwise resume the id named in the message or run
+   `doctor`. reference.md maps every reason to its action.
 4. **Report** — summarize what changed and whether acceptance criteria are met.
 
-For field-level API detail, read [reference.md](reference.md) in this skill directory.
+For the failure-reason table, full input and output fields, timeouts, and debugging env
+vars, read [reference.md](reference.md) in this skill directory.
 
 ## Defaults
 
@@ -92,11 +94,13 @@ For field-level API detail, read [reference.md](reference.md) in this skill dire
 | `mode`      | `agent`        | `plan` = plan only; `ask` = read-only Q&A          |
 | `model`     | `composer-2.5` | Default model; Composer 2.5 standard tier          |
 | `fast`      | `false`        | `true` = higher costs — ONLY when user asks        |
-| `workspace` | current cwd    | Scope to the smallest directory that fits the task |
+| `workspace` | server cwd     | Pass it — the default is the MCP **server's** cwd, not always your project root. Scope to the smallest directory that fits |
 
 
-Other models (Opus, Codex, etc.) are available — pass `model` when the user requests one.
-Use bare model ids (e.g. `composer-2.5`), not exploded `--list-models` strings.
+Other models (Opus, Codex, Grok, etc.) are available — pass `model` when the user requests
+one. Use the bare family id (`grok-4.5`, `gpt-5.4`); the CLI's tier-suffixed `--list-models`
+strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast`, or
+`reasoning` in reference.md.
 
 ## Plan mode
 
@@ -119,18 +123,12 @@ response — if `false`, the run had **zero** prior context, so re-send a full b
 When Cursor needs a decision it usually asks in its final message and ends the turn
 (`finalMessageAvailable: true`, no files changed). Read the question in `result` and
 continue by resuming the **same session** with a free-text answer in `spec` — you are not
-limited to any options Cursor listed. (On clients that support MCP elicitation a structured
-question may instead surface as a prompt; answer it there. When a response includes
-`autoAnswered`, check each choice against the brief's decisions and resume with a
-correction if any conflicts.)
+limited to any options Cursor listed.
 
 ## Security
 
-Delegation **auto-approves every permission the agent requests, in every mode** — not only
-writes, and not only in `agent` mode. `plan` and `ask` are instructions to the agent, not
-boundaries the bridge enforces; `modeChanged` is your only signal that one was ignored.
-Treat every call like granting write access to `workspace`, and do not point it at `$HOME`
-or `/`.
+Every call grants write access to `workspace` in every mode — scope it to the smallest
+directory that fits, and never to `$HOME` or `/`.
 
 `contextFiles` resolves paths against `workspace` but is **not confined to it** — the write
 boundary is that tree, the read boundary is not. Attach only files you intend the agent to
