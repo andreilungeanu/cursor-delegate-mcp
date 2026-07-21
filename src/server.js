@@ -278,7 +278,10 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       handle.cancelRequested = true;
       await handle.client.cancel(sessionId).catch(() => {});
       if (!force) {
-        inFlight.delete(sessionId);
+        // The handle stays registered: session/cancel is best-effort, so the turn may still
+        // be running. Dropping it here made the natural escalation — cancel, wait, cancel
+        // with force — report not-found while the agent was alive. The delegation's own
+        // finally removes the entry when the turn actually settles.
         return {
           content: [{ type: "text", text: `cancelled ${sessionId}` }],
           structuredContent: { status: "cancelled", sessionId },

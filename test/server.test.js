@@ -466,6 +466,45 @@ test("cancel tool with force kills the agent when delegation does not settle", a
   }
 });
 
+test("a plain cancel keeps the session cancellable, so force still escalates", async () => {
+  let stopCalled = false;
+  let releaseStop;
+  const gate = new Promise((r) => { releaseStop = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  const runDelegate = async ({ onSessionReady }) => {
+    // An agent that ignores session/cancel: the turn keeps running after the plain cancel.
+    onSessionReady("sess-escalate", {
+      cancel: async () => {},
+      stop: () => { stopCalled = true; releaseStop(); },
+    });
+    sessionReady();
+    await gate;
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-escalate", filesReportedByAgent: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 50 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    await ready;
+    const first = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate" } });
+    assert.equal(first.structuredContent.status, "cancelled");
+    // Second, plain: the turn is still in flight, so this must not report not-found.
+    const second = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate" } });
+    assert.equal(second.structuredContent.status, "cancelled");
+    const escalated = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate", force: true } });
+    assert.equal(escalated.structuredContent.status, "killed");
+    assert.equal(stopCalled, true);
+    const delegateRes = await delegateP;
+    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+  } finally {
+    await client.close();
+  }
+});
+
 test("cancel tool with force returns cancelled when delegation settles during grace", async () => {
   let settleDuringGrace;
   const gate = new Promise((r) => { settleDuringGrace = r; });
