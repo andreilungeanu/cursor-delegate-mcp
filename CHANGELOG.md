@@ -6,26 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+## [1.8.0] - 2026-07-21
 
-- Long-running shell commands no longer kill the session. cursor-agent buffers
-  command output and emits no ACP frames until the command exits, so the 90s idle
-  timer could not tell a healthy 2-minute test suite from a hung agent and killed
-  the session after the work was already done. The prompt-phase idle timer is gone:
-  silence during a turn is now reported, not acted on.
+### Added
+
+- Delegate results carry `todos` and `todoProgress`: the agent's own task list,
+  accumulated from `cursor/update_todos`, also surfaced in progress updates and the
+  heartbeat so a long run shows what is left rather than only that it is alive.
+- `doctor --deep` reports the negotiated capability matrix — protocol version, agent
+  capabilities, available models and modes.
 
 ### Changed
 
-- The idle timer is replaced by a 60s **handshake deadline** covering spawn through
-  session setup, where silence genuinely does mean a wedged agent. The 1h hard cap
-  and agent-exit detection are unchanged.
-- A periodic `still working — <elapsed>, last agent frame <age> ago, running: <tool>`
-  progress heartbeat is emitted during a turn, so a long command is visible instead
-  of looking like a stall.
-- Timeout errors now name the last tool call and how long the wire has been quiet
-  instead of only a duration.
-- New env overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
-  and `CURSOR_DELEGATE_IDLE_MS` (unset or `0` disables mid-turn idle detection).
+- **Timeouts.** The prompt-phase idle timer is gone: cursor-agent emits no ACP frames
+  while a shell command runs, so a healthy 2-minute test suite was indistinguishable
+  from a hang and got killed after the work was done. It is replaced by a 60s handshake
+  deadline covering spawn through session setup, where silence really does mean a wedged
+  agent; the 1h hard cap and agent-exit detection are unchanged. A periodic
+  `still working — <elapsed>, last agent frame <age> ago, running: <tool>` heartbeat
+  makes a long command visible, and timeout errors name the last tool call and how long
+  the wire has been quiet. New overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`,
+  `CURSOR_DELEGATE_HARD_CAP_MS`, `CURSOR_DELEGATE_IDLE_MS` (unset or `0` disables
+  mid-turn idle detection).
+- `touchedFiles` is replaced by `filesReportedByAgent`, built from the agent's own ACP
+  diff events instead of inferred from the working tree — no false positives from
+  unrelated edits, and nothing reported that the agent did not claim.
+- An unknown `model` is rejected before the turn starts, naming the ids the agent
+  actually offers, instead of failing later inside `session/set_model`.
+- Process termination uses an immediate cross-platform tree kill instead of a
+  signal-escalation ladder, so no orphaned child survives a cancel on Windows.
 
 ## [1.7.0] - 2026-07-16
 
