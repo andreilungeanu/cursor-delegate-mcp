@@ -858,3 +858,26 @@ test("runDelegate sanitizes malformed todo entries instead of failing the call",
   assert.match(out.protocolWarnings[0], /todo 1 dropped/);
   assert.match(out.protocolWarnings[1], /abandoned/);
 });
+
+test("runDelegate collects type:content blocks emitted after tools finish", async () => {
+  const factory = () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-content" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Run", status: "pending" } });
+      client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "streamed output" } }] } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+  const out = await runDelegate({ spec: "run it", workspace: process.cwd(), clientFactory: factory });
+  assert.equal(out.result, "streamed output");
+});

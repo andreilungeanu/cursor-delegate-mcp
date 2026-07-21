@@ -303,6 +303,12 @@ export async function runDelegate({
           touched.add(c.path);
           try { onProgress?.("editing " + c.path); } catch {}
         }
+        // cursor-agent has never been observed emitting these; ACP allows an agent to
+        // stream tool output this way, so treat it like message text rather than drop it.
+        if (c.type === "content" && typeof c.content?.text === "string") {
+          if (!sawToolCall || (collectingPostToolResult && activeToolCalls.size === 0)) appendResult(c.content.text);
+          messageProgress.push(c.content.text);
+        }
       }
     }
   });
