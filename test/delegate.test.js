@@ -785,15 +785,67 @@ test("runDelegate reads the spec from a file when spec is an existing path", asy
   }
 });
 
-test("runDelegate sends a path-looking spec literally when the file does not exist", async () => {
+test("runDelegate rejects a workspace that does not exist", async () => {
+  const track = {};
+  await assert.rejects(
+    runDelegate({
+      spec: "do it",
+      mode: "agent",
+      workspace: path.join(process.cwd(), "no_such_dir_12345"),
+      clientFactory: promptTextFactory(track),
+    }),
+    (err) => err.reason === "invalid-workspace" && /does not exist/.test(err.message),
+  );
+  assert.equal(track.promptText, undefined, "rejected before the agent was spawned");
+});
+
+test("runDelegate rejects a workspace that is a file", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "do it",
+      mode: "agent",
+      workspace: fileURLToPath(import.meta.url),
+      clientFactory: promptTextFactory({}),
+    }),
+    (err) => err.reason === "invalid-workspace" && /is not a directory/.test(err.message),
+  );
+});
+
+test("runDelegate rejects a bare spec path that does not exist", async () => {
+  const track = {};
+  await assert.rejects(
+    runDelegate({
+      spec: "missing/brief.md",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: promptTextFactory(track),
+    }),
+    (err) => err.reason === "invalid-spec" && /nothing exists at/.test(err.message),
+  );
+  assert.equal(track.promptText, undefined, "rejected before the agent was prompted");
+});
+
+test("runDelegate rejects a bare spec path that is a directory", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: process.cwd(),
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: promptTextFactory({}),
+    }),
+    (err) => err.reason === "invalid-spec" && /is not a file/.test(err.message),
+  );
+});
+
+test("runDelegate still sends prose that merely names a missing path", async () => {
   const track = {};
   await runDelegate({
-    spec: "missing/brief.md",
+    spec: "fix the bug in missing/brief.md",
     mode: "agent",
     workspace: process.cwd(),
     clientFactory: promptTextFactory(track),
   });
-  assert.equal(track.promptText, "missing/brief.md");
+  assert.equal(track.promptText, "fix the bug in missing/brief.md");
 });
 
 function askingFactory() {

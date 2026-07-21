@@ -23,15 +23,58 @@ function fmtDuration(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
+// Two different questions, and conflating them is what made a typo'd brief cost a live turn.
+// "Could this be a path?" is deliberately loose — a one-line brief ending in .md is worth a
+// stat. "Was a path clearly intended?" has to be strict, because an ordinary inline spec
+// mentions files ("fix the bug in src/api.js") and must never be rejected for it. Whitespace
+// is the discriminator: a path argument has none, a sentence about a path does.
+function looksLikeSpecPath(spec) {
+  return !spec.includes("\n")
+    && (spec.includes("/") || spec.includes("\\") || spec.endsWith(".md") || spec.endsWith(".txt"));
+}
+const isBareSpecPath = (spec) => !/\s/.test(spec.trim());
+
 function resolveSpec(spec) {
   if (typeof spec !== "string") return spec;
-  const looksLikePath = !spec.includes("\n")
-    && (spec.includes("/") || spec.includes("\\") || spec.endsWith(".md") || spec.endsWith(".txt"));
-  if (!looksLikePath) return spec;
+  if (!looksLikeSpecPath(spec)) return spec;
+  let stat;
   try {
-    if (statSync(spec).isFile()) return readFileSync(spec, "utf8");
-  } catch {}
+    stat = statSync(spec);
+  } catch {
+    // Only a bare path was unambiguously meant as one. Anything else is prose that happens
+    // to name a file, and prose is the common case.
+    if (!isBareSpecPath(spec)) return spec;
+    const err = new Error(`spec looks like a file path but nothing exists at ${spec}. Pass the brief inline, or fix the path.`);
+    err.reason = "invalid-spec";
+    throw err;
+  }
+  if (stat.isFile()) return readFileSync(spec, "utf8");
+  if (isBareSpecPath(spec)) {
+    const err = new Error(`spec looks like a file path but ${spec} is not a file. Pass the brief inline, or point at a file.`);
+    err.reason = "invalid-spec";
+    throw err;
+  }
   return spec;
+}
+
+// A nonexistent workspace was accepted, then created by the agent's first write — a typo
+// silently spawned a parallel empty tree and every layer reported success. contextFiles has
+// always rejected the same mistakes; this is that check, applied to its sibling.
+function assertWorkspace(workspace) {
+  if (workspace === undefined || workspace === null) return;
+  let stat;
+  try {
+    stat = statSync(workspace);
+  } catch {
+    const err = new Error(`workspace ${workspace} does not exist. Create it first, or point at an existing directory.`);
+    err.reason = "invalid-workspace";
+    throw err;
+  }
+  if (!stat.isDirectory()) {
+    const err = new Error(`workspace ${workspace} is not a directory.`);
+    err.reason = "invalid-workspace";
+    throw err;
+  }
 }
 
 const IMAGE_MIME = {
@@ -138,6 +181,10 @@ export async function runDelegate({
     err.reason = "aborted";
     throw err;
   }
+  // Before the spawn: a bad path is the caller's to fix, and finding out costs a process,
+  // a handshake and a billed turn if it waits until the prompt is assembled.
+  assertWorkspace(workspace);
+  const promptText = resolveSpec(spec);
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
@@ -462,7 +509,7 @@ export async function runDelegate({
       startHeartbeat();
       promptInFlight = true;
       return client.prompt(sessionId, [
-        { type: "text", text: resolveSpec(spec) },
+        { type: "text", text: promptText },
         ...buildContextBlocks(contextFiles, workspace, client, contextWarnings),
       ]);
     });

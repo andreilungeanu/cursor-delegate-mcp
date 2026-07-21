@@ -94,7 +94,7 @@ export const delegateInputSchema = z.object({
   spec: z.string().describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them; modeChanged reports it if it switched."),
   resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
-  workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
+  workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd). Must be an existing directory; the call fails rather than creating it."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL),
   fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
   // Which options a model offers, and their valid values, are only knowable by asking the
