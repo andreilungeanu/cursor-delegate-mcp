@@ -219,7 +219,38 @@ test("runDelegate fails loudly when a config value is rejected as invalid", asyn
       spec: "task", model: "gpt-5.4", reasoning: "banana",
       workspace: process.cwd(), clientFactory: configFactory({ invalid: ["reasoning"] }),
     }),
-    /Invalid value for reasoning: banana/
+    (err) => {
+      assert.match(err.message, /Invalid value for reasoning: banana/);
+      assert.equal(err.reason, "agent-error");
+      return true;
+    }
+  );
+});
+
+test("runDelegate leaves an existing reason alone and tags nothing without an rpc code", async () => {
+  const factory = () => {
+    const client = new EventEmitter();
+    client.start = async () => { throw new Error("spawn failed"); };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+  await assert.rejects(
+    runDelegate({ spec: "task", workspace: process.cwd(), clientFactory: factory }),
+    (err) => {
+      assert.equal(err.reason, undefined);
+      return true;
+    }
+  );
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "no-such-model", workspace: process.cwd(),
+      clientFactory: modelListFactory([{ modelId: "composer-2.5" }]),
+    }),
+    (err) => {
+      assert.equal(err.reason, "unknown-model");
+      return true;
+    }
   );
 });
 

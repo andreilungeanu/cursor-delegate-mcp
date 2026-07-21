@@ -25,6 +25,22 @@ test("runDelegateTool cleans up inFlight and returns isError when runDelegate th
   assert.equal(inFlight.has("sess-x"), false);
 });
 
+test("runDelegateTool tags a failure with its reason so callers need not parse prose", async () => {
+  const runDelegate = async () => {
+    const err = new Error("Session hard-cap exceeded after 400ms");
+    err.reason = "hard-cap";
+    throw err;
+  };
+  const result = await runDelegateTool({
+    args: { spec: "test", mode: "agent", model: "composer-2.5" },
+    server: { server: {} },
+    runDelegate,
+    inFlight: new Map(),
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /^delegate failed \[hard-cap\]: Session hard-cap exceeded/);
+});
+
 test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-default value)', async () => {
   const inFlight = new Map();
   const server = { server: { elicitInput: async () => ({ action: "reject" }) } };

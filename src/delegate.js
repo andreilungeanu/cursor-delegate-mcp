@@ -451,6 +451,9 @@ export async function runDelegate({
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {
+    // A JSON-RPC code means the agent rejected something rather than the bridge breaking.
+    // Classifying it here is what lets the caller tell "fix your arguments" from "retry".
+    if (!err?.reason && typeof err?.code === "number") err.reason = "agent-error";
     // A bare duration says nothing about whether the agent wedged or a command was just
     // slow. Name what was outstanding so the caller can tell the two apart, and so a
     // retry can resume from the work already done instead of restarting blind.

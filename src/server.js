@@ -211,7 +211,9 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
     };
   } catch (err) {
     return {
-      content: [{ type: "text", text: "delegate failed: " + (err?.message || String(err)) }],
+      // The reason is already decided upstream; naming it here saves the caller parsing
+      // prose to tell a timeout from a rejected argument.
+      content: [{ type: "text", text: `delegate failed${err?.reason ? ` [${err.reason}]` : ""}: ` + (err?.message || String(err)) }],
       isError: true,
     };
   } finally {
