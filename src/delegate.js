@@ -284,6 +284,7 @@ export async function runDelegate({
   // The bridge cannot see inside a running shell command, so a long silence is reported
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
+  let modeChanged;
   let heartbeat = null;
   const startHeartbeat = () => {
     if (!(heartbeatMs > 0)) return;
@@ -305,6 +306,12 @@ export async function runDelegate({
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
       planEntries = up.entries || [];
+    }
+    // A plan-mode run that switches itself to agent mode becomes write-capable while the
+    // caller still believes nothing can change. No drift has been observed; report it so
+    // we find out rather than assume.
+    if (up.sessionUpdate === "current_mode_update" && up.currentModeId && up.currentModeId !== mode) {
+      modeChanged = { from: mode, to: up.currentModeId };
     }
     if (up.sessionUpdate === "agent_thought_chunk" && up.content?.text) {
       thoughtProgress.push(up.content.text);
@@ -364,6 +371,7 @@ export async function runDelegate({
       sawTodoFrame = false;
       touched.clear();
       lastToolLabel = null;
+      modeChanged = undefined;
       supervisor.promptStarted();
       startHeartbeat();
       return client.prompt(sessionId, resolveSpec(spec));
@@ -398,6 +406,10 @@ export async function runDelegate({
     // Most successful turns emit no todos at all, so an empty list would read as "nothing
     // done" rather than "not tracked". Report only what the agent actually sent.
     if (sawTodoFrame) Object.assign(out, sanitizeTodos(protocolWarnings));
+    if (modeChanged) {
+      out.modeChanged = modeChanged;
+      protocolWarnings.push(`agent switched mode from ${modeChanged.from} to ${modeChanged.to} mid-session`);
+    }
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {

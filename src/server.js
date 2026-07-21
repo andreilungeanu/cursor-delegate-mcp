@@ -52,6 +52,9 @@ const delegateOutputSchema = z.object({
   })).optional().describe(
     "Todo list the agent tracked for this turn. Absent when the agent tracked none, which is common on short tasks and does not imply incompleteness."
   ),
+  modeChanged: z.object({ from: z.string(), to: z.string() }).optional().describe(
+    "Set when the agent switched itself out of the requested mode mid-session."
+  ),
   todoProgress: z.object({
     total: z.number(),
     completed: z.number(),

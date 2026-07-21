@@ -1096,3 +1096,47 @@ test("runDelegate skips model validation when the agent advertises no list", asy
   });
   assert.equal(out.result, "ok");
 });
+
+function modeFactory(modeIds) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-mode" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      for (const id of modeIds) {
+        client.emit("update", { update: { sessionUpdate: "current_mode_update", currentModeId: id } });
+      }
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate flags a mode switch away from the requested mode", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    clientFactory: modeFactory(["plan", "agent"]),
+  });
+  assert.deepEqual(out.modeChanged, { from: "plan", to: "agent" });
+  assert.match(out.protocolWarnings[0], /switched mode from plan to agent/);
+});
+
+test("runDelegate stays quiet when the reported mode matches the request", async () => {
+  const out = await runDelegate({
+    spec: "do it",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: modeFactory(["agent", "agent"]),
+  });
+  assert.equal(out.modeChanged, undefined);
+  assert.equal(out.protocolWarnings, undefined);
+});
