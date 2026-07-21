@@ -8,13 +8,20 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | ----- | ------- | ----------- |
 | `spec` | — | Inline task brief (default). Path detection is automatic, not opt-in: a single-line `spec` that is itself an existing file path is replaced by that file's contents. A brief that merely *mentions* a path is unaffected. |
 | `mode` | `agent` | `agent`, `plan`, or `ask`. |
-| `model` | `composer-2.5` | Model id. Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
+| `model` | `composer-2.5` | Bare ACP family id (`composer-2.5`, `grok-4.5`, `gpt-5.4`). Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Always sent, so `false` turns it off on a resumed session. |
 | `workspace` | server cwd | Working directory for the agent. The default is the **MCP server process's** cwd, which for `npx`/plugin launches is not necessarily your project root — pass it explicitly. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
 | `reasoning` | — | Reasoning effort, forwarded as an ACP config option. gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. |
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
 | `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**. Skips are reported in `protocolWarnings`, never fatal. |
+
+The ACP model namespace is not the CLI's. `session/new` advertises bare family ids, while
+`cursor-agent --list-models` prints tier-suffixed variants (`cursor-grok-4.5-high`,
+`gpt-5.4-high`, `composer-2.5-fast`). Over ACP the tier is a config option instead, so the
+CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `reasoning: "high"`, and any `-fast` suffix
+is `fast: true`. Passing a suffixed id fails with `Invalid model value`. `doctor` with
+`deep: true` prints the list this agent actually offers.
 
 Which config options a model offers is not discoverable up front, so `reasoning` and
 `context` are sent and the rejection is read as the answer: a model without the knob yields
