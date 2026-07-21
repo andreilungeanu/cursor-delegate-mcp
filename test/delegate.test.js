@@ -1618,9 +1618,12 @@ test("runDelegate names the file a delete-kind plan write removed", async () => 
   assert.deepEqual(out.writeCapableActivity, [{ kind: "delete", detail: "Delete File", path: "old.txt" }]);
 });
 
-// Not every edit call is followed by a diff frame. The entry still has to appear — a write
-// with no path is worth less than one with a path, but far more than silence.
-test("runDelegate reports an edit-kind plan write that never emits a diff", async () => {
+// An edit call does not always emit a diff frame, and a pathless entry is not evidence that
+// a write landed: no-ops and retries produce one too, and in a rename the diff frames account
+// for the whole net change on disk while the diffless edits account for none of it. The entry
+// stays because a missing diff frame is not proof nothing happened — it claims a write-capable
+// tool ran, which is all this field ever claims.
+test("runDelegate reports an edit-kind tool call that never emits a diff", async () => {
   const out = await runDelegate({
     spec: "plan it",
     mode: "plan",
