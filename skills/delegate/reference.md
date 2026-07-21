@@ -100,7 +100,8 @@ been quiet, the turn title, todo progress, files reported edited, and a `resumeS
 plus a note if an earlier resume had already failed, meaning none of that work was in
 context. The raw ACP transcript is not included: nothing in it changes what you can do, and
 it is large. Set `CURSOR_DELEGATE_TRANSCRIPT=<frames>` to append it when debugging the bridge
-itself.
+itself. `ACP_LOG_SIZE` bounds retention (2000 frames) and so caps what this can return; at
+`0` nothing is recorded and it returns nothing at all.
 
 ## Resume
 
