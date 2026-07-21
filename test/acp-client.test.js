@@ -25,7 +25,7 @@ test("client initializes, opens a session, prompts and emits updates", async () 
   await client.setModel(s.sessionId, "composer-2.5");
   await client.setConfigOption(s.sessionId, "fast", false);
   await client.setMode(s.sessionId, "agent");
-  const res = await client.prompt(s.sessionId, "do it");
+  const res = await client.prompt(s.sessionId, [{ type: "text", text: "do it" }]);
   assert.equal(res.stopReason, "end_turn");
   assert.equal(updates.at(-1).update.sessionUpdate, "agent_message_chunk");
   // boolean fast is stringified at the ACP boundary

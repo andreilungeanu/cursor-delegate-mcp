@@ -1,4 +1,6 @@
 import process from "node:process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { readFileSync, statSync } from "node:fs";
 import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
@@ -30,6 +32,55 @@ function resolveSpec(spec) {
     if (statSync(spec).isFile()) return readFileSync(spec, "utf8");
   } catch {}
   return spec;
+}
+
+const IMAGE_MIME = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp",
+};
+// Base64 inflates by a third and every byte lands in the prompt, unlike a link.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// A resource_link hands the agent a path instead of the file's bytes, so a large brief costs
+// prompt space only for what the agent decides to open. Images cannot work that way — they
+// are sent inline. Both are measured working, including links to files outside the
+// workspace. Two rules follow from the probe:
+//   - gate images on the advertised capability, because cursor-agent accepts blocks it does
+//     not support without any error (embeddedContext:false raises nothing), so an ungated
+//     image would silently vanish;
+//   - report anything skipped, since a dropped attachment is otherwise invisible.
+function buildContextBlocks(contextFiles, workspace, client, warnings) {
+  const blocks = [];
+  for (const entry of contextFiles || []) {
+    if (typeof entry !== "string" || !entry.trim()) continue;
+    const abs = path.resolve(workspace || process.cwd(), entry);
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      warnings.push(`contextFile ${entry} skipped: not found at ${abs}`);
+      continue;
+    }
+    if (!stat.isFile()) {
+      warnings.push(`contextFile ${entry} skipped: not a file`);
+      continue;
+    }
+    const mimeType = IMAGE_MIME[path.extname(abs).toLowerCase()];
+    if (mimeType) {
+      if (!client?.agentCapabilities?.promptCapabilities?.image) {
+        warnings.push(`contextFile ${entry} skipped: this agent does not accept image prompts`);
+        continue;
+      }
+      if (stat.size > MAX_IMAGE_BYTES) {
+        warnings.push(`contextFile ${entry} skipped: ${Math.round(stat.size / 1024)}KB exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024}MB image limit`);
+        continue;
+      }
+      blocks.push({ type: "image", mimeType, data: readFileSync(abs).toString("base64") });
+      continue;
+    }
+    blocks.push({ type: "resource_link", uri: pathToFileURL(abs).href, name: path.basename(abs) });
+  }
+  return blocks;
 }
 
 async function openSession(client, resumeSessionId, workspace) {
@@ -76,7 +127,7 @@ async function applyConfig(client, sessionId, configId, value) {
 
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
-  model = DEFAULT_MODEL, fast = false, reasoning, context, clientFactory, onElicit,
+  model = DEFAULT_MODEL, fast = false, reasoning, context, contextFiles, clientFactory, onElicit,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
@@ -372,6 +423,7 @@ export async function runDelegate({
   let sessionId;
   let resumeError;
   const unsupportedOptions = [];
+  const contextWarnings = [];
   try {
     const res = await supervisor.supervise(async () => {
       await client.start();
@@ -409,7 +461,10 @@ export async function runDelegate({
       supervisor.promptStarted();
       startHeartbeat();
       promptInFlight = true;
-      return client.prompt(sessionId, resolveSpec(spec));
+      return client.prompt(sessionId, [
+        { type: "text", text: resolveSpec(spec) },
+        ...buildContextBlocks(contextFiles, workspace, client, contextWarnings),
+      ]);
     });
     thoughtProgress.end();
     messageProgress.end();
@@ -438,6 +493,7 @@ export async function runDelegate({
     if (sessionTitle) out.sessionTitle = sessionTitle;
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
+    protocolWarnings.push(...contextWarnings);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
     }

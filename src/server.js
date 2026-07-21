@@ -96,6 +96,7 @@ export const delegateInputSchema = z.object({
   // agent, so these stay open strings and the agent rejects what it does not accept.
   reasoning: z.string().trim().min(1).optional().describe("Reasoning effort. Not offered by every model; gpt-5.x accepts none, low, medium, high, extra-high."),
   context: z.string().trim().min(1).optional().describe("Context window size. Not offered by every model; gpt-5.x accepts 272k and 1m."),
+  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace. Anything skipped is reported in protocolWarnings, never fatal."),
 });
 
 // A cursor/ask_question question is multi-select when it sets allowMultiple, and the answer
@@ -114,7 +115,7 @@ function matchOptions(choice, opts = [], allowMultiple = false) {
 }
 
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
-  const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context } = args;
+  const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles } = args;
 
   const progressToken = extra?._meta?.progressToken;
   let onProgress = () => {};
@@ -193,6 +194,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       fast,
       reasoning,
       context,
+      contextFiles,
       onElicit,
       onProgress,
       signal: extra?.signal,

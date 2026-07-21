@@ -645,13 +645,127 @@ function promptTextFactory(track) {
   return ({ onElicit, mode, onCreatePlan }) => {
     const client = fakeFactory({ onElicit, mode, onCreatePlan });
     const origPrompt = client.prompt.bind(client);
-    client.prompt = async (sessionId, text) => {
-      track.promptText = text;
-      return origPrompt(sessionId, text);
+    client.prompt = async (sessionId, blocks) => {
+      track.blocks = blocks;
+      track.promptText = blocks.find((b) => b.type === "text")?.text;
+      return origPrompt(sessionId, blocks);
     };
     return client;
   };
 }
+
+test("runDelegate sends only a text block when no contextFiles are given", async () => {
+  const track = {};
+  await runDelegate({ spec: "do it", mode: "agent", workspace: process.cwd(), clientFactory: promptTextFactory(track) });
+  assert.deepEqual(track.blocks, [{ type: "text", text: "do it" }]);
+});
+
+test("runDelegate attaches contextFiles as resource_link blocks", async () => {
+  const track = {};
+  const out = await runDelegate({
+    spec: "review these",
+    mode: "agent",
+    workspace: process.cwd(),
+    contextFiles: ["package.json", path.join(process.cwd(), "src", "delegate.js")],
+    clientFactory: promptTextFactory(track),
+  });
+  assert.equal(track.blocks[0].type, "text");
+  const links = track.blocks.slice(1);
+  assert.equal(links.length, 2);
+  assert.deepEqual(links.map((l) => l.type), ["resource_link", "resource_link"]);
+  assert.deepEqual(links.map((l) => l.name), ["package.json", "delegate.js"]);
+  // Relative entries resolve against workspace, and both arrive as absolute file:// URIs.
+  assert.ok(links.every((l) => l.uri.startsWith("file:///")), JSON.stringify(links));
+  assert.match(links[0].uri, /\/package\.json$/);
+  assert.equal(out.protocolWarnings, undefined);
+});
+
+test("runDelegate reports a missing contextFile instead of linking or failing", async () => {
+  const track = {};
+  const out = await runDelegate({
+    spec: "review these",
+    mode: "agent",
+    workspace: process.cwd(),
+    contextFiles: ["package.json", "no-such-file-here.txt"],
+    clientFactory: promptTextFactory(track),
+  });
+  assert.equal(out.stopReason, "end_turn");
+  assert.equal(track.blocks.length, 2, "the missing file must not be linked");
+  assert.ok(out.protocolWarnings.some((w) => /contextFile no-such-file-here\.txt skipped: not found/.test(w)));
+});
+
+test("runDelegate skips a contextFile that is a directory", async () => {
+  const track = {};
+  const out = await runDelegate({
+    spec: "review these",
+    mode: "agent",
+    workspace: process.cwd(),
+    contextFiles: ["src"],
+    clientFactory: promptTextFactory(track),
+  });
+  assert.equal(track.blocks.length, 1);
+  assert.ok(out.protocolWarnings.some((w) => /contextFile src skipped: not a file/.test(w)));
+});
+
+// Smallest valid PNG bytes; only the extension and the capability gate are under test.
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+
+function imageCapableFactory(track, { image = true } = {}) {
+  return ({ onElicit, mode, onCreatePlan }) => {
+    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+    const origInit = client.initialize.bind(client);
+    client.initialize = async () => {
+      const res = await origInit();
+      client.agentCapabilities = { promptCapabilities: { image } };
+      return res;
+    };
+    const origPrompt = client.prompt.bind(client);
+    client.prompt = async (sessionId, blocks) => {
+      track.blocks = blocks;
+      return origPrompt(sessionId, blocks);
+    };
+    return client;
+  };
+}
+
+test("runDelegate sends an image contextFile inline when the agent accepts images", async () => {
+  const imgPath = path.join(tmpdir(), `delegate-img-${process.pid}.png`);
+  writeFileSync(imgPath, TINY_PNG);
+  const track = {};
+  try {
+    const out = await runDelegate({
+      spec: "look at this", mode: "agent", workspace: process.cwd(),
+      contextFiles: [imgPath], clientFactory: imageCapableFactory(track),
+    });
+    assert.equal(track.blocks.length, 2);
+    assert.equal(track.blocks[1].type, "image");
+    assert.equal(track.blocks[1].mimeType, "image/png");
+    assert.equal(track.blocks[1].data, TINY_PNG.toString("base64"));
+    assert.equal(out.protocolWarnings, undefined);
+  } finally {
+    try { unlinkSync(imgPath); } catch {}
+  }
+});
+
+test("runDelegate skips an image when the agent does not advertise image prompts", async () => {
+  const imgPath = path.join(tmpdir(), `delegate-img-nocap-${process.pid}.png`);
+  writeFileSync(imgPath, TINY_PNG);
+  const track = {};
+  try {
+    const out = await runDelegate({
+      spec: "look at this", mode: "agent", workspace: process.cwd(),
+      contextFiles: [imgPath], clientFactory: imageCapableFactory(track, { image: false }),
+    });
+    // Silently sending it would vanish without error, so it must be dropped and reported.
+    assert.equal(track.blocks.length, 1);
+    assert.ok(out.protocolWarnings.some((w) => /does not accept image prompts/.test(w)));
+  } finally {
+    try { unlinkSync(imgPath); } catch {}
+  }
+});
 
 test("runDelegate reads the spec from a file when spec is an existing path", async () => {
   const specPath = path.join(tmpdir(), `delegate-spec-${process.pid}.md`);

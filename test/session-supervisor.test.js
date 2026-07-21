@@ -316,9 +316,9 @@ test("inline spec equal to an existing filename is sent literally (Bug C)", asyn
       clientFactory: ({ onElicit, mode, onCreatePlan }) => {
         const client = stubFactory("fake-acp.js")({ onElicit, mode, onCreatePlan });
         const origPrompt = client.prompt.bind(client);
-        client.prompt = async (sessionId, text) => {
-          promptText = text;
-          return origPrompt(sessionId, text);
+        client.prompt = async (sessionId, blocks) => {
+          promptText = blocks.find((b) => b.type === "text")?.text;
+          return origPrompt(sessionId, blocks);
         };
         return client;
       },
