@@ -1091,17 +1091,21 @@ test("heartbeat names the in-progress todo during a silent turn", async () => {
   assert.match(beats[0], /todo 2\/2: Run integration tests/);
 });
 
-function hangingFactory({ todos: frames = [], emit } = {}) {
+function hangingFactory({ todos: frames = [], emit, title, loadFails } = {}) {
   return ({ onTodos }) => {
     const client = new EventEmitter();
     client.start = async () => {};
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-forensics" });
+    client.loadSession = async () => {
+      if (loadFails) throw rpcError(-32602, "Invalid params: Session stale-id not found");
+    };
     client.setModel = async () => {};
     client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.cancel = async () => {};
     client.prompt = () => {
+      if (title) client.emit("update", { update: { sessionUpdate: "session_info_update", title } });
       for (const f of frames) onTodos(f);
       emit?.(client);
       return new Promise(() => {});
@@ -1134,6 +1138,45 @@ test("hard-cap error reports todo progress, files touched and the resume id", as
       assert.match(err.message, /todo 2\/3: Create b2\.txt/);
       assert.match(err.message, /Files reported edited: b1\.txt/);
       assert.match(err.message, /Resume with resumeSessionId sess-forensics/);
+      return true;
+    }
+  );
+});
+
+test("timeout error names the turn and a resume that had already failed", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      resumeSessionId: "stale-id",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory({ title: "Auth Refactor", loadFails: true }),
+      handshakeMs: 10000,
+      hardCapMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      assert.match(err.message, /titled this turn "Auth Refactor"/);
+      assert.match(err.message, /resuming stale-id had already failed \(.*Session stale-id not found\)/);
+      assert.match(err.message, /none of that earlier work was in context/);
+      assert.match(err.message, /Resume with resumeSessionId sess-forensics/);
+      return true;
+    }
+  );
+});
+
+test("timeout error stays quiet about resume and title when neither applies", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory(),
+      handshakeMs: 10000,
+      hardCapMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      assert.doesNotMatch(err.message, /titled this turn/);
+      assert.doesNotMatch(err.message, /had already failed/);
       return true;
     }
   );

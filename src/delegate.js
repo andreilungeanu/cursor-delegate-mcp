@@ -458,6 +458,7 @@ export async function runDelegate({
     if (isTimeout || err?.reason === "aborted" || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
       err.message += `\n\nLast ACP frame ${age} ago${lastToolLabel ? `; last tool call: ${lastToolLabel}` : ""}.`;
+      if (sessionTitle) err.message += ` The agent titled this turn ${JSON.stringify(sessionTitle)}.`;
       if (sawTodoFrame) {
         const { todoProgress } = sanitizeTodos([]);
         const current = todoLabel();
@@ -466,6 +467,12 @@ export async function runDelegate({
       }
       const files = normalizeAgentReportedFiles([...touched], workspace);
       if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
+      // Without this the resume hint below reads as "carry on from where you were", when the
+      // requested session was never loaded and this turn started from nothing.
+      if (resumeError) {
+        err.message += ` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
+          + ` so this ran as a fresh session and none of that earlier work was in context.`;
+      }
       if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
       if (isTimeout) {
         err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
