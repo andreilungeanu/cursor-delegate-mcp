@@ -30,7 +30,9 @@ const planEntrySchema = z.object({
 
 const delegateOutputSchema = z.object({
   result: z.string(),
-  resultSource: z.enum(["tool-free-stream", "post-tool", "none"]).optional(),
+  resultSource: z.enum(["tool-free-stream", "post-tool", "pre-tool-fallback", "none"]).optional().describe(
+    "Where result came from. pre-tool-fallback means no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it as the answer."
+  ),
   finalMessageAvailable: z.boolean().optional(),
   stopReason: z.string().optional(),
   sessionId: z.string(),

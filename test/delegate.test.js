@@ -132,6 +132,10 @@ function rpcError(code, message) {
   return err;
 }
 
+// These factories model a turn that emits no session/update at all, which now warns on its
+// own ("no message closed the turn"). Config-option tests care only about their own warning.
+const configWarnings = (out) => (out.protocolWarnings || []).filter((w) => / has no .* option/.test(w));
+
 // Measured against claude-haiku-4-5, which has no fast variant.
 const FAST_REFUSED = () => { throw rpcError(-32602, "Invalid params: Unknown model config option: fast"); };
 
@@ -149,7 +153,7 @@ test("runDelegate stays silent when a refused fast toggle was not asked for", as
     spec: "task", model: "claude-haiku-4-5", fast: false, workspace: process.cwd(),
     clientFactory: fastToggleFactory({ onSetFast: FAST_REFUSED }),
   });
-  assert.equal(out.protocolWarnings, undefined);
+  assert.deepEqual(configWarnings(out), []);
 });
 
 test("runDelegate propagates a set_config_option failure that is not an unknown option", async () => {
@@ -190,7 +194,7 @@ test("runDelegate sends reasoning and context when the caller names them", async
     workspace: process.cwd(), clientFactory: configFactory({ onSet: (id, v) => seen.push([id, v]) }),
   });
   assert.deepEqual(seen, [["fast", false], ["reasoning", "high"], ["context", "1m"]]);
-  assert.equal(out.protocolWarnings, undefined);
+  assert.deepEqual(configWarnings(out), []);
 });
 
 test("runDelegate sends no reasoning or context when the caller omits them", async () => {
@@ -208,7 +212,7 @@ test("runDelegate warns when the model has no reasoning option", async () => {
     workspace: process.cwd(), clientFactory: configFactory({ refuse: ["reasoning"] }),
   });
   assert.equal(out.stopReason, "end_turn");
-  assert.deepEqual(out.protocolWarnings, [
+  assert.deepEqual(configWarnings(out), [
     "model composer-2.5 has no reasoning option; the requested value was ignored",
   ]);
 });
@@ -512,15 +516,51 @@ test("runDelegate waits for all active tools before collecting final text", asyn
   assert.equal(out.resultSource, "post-tool");
 });
 
-test("runDelegate reports no final message instead of inventing a fallback", async () => {
+// The reversal of P0-3: this shape used to return "" with stopReason end_turn and no error,
+// and the discarded text is as often the whole answer as a preamble. Label it, warn, return it.
+test("runDelegate falls back to the last message when a tool call ends the turn", async () => {
   const out = await replayResult([
     msgChunk("I will make the edit."),
     toolCall("edit-1"),
     toolUpdate("edit-1", "completed"),
   ]);
+  assert.equal(out.result, "I will make the edit.");
+  assert.equal(out.resultSource, "pre-tool-fallback");
+  assert.equal(out.finalMessageAvailable, false, "no final message did close the turn");
+  assert.ok(out.protocolWarnings.some((w) => /never spoke again/.test(w)), "the fallback is disclosed");
+});
+
+test("runDelegate falls back to the answer, not the preamble, when both were discarded", async () => {
+  const out = await replayResult([
+    msgChunk("Inspecting the implementation."),
+    toolCall("read-1"),
+    toolUpdate("read-1", "completed"),
+    msgChunk("The parser drops the trailing byte."),
+    toolCall("verify-1"),
+    toolUpdate("verify-1", "completed"),
+  ]);
+  assert.equal(out.result, "The parser drops the trailing byte.");
+  assert.equal(out.resultSource, "pre-tool-fallback");
+});
+
+test("runDelegate warns rather than returning a bare empty success", async () => {
+  const out = await replayResult([toolCall("edit-1"), toolUpdate("edit-1", "completed")]);
   assert.equal(out.result, "");
   assert.equal(out.resultSource, "none");
   assert.equal(out.finalMessageAvailable, false);
+  assert.ok(out.protocolWarnings.some((w) => /without emitting any message/.test(w)));
+});
+
+test("runDelegate prefers a real final message over the fallback", async () => {
+  const out = await replayResult([
+    msgChunk("I will make the edit."),
+    toolCall("edit-1"),
+    toolUpdate("edit-1", "completed"),
+    msgChunk("Edited the parser."),
+  ]);
+  assert.equal(out.result, "Edited the parser.");
+  assert.equal(out.resultSource, "post-tool");
+  assert.ok(!(out.protocolWarnings || []).some((w) => /never spoke again/.test(w)));
 });
 
 test("runDelegate keeps the final message when a duplicate terminal tool update arrives late", async () => {

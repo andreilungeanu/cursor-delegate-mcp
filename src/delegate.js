@@ -310,7 +310,15 @@ export async function runDelegate({
   const activeToolCalls = new Set();
   const touched = new Set();
 
+  // Text superseded by a later tool call is normally a preamble ("Inspecting the
+  // implementation.") and returning it would be inventing a summary. But the rule cannot
+  // tell a preamble from the whole answer: an agent that replies and then runs one more
+  // command has its entire reply discarded, and the caller gets "" with stopReason end_turn
+  // and no error. So keep the last discarded segment and hand it back only when nothing
+  // survived — labelled, never blended with a real final message.
+  let discardedResult = "";
   const resetResult = () => {
+    if (resultLength > 0) discardedResult = resultChunks.join("");
     resultChunks.length = 0;
     resultLength = 0;
     truncated = false;
@@ -501,6 +509,7 @@ export async function runDelegate({
       planDetail = undefined;
       todos = new Map();
       sawTodoFrame = false;
+      discardedResult = "";
       touched.clear();
       lastToolLabel = null;
       modeChanged = undefined;
@@ -518,10 +527,20 @@ export async function runDelegate({
     let result = resultChunks.join("");
     if (truncated) result += TRUNCATION_MARKER;
     const finalMessageAvailable = result.length > 0;
-    const resultSource = finalMessageAvailable
+    let resultSource = finalMessageAvailable
       ? (sawToolCall ? "post-tool" : "tool-free-stream")
       : "none";
     const protocolWarnings = [];
+    if (!finalMessageAvailable && discardedResult) {
+      result = discardedResult;
+      resultSource = "pre-tool-fallback";
+      protocolWarnings.push(
+        "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
+        + " result carries the last message before that tool call — it may be a preamble rather than the answer."
+      );
+    } else if (!finalMessageAvailable) {
+      protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
+    }
     let stopReason;
     if (res?.stopReason !== undefined) {
       if (typeof res.stopReason === "string") stopReason = res.stopReason;
