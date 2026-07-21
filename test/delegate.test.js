@@ -743,3 +743,118 @@ test("runDelegate rejects immediately when signal is already aborted", async () 
   );
   assert.equal(factoryCalls, 0);
 });
+
+// Frames replayed from docs/acp-probes/2026-07-22-todo-stream/02-raw-multistep.txt:
+// one merge:false full list, then merge:true deltas carrying only the changed entries.
+function todoFactory(frames) {
+  return ({ onTodos }) => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-todo" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      for (const f of frames) onTodos(f);
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "done" } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+const MEASURED_TODO_FRAMES = [
+  { merge: false, todos: [
+    { id: "1", content: "Create b1.txt containing 'b1'", status: "in_progress" },
+    { id: "2", content: "Create b2.txt containing 'b2'", status: "pending" },
+    { id: "3", content: "Create b3.txt containing 'b3'", status: "pending" },
+  ] },
+  { merge: true, todos: [
+    { id: "1", content: "Create b1.txt containing 'b1'", status: "completed" },
+    { id: "2", content: "Create b2.txt containing 'b2'", status: "in_progress" },
+  ] },
+  { merge: true, todos: [
+    { id: "2", content: "Create b2.txt containing 'b2'", status: "completed" },
+    { id: "3", content: "Create b3.txt containing 'b3'", status: "in_progress" },
+  ] },
+  { merge: true, todos: [
+    { id: "3", content: "Create b3.txt containing 'b3'", status: "completed" },
+  ] },
+];
+
+test("runDelegate folds the measured todo stream into a completed list", async () => {
+  const out = await runDelegate({
+    spec: "three steps",
+    workspace: process.cwd(),
+    clientFactory: todoFactory(MEASURED_TODO_FRAMES),
+  });
+  assert.equal(out.todos.length, 3);
+  assert.deepEqual(out.todos.map((t) => t.status), ["completed", "completed", "completed"]);
+  assert.deepEqual(out.todoProgress, { total: 3, completed: 3, inProgress: 0, pending: 0 });
+  assert.equal(out.protocolWarnings, undefined);
+});
+
+test("runDelegate reports a turn that ends with todos still pending", async () => {
+  const out = await runDelegate({
+    spec: "three steps",
+    workspace: process.cwd(),
+    clientFactory: todoFactory(MEASURED_TODO_FRAMES.slice(0, 2)),
+  });
+  assert.equal(out.stopReason, "end_turn");
+  assert.deepEqual(out.todoProgress, { total: 3, completed: 1, inProgress: 1, pending: 1 });
+});
+
+test("runDelegate omits todo fields when the agent tracked none", async () => {
+  const out = await runDelegate({
+    spec: "one small thing",
+    workspace: process.cwd(),
+    clientFactory: todoFactory([]),
+  });
+  assert.equal(out.todos, undefined);
+  assert.equal(out.todoProgress, undefined);
+});
+
+test("runDelegate keeps merge:true entries whose id was never seen before", async () => {
+  const out = await runDelegate({
+    spec: "three steps",
+    workspace: process.cwd(),
+    clientFactory: todoFactory([{ merge: true, todos: [{ id: "9", content: "late arrival", status: "pending" }] }]),
+  });
+  assert.deepEqual(out.todos, [{ id: "9", content: "late arrival", status: "pending" }]);
+  assert.deepEqual(out.todoProgress, { total: 1, completed: 0, inProgress: 0, pending: 1 });
+});
+
+test("runDelegate treats merge:false as a full replacement", async () => {
+  const out = await runDelegate({
+    spec: "replan",
+    workspace: process.cwd(),
+    clientFactory: todoFactory([
+      { merge: false, todos: [{ id: "1", content: "first", status: "completed" }] },
+      { merge: false, todos: [{ id: "2", content: "second", status: "pending" }] },
+    ]),
+  });
+  assert.deepEqual(out.todos, [{ id: "2", content: "second", status: "pending" }]);
+});
+
+test("runDelegate sanitizes malformed todo entries instead of failing the call", async () => {
+  const out = await runDelegate({
+    spec: "three steps",
+    workspace: process.cwd(),
+    clientFactory: todoFactory([{ merge: false, todos: [
+      { id: "1", content: "keep me", status: "pending" },
+      { id: "2", content: { text: "object content" }, status: "pending" },
+      { id: "3", content: "odd status", status: "abandoned" },
+    ] }]),
+  });
+  assert.deepEqual(out.todos, [
+    { id: "1", content: "keep me", status: "pending" },
+    { id: "3", content: "odd status" },
+  ]);
+  assert.equal(out.todoProgress.total, 2);
+  assert.equal(out.protocolWarnings.length, 2);
+  assert.match(out.protocolWarnings[0], /todo 1 dropped/);
+  assert.match(out.protocolWarnings[1], /abandoned/);
+});

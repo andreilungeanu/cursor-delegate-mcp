@@ -78,6 +78,20 @@ export async function runDelegate({
     ? async (q) => { recordQuestions(q); return onElicit(q); }
     : async (q) => { recordQuestions(q); return null; };
 
+  // merge:false replaces the list, merge:true upserts by id. Entries always arrive complete,
+  // so a keyed set is enough — no field-level merging.
+  let todos = new Map();
+  let sawTodoFrame = false;
+  const recordTodos = ({ todos: incoming, merge }) => {
+    if (!Array.isArray(incoming)) return;
+    sawTodoFrame = true;
+    if (merge === false) todos = new Map();
+    for (const t of incoming) {
+      if (t?.id === undefined || t?.id === null) continue;
+      todos.set(String(t.id), t);
+    }
+  };
+
   let planEntries = [];
   let planOverview;
   let planDetail;
@@ -121,8 +135,36 @@ export async function runDelegate({
     return plan;
   };
 
+  const TODO_STATUSES = ["pending", "in_progress", "completed"];
+  const sanitizeTodos = (warnings) => {
+    const entries = [];
+    let i = -1;
+    for (const raw of todos.values()) {
+      i++;
+      if (typeof raw?.content !== "string") {
+        warnings.push(`todo ${i} dropped: expected string content, got ${raw === null ? "null" : typeof raw?.content}`);
+        continue;
+      }
+      const status = TODO_STATUSES.includes(raw.status) ? raw.status : undefined;
+      if (raw.status !== undefined && status === undefined) {
+        warnings.push(`todo ${i}: unknown status ${JSON.stringify(raw.status)} removed`);
+      }
+      entries.push({ id: String(raw.id), content: raw.content, ...(status ? { status } : {}) });
+    }
+    const count = (s) => entries.filter((e) => e.status === s).length;
+    return {
+      todos: entries,
+      todoProgress: {
+        total: entries.length,
+        completed: count("completed"),
+        inProgress: count("in_progress"),
+        pending: count("pending"),
+      },
+    };
+  };
+
   const make = clientFactory || ((opts) => new AcpClient(opts));
-  const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan });
+  const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan, onTodos: recordTodos });
   const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -286,6 +328,8 @@ export async function runDelegate({
       planEntries = [];
       planOverview = undefined;
       planDetail = undefined;
+      todos = new Map();
+      sawTodoFrame = false;
       touched.clear();
       lastToolLabel = null;
       supervisor.promptStarted();
@@ -319,6 +363,9 @@ export async function runDelegate({
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
     }
+    // Most successful turns emit no todos at all, so an empty list would read as "nothing
+    // done" rather than "not tracked". Report only what the agent actually sent.
+    if (sawTodoFrame) Object.assign(out, sanitizeTodos(protocolWarnings));
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {
