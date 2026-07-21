@@ -1140,3 +1140,48 @@ test("runDelegate stays quiet when the reported mode matches the request", async
   assert.equal(out.modeChanged, undefined);
   assert.equal(out.protocolWarnings, undefined);
 });
+
+// session/load replays the previous turn: measured 23 frames, incl. tool_call with
+// synthetic "replay-0-N" ids and tool_call_update carrying real diff blocks.
+function loadReplayFactory() {
+  const client = new EventEmitter();
+  const replay = () => {
+    client.emit("update", { update: { sessionUpdate: "user_message_chunk", content: { text: "earlier request" } } });
+    client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "replay-0-2", title: "Edit File", status: "pending" } });
+    client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "replay-0-2", status: "completed",
+      content: [{ type: "diff", path: "from-a-previous-turn.txt" }] } });
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "stale result text" } } });
+  };
+  client.start = async () => {};
+  client.initialize = async () => {};
+  client.newSession = async () => ({ sessionId: "sess-new" });
+  client.loadSession = async () => { replay(); return {}; };
+  client.setModel = async () => {};
+  client.setFast = async () => {};
+  client.setMode = async () => {};
+  client.prompt = async () => {
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "fresh answer" } } });
+    return { stopReason: "end_turn" };
+  };
+  client.getTranscript = () => "";
+  client.stop = () => {};
+  return () => client;
+}
+
+test("replayed session/load frames do not leak into the result or touched files", async () => {
+  const progress = [];
+  const out = await runDelegate({
+    spec: "continue",
+    workspace: process.cwd(),
+    resumeSessionId: "sess-old",
+    clientFactory: loadReplayFactory(),
+    onProgress: (m) => progress.push(m),
+  });
+  // The reset before the prompt cannot unsend a notification, so replayed frames must
+  // never reach onProgress in the first place.
+  assert.deepEqual(progress.filter((m) => /Edit File|from-a-previous-turn/.test(m)), []);
+  assert.equal(out.result, "fresh answer");
+  assert.equal(out.resultSource, "tool-free-stream");
+  assert.deepEqual(out.filesReportedByAgent, []);
+  assert.equal(out.resumed, true);
+});

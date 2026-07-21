@@ -285,6 +285,7 @@ export async function runDelegate({
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
   let modeChanged;
+  let promptInFlight = false;
   let heartbeat = null;
   const startHeartbeat = () => {
     if (!(heartbeatMs > 0)) return;
@@ -302,7 +303,12 @@ export async function runDelegate({
     heartbeat.unref?.();
   };
 
+  // session/load replays the previous turn as ordinary session/update frames, including
+  // tool_call and diff blocks. The reset before the prompt clears the state they touch,
+  // but it cannot unsend the progress notifications they already emitted — a resume
+  // otherwise reports the previous turn's tool calls and edits as if they were happening.
   client.on("update", (u) => {
+    if (!promptInFlight) return;
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
       planEntries = up.entries || [];
@@ -374,6 +380,7 @@ export async function runDelegate({
       modeChanged = undefined;
       supervisor.promptStarted();
       startHeartbeat();
+      promptInFlight = true;
       return client.prompt(sessionId, resolveSpec(spec));
     });
     thoughtProgress.end();
