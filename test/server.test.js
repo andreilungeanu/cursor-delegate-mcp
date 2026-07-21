@@ -289,6 +289,66 @@ test("runDelegateTool uses elicitInput when client supports elicitation", async 
   assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] });
 });
 
+// cursor/ask_question shape per Cursor's ACP docs. The path has never been observed firing
+// over ACP — Composer asks in plain text instead — so these pin the spec, not a capture.
+const MULTI_OPTS = [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }, { id: "c", label: "Gamma" }];
+
+async function elicitOnce({ choice, question }) {
+  const server = {
+    server: {
+      getClientCapabilities: () => ({ elicitation: {} }),
+      elicitInput: async (req) => { server.lastRequest = req; return { action: "accept", content: { choice } }; },
+    },
+  };
+  let elicitOut;
+  const runDelegate = async ({ onElicit }) => {
+    elicitOut = await onElicit({ questions: [question] });
+    return { result: "ok", stopReason: "end_turn", sessionId: "s", filesReportedByAgent: [], questionsAsked: [] };
+  };
+  const out = await runDelegateTool({
+    args: { spec: "test", mode: "agent", model: "composer-2.5" },
+    server, runDelegate, inFlight: new Map(),
+  });
+  return { elicitOut, out, request: server.lastRequest };
+}
+
+test("runDelegateTool answers an allowMultiple question with every option named", async () => {
+  const { elicitOut, request } = await elicitOnce({
+    choice: "Alpha, Gamma",
+    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS, allowMultiple: true },
+  });
+  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a", "c"] }] });
+  assert.match(request.requestedSchema.properties.choice.description, /pick one or more/);
+});
+
+test("runDelegateTool keeps a single-select question single even with a comma in the answer", async () => {
+  const { elicitOut } = await elicitOnce({
+    choice: "Alpha, Gamma",
+    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS },
+  });
+  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
+});
+
+test("runDelegateTool ignores unmatched and duplicate entries in a multi-select answer", async () => {
+  const { elicitOut, out } = await elicitOnce({
+    choice: " beta ,nonsense, b , ",
+    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS, allowMultiple: true },
+  });
+  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] });
+  assert.equal(out.structuredContent.fallbackAnswers, undefined);
+});
+
+test("runDelegateTool falls back to the first option when a multi-select answer matches nothing", async () => {
+  const { elicitOut, out } = await elicitOnce({
+    choice: "nonsense, more nonsense",
+    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS, allowMultiple: true },
+  });
+  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
+  assert.deepEqual(out.structuredContent.fallbackAnswers, [
+    { prompt: "Which?", given: "nonsense, more nonsense", chosen: "Alpha" },
+  ]);
+});
+
 test("cancel tool cancels an in-flight delegation and cleans up", async () => {
   let cancelledWith;
   let release;

@@ -94,6 +94,21 @@ export const delegateInputSchema = z.object({
   fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
 });
 
+// A cursor/ask_question question is multi-select when it sets allowMultiple, and the answer
+// field (selectedOptionIds) is a list either way. Only split on commas for those, so a
+// single-select label that itself contains a comma still matches whole.
+function matchOptions(choice, opts = [], allowMultiple = false) {
+  const norm = (s) => String(s ?? "").trim().toLowerCase();
+  const ids = [];
+  for (const part of allowMultiple ? String(choice).split(",") : [String(choice)]) {
+    const want = norm(part);
+    if (!want) continue;
+    const hit = opts.find((o) => norm(o.id) === want || norm(o.label) === want);
+    if (hit && !ids.includes(hit.id)) ids.push(hit.id);
+  }
+  return ids;
+}
+
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
   const { spec, mode, resumeSessionId, workspace, model, fast } = args;
 
@@ -126,6 +141,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
         answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
         continue;
       }
+      const listing = opts.map((o) => o.label || o.id).join(", ");
       const result = await server.server.elicitInput({
         message: title ? `${title}: ${q.prompt}` : `cursor-agent asks: ${q.prompt}`,
         requestedSchema: {
@@ -133,7 +149,11 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
           properties: {
             choice: {
               type: "string",
-              description: opts.length ? `Options: ${opts.map((o) => o.label || o.id).join(", ")}` : "your answer",
+              description: !opts.length
+                ? "your answer"
+                : q.allowMultiple
+                  ? `Options (pick one or more, comma-separated): ${listing}`
+                  : `Options: ${listing}`,
             },
           },
           required: ["choice"],
@@ -141,23 +161,16 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       });
       if (result.action !== "accept") return null;
       const choice = result.content?.choice || "";
-      let chosenOptionId = opts[0]?.id;
-      let matched = false;
-      for (const o of opts) {
-        if (
-          choice.toLowerCase() === String(o.id || "").toLowerCase() ||
-          choice.toLowerCase() === String(o.label || "").toLowerCase()
-        ) {
-          chosenOptionId = o.id;
-          matched = true;
-          break;
-        }
+      const selectedOptionIds = matchOptions(choice, opts, q.allowMultiple);
+      if (!selectedOptionIds.length && opts.length) {
+        selectedOptionIds.push(opts[0].id);
+        fallbackAnswers.push({
+          prompt: String(q.prompt ?? ""),
+          given: String(choice),
+          chosen: String(opts[0].label || opts[0].id || ""),
+        });
       }
-      if (!matched && opts.length) {
-        const chosen = opts.find((o) => o.id === chosenOptionId)?.label || chosenOptionId || "";
-        fallbackAnswers.push({ prompt: String(q.prompt ?? ""), given: String(choice), chosen: String(chosen) });
-      }
-      answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
+      answers.push({ questionId: q.id, selectedOptionIds });
     }
     return { answers };
   };
