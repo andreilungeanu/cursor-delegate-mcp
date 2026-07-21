@@ -539,10 +539,17 @@ export async function runDelegate({
           + " CURSOR_DELEGATE_HARD_CAP_MS.";
       }
     }
-    try {
-      const transcript = client.getTranscript?.(40);
-      if (transcript) err.message += "\n\n--- recent ACP transcript (last 40 frames) ---\n" + transcript;
-    } catch {}
+    // Opt-in, because the frames land in the caller's context and nothing there is
+    // actionable: the forensics above already carry everything a caller can act on. Raw
+    // frames only help someone debugging the bridge, and that has always been done with a
+    // probe under docs/acp-probes, never with an error dump.
+    const frames = Number(process.env.CURSOR_DELEGATE_TRANSCRIPT);
+    if (frames > 0) {
+      try {
+        const transcript = client.getTranscript?.(frames);
+        if (transcript) err.message += `\n\n--- recent ACP transcript (last ${frames} frames) ---\n` + transcript;
+      } catch {}
+    }
     throw err;
   } finally {
     clearInterval(heartbeat);

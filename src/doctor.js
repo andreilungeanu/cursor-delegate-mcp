@@ -101,6 +101,7 @@ export async function runDoctor({
     },
     env: {
       ACP_LOG_SIZE: process.env.ACP_LOG_SIZE !== undefined ? process.env.ACP_LOG_SIZE : DEFAULT_LOG_SIZE,
+      CURSOR_DELEGATE_TRANSCRIPT: process.env.CURSOR_DELEGATE_TRANSCRIPT ?? null,
     },
   };
 

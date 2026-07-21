@@ -882,7 +882,8 @@ function failingPromptFactory() {
   };
 }
 
-test("runDelegate appends recent transcript to error on failure", async () => {
+test("runDelegate leaves the ACP transcript out of the error by default", async () => {
+  delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
   await assert.rejects(
     () => runDelegate({
       spec: "do the thing",
@@ -892,12 +893,33 @@ test("runDelegate appends recent transcript to error on failure", async () => {
     }),
     (err) => {
       assert.match(err.message, /prompt failed/);
-      assert.match(err.message, /--- recent ACP transcript \(last 40 frames\) ---/);
-      assert.match(err.message, / out /);
-      assert.match(err.message, / in /);
+      assert.doesNotMatch(err.message, /recent ACP transcript/);
       return true;
     }
   );
+});
+
+test("runDelegate appends the transcript when CURSOR_DELEGATE_TRANSCRIPT is set", async () => {
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "12";
+  try {
+    await assert.rejects(
+      () => runDelegate({
+        spec: "do the thing",
+        mode: "agent",
+        workspace: process.cwd(),
+        clientFactory: failingPromptFactory(),
+      }),
+      (err) => {
+        assert.match(err.message, /prompt failed/);
+        assert.match(err.message, /--- recent ACP transcript \(last 12 frames\) ---/);
+        assert.match(err.message, / out /);
+        assert.match(err.message, / in /);
+        return true;
+      }
+    );
+  } finally {
+    delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  }
 });
 
 function scriptedFactory({ planEntries, stopReason = "end_turn", message = "plan ready" }) {
