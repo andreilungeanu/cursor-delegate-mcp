@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-21
+
+### Added
+
+- `reasoning` and `context` delegate inputs, forwarded as ACP config options (gpt-5.x
+  accepts `none`/`low`/`medium`/`high`/`extra-high` and `272k`/`1m`). Which options a
+  model offers is not discoverable up front, so the bridge asks and reads the rejection:
+  a model without the knob yields a `protocolWarnings` note, an invalid value still errors.
+- `sessionTitle` — the short title the agent gives the turn, also named in timeout errors.
+- `modeChanged` — set when the agent switches itself out of the requested mode, e.g. a
+  plan-mode run that becomes write-capable.
+
+### Changed
+
+- `fast` is offered to every model instead of only bare `composer-*` ids, and is always
+  sent so `false` can turn it off on a resumed session. Models without the toggle report
+  it as ignored rather than silently dropping it.
+- A failed resume no longer starts a fresh session silently: the reason lands in
+  `protocolWarnings`, and timeout errors say the earlier work was never in context.
+- Delegate failures are tagged with their reason, e.g. `delegate failed [agent-error]: …`,
+  so a rejected argument is distinguishable from a timeout without parsing prose.
+
+### Fixed
+
+- JSON-RPC errors keep the error code and the nested `data.message`, so a rejection reads
+  as `Invalid params: Unknown model config option: reasoning` instead of `Invalid params`.
+- Frames replayed by `session/load` are ignored until the prompt is in flight — a resume
+  no longer reports the previous turn's tool calls and edits as if they were happening now.
+- Multi-select `ask_question` (`allowMultiple`) is answered with every option the user
+  names, comma-separated; single-select labels containing a comma still match whole; a
+  question with no options answers empty instead of emitting a null option id.
+
 ## [1.8.0] - 2026-07-21
 
 ### Added
