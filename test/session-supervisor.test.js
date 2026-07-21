@@ -150,7 +150,7 @@ test("post-handshake silence does not trip by default", async () => {
       mode: "agent",
       workspace: process.cwd(),
       clientFactory: stubFactory("silent-stub.js"),
-      handshakeMs: 200,
+      handshakeMs: 10000,
       hardCapMs: 900,
     }),
     (err) => {
@@ -160,6 +160,10 @@ test("post-handshake silence does not trip by default", async () => {
   );
 });
 
+// The handshake budget must stay well clear of the hard cap in both of these: the deadline
+// is armed before the agent is spawned, so a cold process start competes with it, and a
+// handshake timeout is a different reason carrying a different message than the one under
+// test. Keep the cap short and the handshake long — the cap is what is being exercised.
 test("timeout errors name the last tool call and frame age", async () => {
   await assert.rejects(
     () => runDelegate({
@@ -167,7 +171,7 @@ test("timeout errors name the last tool call and frame age", async () => {
       mode: "agent",
       workspace: process.cwd(),
       clientFactory: stubFactory("silent-stub.js"),
-      handshakeMs: 200,
+      handshakeMs: 10000,
       hardCapMs: 700,
     }),
     (err) => {
