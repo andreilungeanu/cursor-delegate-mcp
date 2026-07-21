@@ -64,9 +64,22 @@ export class AcpClient extends EventEmitter {
     });
   }
 
-  initialize() { return this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } }); }
-  newSession(cwd) { return this.peer.request("session/new", { cwd, mcpServers: [] }); }
-  loadSession(sessionId, cwd) { return this.peer.request("session/load", { sessionId, cwd, mcpServers: [] }); }
+  // The handshake replies carry the agent's live capabilities, model list and mode list.
+  // Keep them; every caller still gets the reply unchanged.
+  async initialize() {
+    const res = await this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } });
+    this.protocolVersion = res?.protocolVersion;
+    this.agentCapabilities = res?.agentCapabilities;
+    return res;
+  }
+  _captureSession(res) {
+    this.sessionModels = res?.models;
+    this.sessionModes = res?.modes;
+    this.configOptions = res?.configOptions;
+    return res;
+  }
+  async newSession(cwd) { return this._captureSession(await this.peer.request("session/new", { cwd, mcpServers: [] })); }
+  async loadSession(sessionId, cwd) { return this._captureSession(await this.peer.request("session/load", { sessionId, cwd, mcpServers: [] })); }
   setModel(sessionId, modelId) { return this.peer.request("session/set_model", { sessionId, modelId }); }
   setFast(sessionId, value) { return this.peer.request("session/set_config_option", { sessionId, configId: "fast", value: String(value) }); } // configId, not optionId; ACP wants a string value
   setMode(sessionId, modeId) { return this.peer.request("session/set_mode", { sessionId, modeId }); }
