@@ -402,9 +402,10 @@ export async function runDelegate({
   // The bridge cannot see inside a running shell command, so a long silence is reported
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
-  // Only measured kind is execute — cursor-agent ran shell writes through it, and that is
-  // where the plan-mode leak showed up. The others are ACP's write-capable kinds, matched
-  // on spec rather than observation, so absence proves less than presence.
+  // execute and edit are both measured against composer-2.5: a shell write arrives as
+  // execute with the command in the title, a file write as edit with the path only in the
+  // diff frame that follows. read and search were measured too, and are correctly absent
+  // here. delete and move come from ACP's kind list rather than observation.
   const WRITE_CAPABLE_KINDS = new Set(["edit", "delete", "move", "execute"]);
   // Scoped to plan/ask deliberately. In agent mode this is every turn and carries nothing;
   // in plan/ask a disk-touching turn is abnormal — the plan itself travels over ACP as a
