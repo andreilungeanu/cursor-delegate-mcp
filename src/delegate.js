@@ -413,6 +413,7 @@ export async function runDelegate({
   const WRITE_ACTIVITY_CAP = 20;
   const watchingWrites = mode === "plan" || mode === "ask";
   let writeCapableActivity = [];
+  let writeActivityById = new Map();
   let modeChanged;
   let sessionTitle;
   let promptInFlight = false;
@@ -463,7 +464,13 @@ export async function runDelegate({
       const path = up.locations?.[0]?.path;
       lastToolLabel = String(label) + (path ? " — " + path : "");
       if (watchingWrites && WRITE_CAPABLE_KINDS.has(up.kind) && writeCapableActivity.length < WRITE_ACTIVITY_CAP) {
-        writeCapableActivity.push({ kind: up.kind, detail: lastToolLabel.slice(0, 300) });
+        const entry = { kind: up.kind, detail: lastToolLabel.slice(0, 300) };
+        writeCapableActivity.push(entry);
+        // An execute call names itself — title is the shell command. An edit call does not:
+        // measured, its title is the bare string "Edit File" and locations is empty, so the
+        // only thing distinguishing docs/plan.md from src/api.js is the diff frame that
+        // follows. Keep the id so that frame can fill the path in.
+        if (up.toolCallId != null) writeActivityById.set(up.toolCallId, entry);
       }
       try { onProgress?.(("running: " + lastToolLabel).slice(0, 200)); } catch {}
     }
@@ -477,6 +484,10 @@ export async function runDelegate({
       for (const c of up.content || []) {
         if (c.type === "diff" && c.path) {
           touched.add(c.path);
+          const pending = writeActivityById.get(up.toolCallId);
+          if (pending && !pending.path) {
+            pending.path = normalizeAgentReportedFiles([c.path], workspace)[0];
+          }
           try { onProgress?.("editing " + c.path); } catch {}
         }
         // cursor-agent has never been observed emitting these; ACP allows an agent to
@@ -525,6 +536,7 @@ export async function runDelegate({
       sawTodoFrame = false;
       discardedResult = "";
       writeCapableActivity = [];
+      writeActivityById = new Map();
       touched.clear();
       lastToolLabel = null;
       modeChanged = undefined;

@@ -1584,6 +1584,23 @@ test("runDelegate reports write-capable tool calls made during a plan turn", asy
   assert.equal(out.modeChanged, undefined, "the agent never left plan mode, so nothing drifted");
 });
 
+// Measured: an edit tool_call carries title "Edit File" and no locations, so the file it
+// touched is only knowable from the diff frame that follows.
+test("runDelegate names the file an edit-kind plan write touched", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    clientFactory: replayFactory([
+      { sessionUpdate: "tool_call", toolCallId: "e1", kind: "edit", title: "Edit File", status: "pending" },
+      { sessionUpdate: "tool_call_update", toolCallId: "e1", status: "completed",
+        content: [{ type: "diff", path: path.join(process.cwd(), "docs", "plan.md") }] },
+      msgChunk("Saved the plan."),
+    ]),
+  });
+  assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File", path: "docs/plan.md" }]);
+});
+
 test("runDelegate stays quiet about write-capable tool calls in agent mode", async () => {
   const out = await runDelegate({
     spec: "do it",
