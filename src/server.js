@@ -42,7 +42,9 @@ const delegateOutputSchema = z.object({
   autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
   fallbackAnswers: z.array(z.object({ prompt: z.string(), given: z.string(), chosen: z.string() })).optional(),
   cancelRequested: z.boolean().optional(),
-  protocolWarnings: z.array(z.string()).optional(),
+  protocolWarnings: z.array(z.string()).optional().describe(
+    "Non-fatal diagnostics that did not justify failing the call — dropped or sanitized ACP fields, a failed resume, ignored model options, skipped contextFiles, a mid-session mode switch. Read whenever present."
+  ),
   plan: z.object({
     entries: z.array(planEntrySchema),
     overview: z.string().optional(),
