@@ -160,6 +160,27 @@ test("post-handshake silence does not trip by default", async () => {
   );
 });
 
+test("a handshake timeout after session/new hands back the resumable session", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "task",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: stubFactory("session-then-hang-stub.js"),
+      handshakeMs: 400,
+      hardCapMs: 10000,
+    }),
+    (err) => {
+      assert.equal(err.reason, "handshake-timeout");
+      assert.match(err.message, /Resume with resumeSessionId sess-half-open/);
+      assert.match(err.message, /Last ACP frame \d+s ago/);
+      // No prompt was sent, so a slow shell command cannot be why the wire went quiet.
+      assert.doesNotMatch(err.message, /does not stream shell output/);
+      return true;
+    }
+  );
+});
+
 // The handshake budget must stay well clear of the hard cap in both of these: the deadline
 // is armed before the agent is spawned, so a cold process start competes with it, and a
 // handshake timeout is a different reason carrying a different message than the one under

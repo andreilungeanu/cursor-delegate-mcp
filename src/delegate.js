@@ -615,7 +615,12 @@ export async function runDelegate({
     // slow. Name what was outstanding so the caller can tell the two apart, and so a
     // retry can resume from the work already done instead of restarting blind.
     const isTimeout = err?.reason === "hard-cap" || err?.reason === "idle-timeout";
-    if (isTimeout || err?.reason === "aborted" || err?.reason === "agent-exit") {
+    // A handshake timeout gets the forensics but not the long-command advice below: the
+    // session exists by then — it is set before set_model, set_config_option and set_mode,
+    // any of which can hang — so the resume hint is what the caller needs. No prompt was
+    // ever sent, so no shell command can be the reason for the silence.
+    const isStall = isTimeout || err?.reason === "handshake-timeout";
+    if (isStall || err?.reason === "aborted" || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
       err.message += `\n\nLast ACP frame ${age} ago${lastToolLabel ? `; last tool call: ${lastToolLabel}` : ""}.`;
       if (sessionTitle) err.message += ` The agent titled this turn ${JSON.stringify(sessionTitle)}.`;
