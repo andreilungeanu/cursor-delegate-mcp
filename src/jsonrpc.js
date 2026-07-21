@@ -44,7 +44,13 @@ export class JsonRpcPeer {
       const p = this.pending.get(msg.id);
       if (p) {
         this.pending.delete(msg.id);
-        if (msg.error) p.reject(new Error(msg.error.message || "rpc error"));
+        // cursor-agent puts the actual reason in error.data.message; error.message alone
+        // is a bare "Invalid params".
+        if (msg.error) {
+          const err = new Error([msg.error.message || "rpc error", msg.error.data?.message].filter(Boolean).join(": "));
+          err.code = msg.error.code;
+          p.reject(err);
+        }
         else p.resolve(msg.result);
       }
     } else if (msg.method && hasId) {

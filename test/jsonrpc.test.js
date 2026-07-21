@@ -50,6 +50,25 @@ test("error response rejects the request promise", async () => {
   });
 });
 
+test("error response keeps the code and the nested data.message", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let written = "";
+  output.on("data", (c) => { written += c.toString(); });
+  const peer = new JsonRpcPeer(input, output, {});
+  const p = peer.request("session/set_config_option", { configId: "fast" });
+  const sent = lines(written)[0];
+  input.write(JSON.stringify({
+    jsonrpc: "2.0", id: sent.id,
+    error: { code: -32602, message: "Invalid params", data: { message: "Unknown model config option: fast" } },
+  }) + "\n");
+  await assert.rejects(p, (err) => {
+    assert.equal(err.message, "Invalid params: Unknown model config option: fast");
+    assert.equal(err.code, -32602);
+    return true;
+  });
+});
+
 test("malformed JSON line is ignored without crashing", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
