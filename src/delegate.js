@@ -43,6 +43,19 @@ async function openSession(client, resumeSessionId, workspace) {
   return client.newSession(workspace);
 }
 
+// session/new reports the models the agent actually offers. Reject an unknown id here,
+// where the real list can be named, rather than letting set_model fail without it.
+// Agents that report no list are left alone.
+function assertKnownModel(client, model) {
+  const available = client?.sessionModels?.availableModels;
+  if (!Array.isArray(available) || available.length === 0) return;
+  const ids = available.map((m) => m?.modelId).filter((id) => typeof id === "string");
+  if (ids.length === 0 || ids.includes(model)) return;
+  const err = new Error(`Unknown model ${JSON.stringify(model)}. This agent offers: ${ids.join(", ")}.`);
+  err.reason = "unknown-model";
+  throw err;
+}
+
 // Composer bare ids (e.g. composer-2.5) expose standard vs fast via set_config_option.
 // Other models use separate ids (e.g. gpt-5-fast) — see cursor-agent --list-models.
 function composerFastToggleApplies(model) {
@@ -334,6 +347,7 @@ export async function runDelegate({
       sessionId = sess.sessionId;
       supervisor.setSessionId(sessionId);
       onSessionReady?.(sessionId, client);
+      assertKnownModel(client, model);
       await client.setModel(sessionId, model);
       if (composerFastToggleApplies(model)) await client.setFast(sessionId, fast);
       await client.setMode(sessionId, mode);

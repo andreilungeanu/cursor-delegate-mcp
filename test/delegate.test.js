@@ -1037,3 +1037,62 @@ test("timeout forensics stay quiet when the agent tracked no todos", async () =>
     }
   );
 });
+
+function modelListFactory(availableModels) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => {
+      if (availableModels !== undefined) client.sessionModels = { availableModels };
+      return { sessionId: "sess-models" };
+    };
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate rejects an unknown model and names the agent's real list", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "go",
+      workspace: process.cwd(),
+      model: "gpt-9-imaginary",
+      clientFactory: modelListFactory([{ modelId: "composer-2.5" }, { modelId: "claude-opus-4-8" }]),
+    }),
+    (err) => {
+      assert.equal(err.reason, "unknown-model");
+      assert.match(err.message, /Unknown model "gpt-9-imaginary"/);
+      assert.match(err.message, /composer-2\.5, claude-opus-4-8/);
+      return true;
+    }
+  );
+});
+
+test("runDelegate accepts a model the agent advertises", async () => {
+  const out = await runDelegate({
+    spec: "go",
+    workspace: process.cwd(),
+    model: "claude-opus-4-8",
+    clientFactory: modelListFactory([{ modelId: "composer-2.5" }, { modelId: "claude-opus-4-8" }]),
+  });
+  assert.equal(out.result, "ok");
+});
+
+test("runDelegate skips model validation when the agent advertises no list", async () => {
+  const out = await runDelegate({
+    spec: "go",
+    workspace: process.cwd(),
+    model: "anything-goes",
+    clientFactory: modelListFactory(undefined),
+  });
+  assert.equal(out.result, "ok");
+});
