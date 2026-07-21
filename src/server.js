@@ -92,6 +92,10 @@ export const delegateInputSchema = z.object({
   workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL),
   fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
+  // Which options a model offers, and their valid values, are only knowable by asking the
+  // agent, so these stay open strings and the agent rejects what it does not accept.
+  reasoning: z.string().trim().min(1).optional().describe("Reasoning effort. Not offered by every model; gpt-5.x accepts none, low, medium, high, extra-high."),
+  context: z.string().trim().min(1).optional().describe("Context window size. Not offered by every model; gpt-5.x accepts 272k and 1m."),
 });
 
 // A cursor/ask_question question is multi-select when it sets allowMultiple, and the answer
@@ -110,7 +114,7 @@ function matchOptions(choice, opts = [], allowMultiple = false) {
 }
 
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
-  const { spec, mode, resumeSessionId, workspace, model, fast } = args;
+  const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context } = args;
 
   const progressToken = extra?._meta?.progressToken;
   let onProgress = () => {};
@@ -187,6 +191,8 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       workspace: workspace || process.cwd(),
       model,
       fast,
+      reasoning,
+      context,
       onElicit,
       onProgress,
       signal: extra?.signal,

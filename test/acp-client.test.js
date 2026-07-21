@@ -23,7 +23,7 @@ test("client initializes, opens a session, prompts and emits updates", async () 
   const s = await client.newSession(process.cwd());
   assert.equal(s.sessionId, "sess-1");
   await client.setModel(s.sessionId, "composer-2.5");
-  await client.setFast(s.sessionId, false);
+  await client.setConfigOption(s.sessionId, "fast", false);
   await client.setMode(s.sessionId, "agent");
   const res = await client.prompt(s.sessionId, "do it");
   assert.equal(res.stopReason, "end_turn");

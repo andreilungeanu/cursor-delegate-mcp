@@ -664,7 +664,7 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
     acp.initialize = async () => {};
     acp.newSession = async () => ({ sessionId: "sess-malformed" });
     acp.setModel = async () => {};
-    acp.setFast = async () => {};
+    acp.setConfigOption = async () => {};
     acp.setMode = async () => {};
     acp.prompt = async () => {
       acp.emit("update", { update: { sessionUpdate: "plan", entries: [{ content: { text: "not a string" } }] } });

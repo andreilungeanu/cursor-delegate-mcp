@@ -58,24 +58,25 @@ function assertKnownModel(client, model) {
   throw err;
 }
 
-// Which models carry a fast toggle is not discoverable up front: session/new reports
+// Which config options a model carries is not discoverable up front: session/new reports
 // configOptions for the default model and set_model returns nothing. So ask, and read the
-// rejection as the answer. Measured: composer-2.5 and gpt-5.4 accept it, claude-haiku-4-5
-// answers -32602 "Unknown model config option: fast". Returns true only when fast was
-// wanted and refused, which is the one case the caller needs told about.
-async function applyFast(client, sessionId, fast) {
+// rejection as the answer. Two distinct -32602s, both measured: "Unknown model config
+// option: X" means this model has no such knob — report it and carry on. "Invalid value
+// for X: Y" means the caller named a value the model rejects, which must not be swallowed.
+// Returns true when the option is unsupported.
+async function applyConfig(client, sessionId, configId, value) {
   try {
-    await client.setFast(sessionId, fast);
+    await client.setConfigOption(sessionId, configId, value);
     return false;
   } catch (err) {
-    if (err?.code !== -32602 || !/config option/i.test(err?.message || "")) throw err;
-    return fast === true;
+    if (err?.code !== -32602 || !/unknown model config option/i.test(err?.message || "")) throw err;
+    return true;
   }
 }
 
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
-  model = DEFAULT_MODEL, fast = false, clientFactory, onElicit,
+  model = DEFAULT_MODEL, fast = false, reasoning, context, clientFactory, onElicit,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
@@ -370,7 +371,7 @@ export async function runDelegate({
 
   let sessionId;
   let resumeError;
-  let fastUnavailable = false;
+  const unsupportedOptions = [];
   try {
     const res = await supervisor.supervise(async () => {
       await client.start();
@@ -382,7 +383,13 @@ export async function runDelegate({
       onSessionReady?.(sessionId, client);
       assertKnownModel(client, model);
       await client.setModel(sessionId, model);
-      fastUnavailable = await applyFast(client, sessionId, fast);
+      // fast is always sent: a resumed session may already have it on, so false is a real
+      // instruction. reasoning and context are only sent when the caller named one.
+      if (await applyConfig(client, sessionId, "fast", fast) && fast) unsupportedOptions.push("fast");
+      for (const [id, value] of [["reasoning", reasoning], ["context", context]]) {
+        if (value === undefined) continue;
+        if (await applyConfig(client, sessionId, id, value)) unsupportedOptions.push(id);
+      }
       await client.setMode(sessionId, mode);
       resetResult();
       sawToolCall = false;
@@ -430,7 +437,7 @@ export async function runDelegate({
     };
     if (sessionTitle) out.sessionTitle = sessionTitle;
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
-    if (fastUnavailable) protocolWarnings.push(`model ${model} has no fast toggle; ran at standard speed`);
+    for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
     }

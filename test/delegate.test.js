@@ -16,7 +16,7 @@ function thinkingFactory() {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-think" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "SECRET-THOUGHT: planning" } } });
@@ -50,7 +50,7 @@ function oversizedFactory() {
   client.initialize = async () => {};
   client.newSession = async () => ({ sessionId: "sess-big" });
   client.setModel = async () => {};
-  client.setFast = async () => {};
+  client.setConfigOption = async () => {};
   client.setMode = async () => {};
   client.prompt = async () => {
     const chunk = "x".repeat(1024 * 1024);
@@ -70,7 +70,7 @@ function fastToggleFactory({ onSetFast }) {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-track" });
     client.setModel = async () => {};
-    client.setFast = async (_sid, value) => onSetFast?.(value);
+    client.setConfigOption = async (_sid, configId, value) => onSetFast?.(value, configId);
     client.setMode = async () => {};
     client.prompt = async () => ({ stopReason: "end_turn" });
     client.getTranscript = () => "";
@@ -141,7 +141,7 @@ test("runDelegate warns but completes when the model refuses the fast toggle", a
     clientFactory: fastToggleFactory({ onSetFast: FAST_REFUSED }),
   });
   assert.equal(out.stopReason, "end_turn");
-  assert.ok(out.protocolWarnings.some((w) => /claude-haiku-4-5 has no fast toggle/.test(w)));
+  assert.ok(out.protocolWarnings.some((w) => /claude-haiku-4-5 has no fast option/.test(w)));
 });
 
 test("runDelegate stays silent when a refused fast toggle was not asked for", async () => {
@@ -162,6 +162,67 @@ test("runDelegate propagates a set_config_option failure that is not an unknown 
   );
 });
 
+// Measured on gpt-5.4: reasoning accepts none|low|medium|high|extra-high, context 272k|1m.
+function configFactory({ onSet, refuse = [], invalid = [] }) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-cfg" });
+    client.setModel = async () => {};
+    client.setConfigOption = async (_sid, configId, value) => {
+      if (refuse.includes(configId)) throw rpcError(-32602, `Invalid params: Unknown model config option: ${configId}`);
+      if (invalid.includes(configId)) throw rpcError(-32602, `Invalid params: Invalid value for ${configId}: ${value}`);
+      onSet?.(configId, value);
+    };
+    client.setMode = async () => {};
+    client.prompt = async () => ({ stopReason: "end_turn" });
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate sends reasoning and context when the caller names them", async () => {
+  const seen = [];
+  const out = await runDelegate({
+    spec: "task", model: "gpt-5.4", reasoning: "high", context: "1m",
+    workspace: process.cwd(), clientFactory: configFactory({ onSet: (id, v) => seen.push([id, v]) }),
+  });
+  assert.deepEqual(seen, [["fast", false], ["reasoning", "high"], ["context", "1m"]]);
+  assert.equal(out.protocolWarnings, undefined);
+});
+
+test("runDelegate sends no reasoning or context when the caller omits them", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "composer-2.5",
+    workspace: process.cwd(), clientFactory: configFactory({ onSet: (id) => seen.push(id) }),
+  });
+  assert.deepEqual(seen, ["fast"]);
+});
+
+test("runDelegate warns when the model has no reasoning option", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "composer-2.5", reasoning: "high",
+    workspace: process.cwd(), clientFactory: configFactory({ refuse: ["reasoning"] }),
+  });
+  assert.equal(out.stopReason, "end_turn");
+  assert.deepEqual(out.protocolWarnings, [
+    "model composer-2.5 has no reasoning option; the requested value was ignored",
+  ]);
+});
+
+test("runDelegate fails loudly when a config value is rejected as invalid", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "gpt-5.4", reasoning: "banana",
+      workspace: process.cwd(), clientFactory: configFactory({ invalid: ["reasoning"] }),
+    }),
+    /Invalid value for reasoning: banana/
+  );
+});
+
 test("runDelegate reports the agent-assigned session title", async () => {
   const factory = () => {
     const client = new EventEmitter();
@@ -169,7 +230,7 @@ test("runDelegate reports the agent-assigned session title", async () => {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-titled" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "session_info_update", title: "File Creator" } });
@@ -193,7 +254,7 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
     client.loadSession = async () => { throw rpcError(-32602, "Invalid params: Session old-id not found"); };
     client.newSession = async () => ({ sessionId: "sess-fresh" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => ({ stopReason: "end_turn" });
     client.getTranscript = () => "";
@@ -277,7 +338,7 @@ const replayFactory = (updates) => () => {
   client.initialize = async () => {};
   client.newSession = async () => ({ sessionId: "sess-replay" });
   client.setModel = async () => {};
-  client.setFast = async () => {};
+  client.setConfigOption = async () => {};
   client.setMode = async () => {};
   client.prompt = async () => {
     for (const update of updates) client.emit("update", { update });
@@ -597,7 +658,7 @@ function askingFactory() {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-ask" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       await onElicit({
@@ -701,7 +762,7 @@ function scriptedFactory({ planEntries, stopReason = "end_turn", message = "plan
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-scripted" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       if (planEntries) client.emit("update", { update: { sessionUpdate: "plan", entries: planEntries } });
@@ -769,7 +830,7 @@ function abortablePromptFactory({ onAbortReady, track }) {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-abort" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.on = (...args) => EventEmitter.prototype.on.call(client, ...args);
     client.off = (...args) => EventEmitter.prototype.off.call(client, ...args);
@@ -835,7 +896,7 @@ function todoFactory(frames) {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-todo" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       for (const f of frames) onTodos(f);
@@ -948,7 +1009,7 @@ test("runDelegate collects type:content blocks emitted after tools finish", asyn
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-content" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Run", status: "pending" } });
@@ -1000,7 +1061,7 @@ test("heartbeat names the in-progress todo during a silent turn", async () => {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-hb" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = () => {
       onTodos({ merge: false, todos: [
@@ -1037,7 +1098,7 @@ function hangingFactory({ todos: frames = [], emit } = {}) {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-forensics" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.cancel = async () => {};
     client.prompt = () => {
@@ -1130,7 +1191,7 @@ function modelListFactory(availableModels) {
       return { sessionId: "sess-models" };
     };
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
@@ -1186,7 +1247,7 @@ function modeFactory(modeIds) {
     client.initialize = async () => {};
     client.newSession = async () => ({ sessionId: "sess-mode" });
     client.setModel = async () => {};
-    client.setFast = async () => {};
+    client.setConfigOption = async () => {};
     client.setMode = async () => {};
     client.prompt = async () => {
       for (const id of modeIds) {
@@ -1239,7 +1300,7 @@ function loadReplayFactory() {
   client.newSession = async () => ({ sessionId: "sess-new" });
   client.loadSession = async () => { replay(); return {}; };
   client.setModel = async () => {};
-  client.setFast = async () => {};
+  client.setConfigOption = async () => {};
   client.setMode = async () => {};
   client.prompt = async () => {
     client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "fresh answer" } } });
