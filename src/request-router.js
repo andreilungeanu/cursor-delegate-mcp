@@ -1,6 +1,6 @@
-const ACK_METHODS = new Set(["cursor/update_todos", "cursor/task", "cursor/generate_image"]);
+const ACK_METHODS = new Set(["cursor/task", "cursor/generate_image"]);
 
-export function createRequestRouter({ respond, respondError, onElicit, onCreatePlan, mode = "agent", log = () => {} }) {
+export function createRequestRouter({ respond, respondError, onElicit, onCreatePlan, onTodos, mode = "agent", log = () => {} }) {
   return async function handle(id, method, params) {
     try {
       if (method === "session/request_permission") {
@@ -29,6 +29,13 @@ export function createRequestRouter({ respond, respondError, onElicit, onCreateP
         });
         const outcome = mode === "agent" ? "accepted" : "rejected";
         return respond(id, { outcome: { outcome } });
+      }
+      if (method === "cursor/update_todos") {
+        onTodos?.({ todos: params?.todos, merge: params?.merge, toolCallId: params?.toolCallId });
+        log({ method, params });
+        // The documented response is {outcome:{outcome:"accepted", todos}}; the bare {} we
+        // have always sent is accepted by cursor-agent, so it stays until that changes.
+        return respond(id, {});
       }
       if (ACK_METHODS.has(method)) {
         log({ method, params });

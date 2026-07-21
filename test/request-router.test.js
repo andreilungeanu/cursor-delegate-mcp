@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequestRouter } from "../src/request-router.js";
 
-function harness({ onElicit, onCreatePlan, mode } = {}) {
+function harness({ onElicit, onCreatePlan, onTodos, mode } = {}) {
   const responses = []; const logs = [];
   const router = createRequestRouter({
     respond: (id, result) => responses.push({ id, result }),
     respondError: (id, code, message) => responses.push({ id, error: { code, message } }),
     onElicit,
     onCreatePlan,
+    onTodos,
     mode,
     log: (e) => logs.push(e),
   });
@@ -54,6 +55,27 @@ test("update_todos is acked with empty result", async () => {
   await router(7, "cursor/update_todos", { todos: [] });
   assert.deepEqual(responses[0], { id: 7, result: {} });
   assert.equal(logs.length, 1);
+});
+
+test("update_todos forwards todos, merge and toolCallId to onTodos", async () => {
+  const seen = [];
+  const { router, responses } = harness({ onTodos: (t) => seen.push(t) });
+  await router(0, "cursor/update_todos", {
+    todos: [{ id: "1", content: "Create b1.txt", status: "in_progress" }],
+    merge: true,
+    toolCallId: "tool_a4435fca",
+  });
+  assert.deepEqual(responses[0], { id: 0, result: {} });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].merge, true);
+  assert.equal(seen[0].toolCallId, "tool_a4435fca");
+  assert.deepEqual(seen[0].todos, [{ id: "1", content: "Create b1.txt", status: "in_progress" }]);
+});
+
+test("update_todos still acks when no onTodos is wired", async () => {
+  const { router, responses } = harness();
+  await router(3, "cursor/update_todos", { todos: [], merge: false });
+  assert.deepEqual(responses[0], { id: 3, result: {} });
 });
 
 test("unknown method fails safe with an error, never hangs", async () => {

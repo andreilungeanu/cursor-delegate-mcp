@@ -9,12 +9,13 @@ import { VERSION } from "./version.js";
 const STDERR_CAP = 64 * 1024;
 
 export class AcpClient extends EventEmitter {
-  constructor({ spawnSpec, onElicit, mode, onCreatePlan } = {}) {
+  constructor({ spawnSpec, onElicit, mode, onCreatePlan, onTodos } = {}) {
     super();
     this.spawnSpec = spawnSpec || resolveAcpSpawn();
     this.onElicit = onElicit;
     this.mode = mode;
     this.onCreatePlan = onCreatePlan;
+    this.onTodos = onTodos;
   }
 
   start() {
@@ -52,6 +53,7 @@ export class AcpClient extends EventEmitter {
       respondError: (id, c, m) => this.peer.respondError(id, c, m),
       onElicit: this.onElicit,
       onCreatePlan: this.onCreatePlan,
+      onTodos: this.onTodos,
       mode: this.mode,
       log: (e) => this.emit("ack", e),
     });
