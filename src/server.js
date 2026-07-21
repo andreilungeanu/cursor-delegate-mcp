@@ -45,6 +45,19 @@ const delegateOutputSchema = z.object({
     overview: z.string().optional(),
     detail: z.string().optional(),
   }).optional(),
+  todos: z.array(z.object({
+    id: z.string(),
+    content: z.string(),
+    status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  })).optional().describe(
+    "Todo list the agent tracked for this turn. Absent when the agent tracked none, which is common on short tasks and does not imply incompleteness."
+  ),
+  todoProgress: z.object({
+    total: z.number(),
+    completed: z.number(),
+    inProgress: z.number(),
+    pending: z.number(),
+  }).optional(),
 }).passthrough();
 
 const doctorOutputSchema = z.object({
