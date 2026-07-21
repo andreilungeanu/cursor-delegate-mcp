@@ -20,7 +20,7 @@ const inFlight = new Map();
 // Loaded at connect, before any tool schema is, so this carries only pre-call facts: what a
 // caller needs to decide whether to delegate at all. Call-time facts belong on the parameter
 // descriptions, read while the call is being written.
-export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: mode="plan" and mode="ask" are instructions to the agent, not limits the bridge enforces, and modeChanged is the only signal one was ignored. So scope workspace to the smallest relevant directory and review the git diff after every run, not only write-capable ones; filesReportedByAgent lists what the agent reported editing but the diff is authoritative.`;
+export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: mode="plan" and mode="ask" are instructions to the agent, not limits the bridge enforces, and the bridge cannot detect one being ignored. So scope workspace to the smallest relevant directory and review the git diff after every run, not only write-capable ones; filesReportedByAgent lists what the agent reported editing but the diff is authoritative.`;
 
 const planEntrySchema = z.object({
   content: z.string(),

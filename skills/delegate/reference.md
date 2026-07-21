@@ -74,7 +74,14 @@ zeros. Most correct, complete turns emit no todo frames at all — short tasks e
 
 `mode` is set on the agent via `session/set_mode`. The bridge auto-approves **every**
 `session/request_permission` regardless of mode, so read-only-ness in `plan` and `ask` is the
-agent's behavior, not an enforced boundary. `modeChanged` is the only signal it drifted.
+agent's behavior, not an enforced boundary.
+
+`modeChanged` only fires on a `current_mode_update` frame — the agent formally switching modes.
+It is **not** a signal that the mode was ignored: a measured `plan` run wrote two files via
+shell while staying in `plan`, so no frame was sent and `modeChanged` stayed unset. Nothing
+about that run was ignoring the mode from the protocol's point of view; the agent simply did
+not honor the instruction. cursor-agent never sends `session/request_permission` for shell
+work either, so there is no approval the bridge could have withheld.
 
 - **`agent`** — implements; auto-approves writes; accepts `cursor/create_plan` if emitted.
 - **`plan`** — plan only; the sole mode-dependent gate is rejecting `cursor/create_plan`

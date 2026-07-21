@@ -68,7 +68,8 @@ Scale effort to the task:
 3. **Review** — read `filesReportedByAgent`, inspect the git diff, run tests/lint **yourself**,
    and check the result against the brief's acceptance criteria.
    - If `modeChanged` is set, the run was write-capable regardless of the mode you asked
-     for — review the diff before reporting a plan-only outcome.
+     for — review the diff before reporting a plan-only outcome. Its **absence** proves
+     nothing: a `plan` run can write without ever leaving `plan`, and does not fire it.
    - If `todoProgress` is present and `completed < total`, the agent left work unfinished —
      resume rather than reporting done. Its **absence** means nothing; most turns track no
      todos at all.
