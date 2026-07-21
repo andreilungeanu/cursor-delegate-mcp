@@ -1601,6 +1601,40 @@ test("runDelegate names the file an edit-kind plan write touched", async () => {
   assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File", path: "docs/plan.md" }]);
 });
 
+// A rename arrives as an edit/delete pair rather than a move-kind call; delete carries a
+// diff frame naming the file it removed.
+test("runDelegate names the file a delete-kind plan write removed", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    clientFactory: replayFactory([
+      { sessionUpdate: "tool_call", toolCallId: "d1", kind: "delete", title: "Delete File", status: "pending" },
+      { sessionUpdate: "tool_call_update", toolCallId: "d1", status: "completed",
+        content: [{ type: "diff", path: "old.txt" }] },
+      msgChunk("Removed it."),
+    ]),
+  });
+  assert.deepEqual(out.writeCapableActivity, [{ kind: "delete", detail: "Delete File", path: "old.txt" }]);
+});
+
+// Not every edit call is followed by a diff frame. The entry still has to appear — a write
+// with no path is worth less than one with a path, but far more than silence.
+test("runDelegate reports an edit-kind plan write that never emits a diff", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    clientFactory: replayFactory([
+      { sessionUpdate: "tool_call", toolCallId: "e9", kind: "edit", title: "Edit File", status: "pending" },
+      toolUpdate("e9", "completed"),
+      msgChunk("Done."),
+    ]),
+  });
+  assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File" }]);
+  assert.deepEqual(out.filesReportedByAgent, [], "no diff frame, so the edit-tool channel saw nothing");
+});
+
 test("runDelegate stays quiet about write-capable tool calls in agent mode", async () => {
   const out = await runDelegate({
     spec: "do it",

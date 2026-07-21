@@ -41,7 +41,8 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 | `questionsAsked` | Prompts surfaced via `cursor/ask_question`. In practice **always empty**: cursor-agent has never been measured emitting that request, so clarifying questions arrive as ordinary text in `result`. |
 | `resumed` | Whether `resumeSessionId` was honored. When `false`, read `protocolWarnings` for why the load failed. |
 | `sessionTitle` | Short title the agent gave this turn. A label for telling concurrent delegations apart; also named in timeout errors. |
-| `modeChanged` | `{from, to}`, set when the agent switched itself out of the requested mode. A `plan` run that becomes `agent` is **write-capable** — inspect the diff before reporting a plan-only outcome. |
+| `modeChanged` | `{from, to}`, set when the agent switched itself out of the requested mode. A `plan` run that becomes `agent` is **write-capable** — inspect the diff before reporting a plan-only outcome. Absence proves nothing; see Mode behavior. |
+| `writeCapableActivity` | Write-capable tool calls (`edit`/`delete`/`move`/`execute`) run during a `plan` or `ask` turn, each with the tool's own label and, when a diff frame named one, the `path` it touched. **Only populated for `plan` and `ask`** — in `agent` mode every turn would fill it, so it carries no signal there and is omitted. It records what the agent **ran**, not what changed: a shell command is not a change list. |
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
 | `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
 | `autoAnswered` | Present on non-elicitation clients using the default first-option fallback (`prompt`, `chosen`). |
@@ -75,6 +76,10 @@ zeros. Most correct, complete turns emit no todo frames at all — short tasks e
 `mode` is set on the agent via `session/set_mode`. The bridge auto-approves **every**
 `session/request_permission` regardless of mode, so read-only-ness in `plan` and `ask` is the
 agent's behavior, not an enforced boundary.
+
+In `plan` and `ask`, write-capable tool calls are reported in `writeCapableActivity` with a
+`protocolWarning`. That is disclosure, not a boundary: the call is reported as it is dispatched,
+never withheld. In `agent` mode nothing is reported — review the diff, as always.
 
 `modeChanged` only fires on a `current_mode_update` frame — the agent formally switching modes.
 It is **not** a signal that the mode was ignored: a measured `plan` run wrote two files via
