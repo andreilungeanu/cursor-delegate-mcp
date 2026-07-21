@@ -36,6 +36,9 @@ const delegateOutputSchema = z.object({
   ),
   questionsAsked: z.array(z.string()).optional(),
   resumed: z.boolean().optional(),
+  sessionTitle: z.string().optional().describe(
+    "Short title the agent gave this turn. Present on most turns; purely a label."
+  ),
   autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
   fallbackAnswers: z.array(z.object({ prompt: z.string(), given: z.string(), chosen: z.string() })).optional(),
   cancelRequested: z.boolean().optional(),

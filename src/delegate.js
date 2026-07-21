@@ -296,6 +296,7 @@ export async function runDelegate({
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
   let modeChanged;
+  let sessionTitle;
   let promptInFlight = false;
   let heartbeat = null;
   const startHeartbeat = () => {
@@ -329,6 +330,11 @@ export async function runDelegate({
     // we find out rather than assume.
     if (up.sessionUpdate === "current_mode_update" && up.currentModeId && up.currentModeId !== mode) {
       modeChanged = { from: mode, to: up.currentModeId };
+    }
+    // The agent names the turn a beat after the prompt lands ("File Creator"). Cheap
+    // label for a caller juggling several delegations.
+    if (up.sessionUpdate === "session_info_update" && typeof up.title === "string" && up.title) {
+      sessionTitle = up.title;
     }
     if (up.sessionUpdate === "agent_thought_chunk" && up.content?.text) {
       thoughtProgress.push(up.content.text);
@@ -392,6 +398,7 @@ export async function runDelegate({
       touched.clear();
       lastToolLabel = null;
       modeChanged = undefined;
+      sessionTitle = undefined;
       supervisor.promptStarted();
       startHeartbeat();
       promptInFlight = true;
@@ -421,6 +428,7 @@ export async function runDelegate({
       questionsAsked,
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
+    if (sessionTitle) out.sessionTitle = sessionTitle;
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     if (fastUnavailable) protocolWarnings.push(`model ${model} has no fast toggle; ran at standard speed`);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {

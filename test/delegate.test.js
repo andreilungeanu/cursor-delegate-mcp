@@ -162,6 +162,29 @@ test("runDelegate propagates a set_config_option failure that is not an unknown 
   );
 });
 
+test("runDelegate reports the agent-assigned session title", async () => {
+  const factory = () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-titled" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      client.emit("update", { update: { sessionUpdate: "session_info_update", title: "File Creator" } });
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+  const out = await runDelegate({ spec: "task", workspace: process.cwd(), clientFactory: factory });
+  assert.equal(out.sessionTitle, "File Creator");
+  assert.equal(out.result, "done");
+});
+
 test("runDelegate reports why a failed resume started a fresh session", async () => {
   const factory = () => {
     const client = new EventEmitter();
