@@ -148,11 +148,18 @@ test("server advertises instructions, output schemas, and conservative tool anno
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    assert.match(client.getInstructions(), /review the git diff after every write-capable run/);
-    assert.match(client.getInstructions(), /filesReportedByAgent lists the files the agent reported editing/);
+    // Assert the invariants a host cannot infer, not the prose carrying them: hosts that
+    // never load the skill see only this string.
+    const instructions = client.getInstructions();
+    assert.match(instructions, /auto-approved, in every mode/);
+    assert.match(instructions, /review the git diff after every run/);
+    assert.match(instructions, /filesReportedByAgent/);
     const listed = await client.listTools();
     const tools = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
     assert.deepEqual(Object.keys(tools).sort(), ["cancel", "delegate", "doctor"]);
+    // The description is what a host reads immediately before calling, so it must not
+    // reassert the workspace confinement the instructions just denied.
+    assert.match(tools.delegate.description, /every permission the agent requests, in any mode and anywhere on disk/i);
     assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
     assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
     assert.ok(tools.delegate.outputSchema);

@@ -17,7 +17,10 @@ if (nodeMajor < 22) {
 
 const inFlight = new Map();
 
-export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. The delegate tool can create, modify, or delete files in its workspace, so scope workspace to the smallest relevant directory and review the git diff after every write-capable run; filesReportedByAgent lists the files the agent reported editing. For approval-gated work, call delegate with mode="plan", review the returned plan and sessionId, then resume with mode="agent" and resumeSessionId. Use mode="ask" for read-only questions and doctor for setup diagnostics.`;
+// Loaded at connect, before any tool schema is, so this carries only pre-call facts: what a
+// caller needs to decide whether to delegate at all. Call-time facts belong on the parameter
+// descriptions, read while the call is being written.
+export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: mode="plan" and mode="ask" are instructions to the agent, not limits the bridge enforces, and modeChanged is the only signal one was ignored. So scope workspace to the smallest relevant directory and review the git diff after every run, not only write-capable ones; filesReportedByAgent lists what the agent reported editing but the diff is authoritative.`;
 
 const planEntrySchema = z.object({
   content: z.string(),
@@ -89,7 +92,7 @@ const doctorOutputSchema = z.object({
 
 export const delegateInputSchema = z.object({
   spec: z.string().describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
-  mode: z.enum(["agent", "plan", "ask"]).default("agent"),
+  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them; modeChanged reports it if it switched."),
   resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
   workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd)"),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL),
@@ -98,7 +101,7 @@ export const delegateInputSchema = z.object({
   // agent, so these stay open strings and the agent rejects what it does not accept.
   reasoning: z.string().trim().min(1).optional().describe("Reasoning effort. Not offered by every model; gpt-5.x accepts none, low, medium, high, extra-high."),
   context: z.string().trim().min(1).optional().describe("Context window size. Not offered by every model; gpt-5.x accepts 272k and 1m."),
-  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace. Anything skipped is reported in protocolWarnings, never fatal."),
+  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace, and paths outside it are allowed — attach only files the agent should read. Anything skipped is reported in protocolWarnings, never fatal."),
 });
 
 // A cursor/ask_question question is multi-select when it sets allowMultiple, and the answer
@@ -237,7 +240,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves writes in workspace; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
+        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves every permission the agent requests, in any mode and anywhere on disk; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
       inputSchema: delegateInputSchema,
       outputSchema: delegateOutputSchema,
       annotations: {
