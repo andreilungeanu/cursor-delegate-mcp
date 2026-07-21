@@ -91,16 +91,16 @@ test("runDelegate returns assembled result for a fresh session", async () => {
   assert.equal(out.plan, undefined);
 });
 
-test("runDelegate calls setFast only for Composer bare model ids", async () => {
+test("runDelegate offers the fast toggle to every model", async () => {
   let fastCalls = 0;
   await runDelegate({
     spec: "task",
-    model: "gpt-5",
+    model: "gpt-5.4",
     fast: true,
     workspace: process.cwd(),
     clientFactory: fastToggleFactory({ onSetFast: () => { fastCalls++; } }),
   });
-  assert.equal(fastCalls, 0);
+  assert.equal(fastCalls, 1);
 
   fastCalls = 0;
   let fastValue;
@@ -131,6 +131,36 @@ function rpcError(code, message) {
   err.code = code;
   return err;
 }
+
+// Measured against claude-haiku-4-5, which has no fast variant.
+const FAST_REFUSED = () => { throw rpcError(-32602, "Invalid params: Unknown model config option: fast"); };
+
+test("runDelegate warns but completes when the model refuses the fast toggle", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", fast: true, workspace: process.cwd(),
+    clientFactory: fastToggleFactory({ onSetFast: FAST_REFUSED }),
+  });
+  assert.equal(out.stopReason, "end_turn");
+  assert.ok(out.protocolWarnings.some((w) => /claude-haiku-4-5 has no fast toggle/.test(w)));
+});
+
+test("runDelegate stays silent when a refused fast toggle was not asked for", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", fast: false, workspace: process.cwd(),
+    clientFactory: fastToggleFactory({ onSetFast: FAST_REFUSED }),
+  });
+  assert.equal(out.protocolWarnings, undefined);
+});
+
+test("runDelegate propagates a set_config_option failure that is not an unknown option", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "composer-2.5", fast: true, workspace: process.cwd(),
+      clientFactory: fastToggleFactory({ onSetFast: () => { throw rpcError(-32603, "Internal error"); } }),
+    }),
+    /Internal error/
+  );
+});
 
 test("runDelegate reports why a failed resume started a fresh session", async () => {
   const factory = () => {

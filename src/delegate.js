@@ -58,10 +58,19 @@ function assertKnownModel(client, model) {
   throw err;
 }
 
-// Composer bare ids (e.g. composer-2.5) expose standard vs fast via set_config_option.
-// Other models use separate ids (e.g. gpt-5-fast) — see cursor-agent --list-models.
-function composerFastToggleApplies(model) {
-  return /^composer-\d+(?:\.\d+)?$/i.test(model);
+// Which models carry a fast toggle is not discoverable up front: session/new reports
+// configOptions for the default model and set_model returns nothing. So ask, and read the
+// rejection as the answer. Measured: composer-2.5 and gpt-5.4 accept it, claude-haiku-4-5
+// answers -32602 "Unknown model config option: fast". Returns true only when fast was
+// wanted and refused, which is the one case the caller needs told about.
+async function applyFast(client, sessionId, fast) {
+  try {
+    await client.setFast(sessionId, fast);
+    return false;
+  } catch (err) {
+    if (err?.code !== -32602 || !/config option/i.test(err?.message || "")) throw err;
+    return fast === true;
+  }
 }
 
 export async function runDelegate({
@@ -355,6 +364,7 @@ export async function runDelegate({
 
   let sessionId;
   let resumeError;
+  let fastUnavailable = false;
   try {
     const res = await supervisor.supervise(async () => {
       await client.start();
@@ -366,7 +376,7 @@ export async function runDelegate({
       onSessionReady?.(sessionId, client);
       assertKnownModel(client, model);
       await client.setModel(sessionId, model);
-      if (composerFastToggleApplies(model)) await client.setFast(sessionId, fast);
+      fastUnavailable = await applyFast(client, sessionId, fast);
       await client.setMode(sessionId, mode);
       resetResult();
       sawToolCall = false;
@@ -412,6 +422,7 @@ export async function runDelegate({
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
+    if (fastUnavailable) protocolWarnings.push(`model ${model} has no fast toggle; ran at standard speed`);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
     }
