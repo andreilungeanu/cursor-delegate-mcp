@@ -6,6 +6,63 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-21
+
+Two input validations change behavior: calls that used to succeed by accident now fail
+instead. They are called out as breaking below.
+
+### Added
+
+- `contextFiles` delegate input: paths attached to the prompt instead of pasted into `spec`.
+  Text files are sent as `resource_link` blocks the agent may open; images (png/jpg/gif/webp
+  under 5MB) are sent inline, gated on the agent advertising `promptCapabilities.image`.
+  Relative paths resolve against `workspace` but are not confined to it, and anything skipped
+  lands in `protocolWarnings`.
+- `writeCapableActivity` — write-capable tool calls (`edit`/`delete`/`move`/`execute`) made
+  during a `plan` or `ask` turn, each with the path when a diff frame named one, plus a
+  `protocolWarning`. It records what the agent **ran**, not what changed: a shell command is
+  not a change list, and an entry without a path may be a no-op or a retry. Not populated in
+  `agent` mode, where every turn would fill it and it would carry no signal.
+
+### Changed
+
+- **Breaking:** `workspace` must exist and be a directory. A missing path was accepted and
+  then created by the agent's first write, so a typo silently spawned a parallel empty tree
+  that looked like success at every layer.
+- **Breaking:** a `spec` that is a bare path now fails when nothing is there or it is not a
+  file, instead of being handed to the agent as literal prompt text and spending a live turn.
+  Prose that merely names a file ("fix the bug in src/api.js") is unaffected.
+- `SERVER_INSTRUCTIONS` no longer claims `modeChanged` is the signal that a mode was ignored.
+  It fires only on a formal mode switch, and an agent that writes while staying in `plan`
+  sends no such frame — so the field cannot detect the case it was cited for. The skill and
+  its reference say the same.
+- Failure messages no longer carry the raw ACP transcript: up to 40 frames of JSON-RPC in the
+  caller's context on every failure, none of it actionable beside the structured forensics.
+  Set `CURSOR_DELEGATE_TRANSCRIPT=<frames>` to append it when debugging the bridge itself.
+- The delegate skill asks Cursor to run tests as it works instead of discouraging it, and
+  briefs now ask for gaps back: unmet acceptance criteria and assumptions made.
+- Documented that ACP model ids are the bare family (`grok-4.5`), not the CLI's tier-suffixed
+  `--list-models` strings, which `session/set_model` rejects. Over ACP the tier is `fast` or
+  `reasoning`, so the CLI's `gpt-5.4-high` is `model: "gpt-5.4"` with `reasoning: "high"`.
+- The skill and its reference document the surface added since 1.7.0, and correct three
+  things they described wrongly: `protocolWarnings` is a general soft-diagnostic channel,
+  `plan`/`ask` are requests to the agent rather than boundaries, and `questionsAsked` is
+  effectively always empty.
+
+### Fixed
+
+- A turn whose final message is followed by one more tool call no longer returns `""` shaped
+  like success. The discarded message comes back as `resultSource: "pre-tool-fallback"` with
+  a `protocolWarning`, and a real final message always wins over it. A turn that emitted no
+  message at all still returns `""`, now with a warning rather than silence.
+- A handshake timeout now names the frame age and the resumable `sessionId`. The session
+  exists before `set_model`, `set_config_option` and `set_mode`, any of which can hang, so
+  callers were losing resumable work. It does not get the long-running-command advice — no
+  prompt was ever sent.
+- `cancel` no longer drops its session handle on the non-force path, which made the natural
+  escalation — cancel, wait, cancel with `force` — report `not-found` while the agent was
+  still alive.
+
 ## [1.9.0] - 2026-07-21
 
 ### Added
