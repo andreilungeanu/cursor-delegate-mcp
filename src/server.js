@@ -63,7 +63,10 @@ const delegateOutputSchema = z.object({
     "Todo list the agent tracked for this turn. Absent when the agent tracked none, which is common on short tasks and does not imply incompleteness."
   ),
   modeChanged: z.object({ from: z.string(), to: z.string() }).optional().describe(
-    "Set when the agent switched itself out of the requested mode mid-session."
+    "Set when the agent switched itself out of the requested mode mid-session. Absence does not mean the mode was honored — an agent can write while staying in plan."
+  ),
+  writeCapableActivity: z.array(z.object({ kind: z.string(), detail: z.string() })).optional().describe(
+    "Write-capable tool calls (edit/delete/move/execute) the agent ran during a plan or ask turn, which are expected to change nothing. Records what ran, not what changed — a shell command is not a change list. Only populated for mode plan and ask."
   ),
   todoProgress: z.object({
     total: z.number(),

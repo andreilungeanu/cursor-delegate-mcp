@@ -1564,6 +1564,51 @@ function modeFactory(modeIds) {
   };
 }
 
+// Measured live against composer-2.5: a plan run told to write did so through a single
+// execute tool call, with no current_mode_update and no session/request_permission.
+const execCall = (title) => ({ sessionUpdate: "tool_call", toolCallId: "x1", kind: "execute", title, status: "pending" });
+
+test("runDelegate reports write-capable tool calls made during a plan turn", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    clientFactory: replayFactory([
+      execCall("`echo LEAKED > leak.txt`"),
+      toolUpdate("x1", "completed"),
+      msgChunk("Wrote the file."),
+    ]),
+  });
+  assert.deepEqual(out.writeCapableActivity, [{ kind: "execute", detail: "`echo LEAKED > leak.txt`" }]);
+  assert.ok(out.protocolWarnings.some((w) => /write-capable tool call/.test(w)));
+  assert.equal(out.modeChanged, undefined, "the agent never left plan mode, so nothing drifted");
+});
+
+test("runDelegate stays quiet about write-capable tool calls in agent mode", async () => {
+  const out = await runDelegate({
+    spec: "do it",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: replayFactory([execCall("`npm test`"), toolUpdate("x1", "completed"), msgChunk("Done.")]),
+  });
+  assert.equal(out.writeCapableActivity, undefined, "every agent turn does this; it would carry no signal");
+});
+
+test("runDelegate does not flag read-only tool calls in a plan turn", async () => {
+  const out = await runDelegate({
+    spec: "plan it",
+    mode: "plan",
+    workspace: process.cwd(),
+    clientFactory: replayFactory([
+      { sessionUpdate: "tool_call", toolCallId: "r1", kind: "read", title: "Read File", status: "pending" },
+      toolUpdate("r1", "completed"),
+      msgChunk("Here is the plan."),
+    ]),
+  });
+  assert.equal(out.writeCapableActivity, undefined);
+  assert.equal(out.protocolWarnings, undefined);
+});
+
 test("runDelegate flags a mode switch away from the requested mode", async () => {
   const out = await runDelegate({
     spec: "plan it",

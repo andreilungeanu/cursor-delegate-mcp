@@ -402,6 +402,17 @@ export async function runDelegate({
   // The bridge cannot see inside a running shell command, so a long silence is reported
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
+  // Only measured kind is execute — cursor-agent ran shell writes through it, and that is
+  // where the plan-mode leak showed up. The others are ACP's write-capable kinds, matched
+  // on spec rather than observation, so absence proves less than presence.
+  const WRITE_CAPABLE_KINDS = new Set(["edit", "delete", "move", "execute"]);
+  // Scoped to plan/ask deliberately. In agent mode this is every turn and carries nothing;
+  // in plan/ask a disk-touching turn is abnormal — the plan itself travels over ACP as a
+  // string via cursor/create_plan, not as a file — so the base rate makes it worth reading.
+  // It records what the agent *ran*, never what changed: a command is not a change list.
+  const WRITE_ACTIVITY_CAP = 20;
+  const watchingWrites = mode === "plan" || mode === "ask";
+  let writeCapableActivity = [];
   let modeChanged;
   let sessionTitle;
   let promptInFlight = false;
@@ -451,6 +462,9 @@ export async function runDelegate({
       const label = up.title || up.kind || "tool";
       const path = up.locations?.[0]?.path;
       lastToolLabel = String(label) + (path ? " — " + path : "");
+      if (watchingWrites && WRITE_CAPABLE_KINDS.has(up.kind) && writeCapableActivity.length < WRITE_ACTIVITY_CAP) {
+        writeCapableActivity.push({ kind: up.kind, detail: lastToolLabel.slice(0, 300) });
+      }
       try { onProgress?.(("running: " + lastToolLabel).slice(0, 200)); } catch {}
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
@@ -510,6 +524,7 @@ export async function runDelegate({
       todos = new Map();
       sawTodoFrame = false;
       discardedResult = "";
+      writeCapableActivity = [];
       touched.clear();
       lastToolLabel = null;
       modeChanged = undefined;
@@ -566,6 +581,14 @@ export async function runDelegate({
     // Most successful turns emit no todos at all, so an empty list would read as "nothing
     // done" rather than "not tracked". Report only what the agent actually sent.
     if (sawTodoFrame) Object.assign(out, sanitizeTodos(protocolWarnings));
+    if (writeCapableActivity.length) {
+      out.writeCapableActivity = writeCapableActivity;
+      protocolWarnings.push(
+        `mode ${mode} asked the agent not to change anything, but it ran ${writeCapableActivity.length}`
+        + ` write-capable tool call${writeCapableActivity.length === 1 ? "" : "s"} — see writeCapableActivity`
+        + " for what ran, and the diff for what changed."
+      );
+    }
     if (modeChanged) {
       out.modeChanged = modeChanged;
       protocolWarnings.push(`agent switched mode from ${modeChanged.from} to ${modeChanged.to} mid-session`);
