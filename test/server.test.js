@@ -258,6 +258,35 @@ test("runDelegateTool auto-answers clarifying questions by default when client l
   assert.match(result.content[0].text, /"autoAnswered"/);
 });
 
+async function autoAnswerOnce(question) {
+  const server = { server: { getClientCapabilities: () => ({}) } };
+  let elicitOut;
+  const runDelegate = async ({ onElicit }) => {
+    elicitOut = await onElicit({ questions: [question] });
+    return { result: "ok", stopReason: "end_turn", sessionId: "s", filesReportedByAgent: [], questionsAsked: [] };
+  };
+  const out = await runDelegateTool({
+    args: { spec: "test", mode: "agent", model: "composer-2.5" },
+    server, runDelegate, inFlight: new Map(),
+  });
+  return { elicitOut, out };
+}
+
+test("runDelegateTool auto-answer takes one option even when allowMultiple is set", async () => {
+  // No user to ask, so consenting to every option would over-answer. One, and disclosed.
+  const { elicitOut, out } = await autoAnswerOnce({
+    id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }], allowMultiple: true,
+  });
+  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
+  assert.deepEqual(out.structuredContent.autoAnswered, [{ prompt: "Which?", chosen: "Alpha" }]);
+});
+
+test("runDelegateTool auto-answer sends no option id when the question carries none", async () => {
+  const { elicitOut } = await autoAnswerOnce({ id: "q1", prompt: "Thoughts?" });
+  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: [] }] });
+  assert.ok(!JSON.stringify(elicitOut).includes("null"), "selectedOptionIds must stay a string list");
+});
+
 test("runDelegateTool uses elicitInput when client supports elicitation", async () => {
   const inFlight = new Map();
   let elicitCalls = 0;

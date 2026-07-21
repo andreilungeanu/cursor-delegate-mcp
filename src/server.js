@@ -135,10 +135,12 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
     for (const q of questions || []) {
       const opts = q.options || [];
       if (!supportsElicitation) {
-        const chosenOptionId = opts[0]?.id;
-        const chosen = opts.find((o) => o.id === chosenOptionId)?.label || chosenOptionId || "";
-        autoAnswered.push({ prompt: String(q.prompt ?? ""), chosen: String(chosen) });
-        answers.push({ questionId: q.id, selectedOptionIds: [chosenOptionId] });
+        // There is no user to ask, so allowMultiple changes nothing here: selecting every
+        // option would consent to more than the caller asked for. Take the first and
+        // disclose it. An option-less question answers empty rather than [null].
+        const first = opts[0];
+        autoAnswered.push({ prompt: String(q.prompt ?? ""), chosen: String(first?.label || first?.id || "") });
+        answers.push({ questionId: q.id, selectedOptionIds: first?.id ? [first.id] : [] });
         continue;
       }
       const listing = opts.map((o) => o.label || o.id).join(", ");
