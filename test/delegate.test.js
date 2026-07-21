@@ -947,3 +947,93 @@ test("heartbeat names the in-progress todo during a silent turn", async () => {
   assert.ok(beats.length >= 2, `expected repeated heartbeats, got ${JSON.stringify(beats)}`);
   assert.match(beats[0], /todo 2\/2: Run integration tests/);
 });
+
+function hangingFactory({ todos: frames = [], emit } = {}) {
+  return ({ onTodos }) => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-forensics" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.cancel = async () => {};
+    client.prompt = () => {
+      for (const f of frames) onTodos(f);
+      emit?.(client);
+      return new Promise(() => {});
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("hard-cap error reports todo progress, files touched and the resume id", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory({
+        todos: MEASURED_TODO_FRAMES.slice(0, 2),
+        emit: (client) => client.emit("update", { update: {
+          sessionUpdate: "tool_call_update", toolCallId: "t1", status: "in_progress",
+          content: [{ type: "diff", path: "b1.txt" }],
+        } }),
+      }),
+      handshakeMs: 10000,
+      hardCapMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      assert.equal(err.reason, "hard-cap");
+      assert.match(err.message, /1 of 3 todos completed/);
+      assert.match(err.message, /todo 2\/3: Create b2\.txt/);
+      assert.match(err.message, /Files reported edited: b1\.txt/);
+      assert.match(err.message, /Resume with resumeSessionId sess-forensics/);
+      return true;
+    }
+  );
+});
+
+test("aborted error carries the same forensics as a timeout", async () => {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 150);
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory({ todos: MEASURED_TODO_FRAMES.slice(0, 1) }),
+      handshakeMs: 10000,
+      hardCapMs: 10000,
+      heartbeatMs: 0,
+      signal: controller.signal,
+    }),
+    (err) => {
+      assert.equal(err.reason, "aborted");
+      assert.match(err.message, /0 of 3 todos completed/);
+      assert.match(err.message, /Resume with resumeSessionId sess-forensics/);
+      assert.doesNotMatch(err.message, /does not stream shell output/);
+      return true;
+    }
+  );
+});
+
+test("timeout forensics stay quiet when the agent tracked no todos", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory(),
+      handshakeMs: 10000,
+      hardCapMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      assert.doesNotMatch(err.message, /todos completed/);
+      assert.doesNotMatch(err.message, /Files reported edited/);
+      assert.match(err.message, /does not stream shell output/);
+      return true;
+    }
+  );
+});

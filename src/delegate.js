@@ -325,8 +325,8 @@ export async function runDelegate({
     }
   });
 
+  let sessionId;
   try {
-    let sessionId;
     const res = await supervisor.supervise(async () => {
       await client.start();
       await client.initialize();
@@ -388,13 +388,26 @@ export async function runDelegate({
     return out;
   } catch (err) {
     // A bare duration says nothing about whether the agent wedged or a command was just
-    // slow. Name what was outstanding so the caller can tell the two apart.
-    if (err?.reason === "hard-cap" || err?.reason === "idle-timeout") {
+    // slow. Name what was outstanding so the caller can tell the two apart, and so a
+    // retry can resume from the work already done instead of restarting blind.
+    const isTimeout = err?.reason === "hard-cap" || err?.reason === "idle-timeout";
+    if (isTimeout || err?.reason === "aborted" || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
-      err.message += `\n\nLast ACP frame ${age} ago${lastToolLabel ? `; last tool call: ${lastToolLabel}` : ""}.`
-        + " cursor-agent does not stream shell output over ACP, so a long-running command emits"
-        + " nothing until it exits. Split the command, run it in the background and poll, or raise"
-        + " CURSOR_DELEGATE_HARD_CAP_MS.";
+      err.message += `\n\nLast ACP frame ${age} ago${lastToolLabel ? `; last tool call: ${lastToolLabel}` : ""}.`;
+      if (sawTodoFrame) {
+        const { todoProgress } = sanitizeTodos([]);
+        const current = todoLabel();
+        err.message += ` ${todoProgress.completed} of ${todoProgress.total} todos completed`
+          + `${current ? `; ${current}` : ""}.`;
+      }
+      const files = normalizeAgentReportedFiles([...touched], workspace);
+      if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
+      if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
+      if (isTimeout) {
+        err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
+          + " nothing until it exits. Split the command, run it in the background and poll, or raise"
+          + " CURSOR_DELEGATE_HARD_CAP_MS.";
+      }
     }
     try {
       const transcript = client.getTranscript?.(40);
