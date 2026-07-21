@@ -38,14 +38,14 @@ Scale effort to the task:
      This is what prevents wrong assumptions and clarifying questions. Transmit them
      faithfully; don't invent constraints the user didn't state.
    - **Done when** — verifiable acceptance criteria. Describe the **end state, not the
-     commands that prove it** — verification is yours (step 3). Asking Cursor to run a full
-     test suite, build, or install is slower, costs delegate tokens, and is blind: command
-     output does not cross the ACP wire, so you receive Cursor's summary of the run rather
-     than the run. Keep any command you do ask for short.
+     commands that prove it** — you verify in step 3. Shell output does not cross the ACP
+     wire, so a delegated test run returns Cursor's summary of it, not the run. Keep any
+     command you do ask for short.
 
    **Point, don't paste**: reference files to read or mimic ("follow the middleware
    pattern in src/api/middleware/auth.js") instead of pasting code — Cursor reads the
-   repo itself; the brief carries judgment, not content.
+   repo itself; the brief carries judgment, not content. For images, and for documents
+   outside the repo, prose cannot point at all — attach those with `contextFiles`.
 
    **Quote, don't paraphrase**: when the user states exact values or behaviors
    (delimiters, limits, error messages, response wording, timestamp formats), carry their
@@ -55,18 +55,31 @@ Scale effort to the task:
    > src/config/. Read src/api/middleware/auth.js first and follow that middleware
    > pattern. Decisions: sliding window, config-driven; user's words: "100 requests per
    > minute, 429 with body {"error":"rate_limited"}"; no new dependencies. Done when:
-   > every endpoint is covered, existing tests pass, and a unit test for the limiter is added.
+   > every endpoint is covered and a unit test for the limiter is added, with no existing
+   > test changed.
 
    Do not create a spec file unless the user wants one saved in the repo.
 2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
-3. **Review** — read `filesReportedByAgent`, inspect the git diff, and run tests/lint
-   **yourself**, then check the result against the brief's acceptance criteria. You can see
-   full command output and Cursor cannot show you it, so long verification belongs here.
+3. **Review** — read `filesReportedByAgent`, inspect the git diff, run tests/lint **yourself**
+   (you see full command output; Cursor cannot show it to you), and check the result against
+   the brief's acceptance criteria.
+   - If `modeChanged` is set, the run was write-capable regardless of the mode you asked
+     for — review the diff before reporting a plan-only outcome.
+   - If `todoProgress` is present and `completed < total`, the agent left work unfinished —
+     resume rather than reporting done. Its **absence** means nothing; most turns track no
+     todos at all.
    - If criteria fail: resume the **same session** with the specific failure
      ("tests X and Y fail with <error>; fix without changing the public API") — not a
      re-run of the whole brief.
    - After 2 failed resume attempts, start a fresh session with a rewritten brief.
    - Report the honest outcome either way.
+
+   On failure, the error is tagged `delegate failed [reason]: …`. `unknown-model` and
+   `agent-error` mean an argument was rejected — fix it, retrying is pointless.
+   `hard-cap`, `idle-timeout` and `aborted` carry a `resumeSessionId` — resume it if the
+   work should continue (`aborted` means the host interrupted you, so often it shouldn't).
+   `agent-exit` means the process died: resume once, then run `doctor` if it repeats.
+   `handshake-timeout` never reached a session; run `doctor`.
 4. **Report** — summarize what changed and whether acceptance criteria are met.
 
 For field-level API detail, read [reference.md](reference.md) in this skill directory.
@@ -99,6 +112,7 @@ Use bare model ids (e.g. `composer-2.5`), not exploded `--list-models` strings.
 clarification or follow-up in the same session. Unknown or stale ids fall back to a new session.
 - Never guess a `resumeSessionId`. After any resume call, check `resumed` in the
 response — if `false`, the run had **zero** prior context, so re-send a full brief.
+`protocolWarnings` carries why the load failed, which separates a stale id from a typo.
 
 ## Clarifying questions
 
@@ -112,10 +126,19 @@ correction if any conflicts.)
 
 ## Security
 
-Delegation **auto-approves file writes** under `workspace`. Treat every call like granting
-write access to that tree. Do not point `workspace` at `$HOME` or `/`. 
+Delegation **auto-approves every permission the agent requests, in every mode** — not only
+writes, and not only in `agent` mode. `plan` and `ask` are instructions to the agent, not
+boundaries the bridge enforces; `modeChanged` is your only signal that one was ignored.
+Treat every call like granting write access to `workspace`, and do not point it at `$HOME`
+or `/`.
+
+`contextFiles` resolves paths against `workspace` but is **not confined to it** — the write
+boundary is that tree, the read boundary is not. Attach only files you intend the agent to
+read.
 
 ## Other MCP tools
 
 - **`doctor`** — setup diagnostics when the user asks or delegation fails (`agent.found`, version, elicitation; `deep: true` for handshake).
-- **`cancel`** — best-effort cancel by `sessionId` (MCP calls are serialized; often delegate must finish first).
+- **`cancel`** — best-effort cancel by `sessionId` (MCP calls are serialized; often delegate
+  must finish first). If the agent ignores it and keeps going, call again with `force: true`
+  to kill the process after a grace period.
