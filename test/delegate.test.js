@@ -126,6 +126,35 @@ test("runDelegate defaults fast to false for Composer when omitted", async () =>
   assert.equal(fastValue, false);
 });
 
+function rpcError(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+test("runDelegate reports why a failed resume started a fresh session", async () => {
+  const factory = () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.loadSession = async () => { throw rpcError(-32602, "Invalid params: Session old-id not found"); };
+    client.newSession = async () => ({ sessionId: "sess-fresh" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => ({ stopReason: "end_turn" });
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+  const out = await runDelegate({
+    spec: "task", resumeSessionId: "old-id", workspace: process.cwd(), clientFactory: factory,
+  });
+  assert.equal(out.sessionId, "sess-fresh");
+  assert.equal(out.resumed, false);
+  assert.ok(out.protocolWarnings.some((w) => /resuming old-id failed.*Session old-id not found/.test(w)));
+});
+
 test("runDelegate captures session/update:plan with latest update winning", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, "end_turn");

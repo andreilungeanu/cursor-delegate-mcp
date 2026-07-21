@@ -37,10 +37,12 @@ async function openSession(client, resumeSessionId, workspace) {
   try {
     await client.loadSession(resumeSessionId, workspace);
     return { sessionId: resumeSessionId }; // load does not echo sessionId
-  } catch {
-    // stale or unknown session — start fresh
+  } catch (err) {
+    // Starting fresh is right, but silently doing so leaves the caller unable to tell a
+    // stale id from a typo'd one — keep why the load failed.
+    const fresh = await client.newSession(workspace);
+    return { ...fresh, resumeError: err?.message || String(err) };
   }
-  return client.newSession(workspace);
 }
 
 // session/new reports the models the agent actually offers. Reject an unknown id here,
@@ -352,12 +354,14 @@ export async function runDelegate({
   });
 
   let sessionId;
+  let resumeError;
   try {
     const res = await supervisor.supervise(async () => {
       await client.start();
       await client.initialize();
       const sess = await openSession(client, resumeSessionId, workspace);
       sessionId = sess.sessionId;
+      resumeError = sess.resumeError;
       supervisor.setSessionId(sessionId);
       onSessionReady?.(sessionId, client);
       assertKnownModel(client, model);
@@ -407,6 +411,7 @@ export async function runDelegate({
       questionsAsked,
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
+    if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
     }
