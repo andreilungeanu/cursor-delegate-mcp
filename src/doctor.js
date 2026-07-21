@@ -41,10 +41,16 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
   const workspaceDir = workspace || process.cwd();
   let timer;
   try {
+    const details = {};
     const work = (async () => {
       await client.start();
       await client.initialize();
       await client.newSession(workspaceDir);
+      details.protocolVersion = client.protocolVersion ?? null;
+      details.agentCapabilities = client.agentCapabilities ?? {};
+      details.models = (client.sessionModels?.availableModels ?? []).map((m) => m?.modelId).filter(Boolean);
+      details.currentModel = client.sessionModels?.currentModelId ?? null;
+      details.modes = (client.sessionModes?.availableModes ?? []).map((m) => m?.id).filter(Boolean);
     })();
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
@@ -53,7 +59,7 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
       }, timeoutMs);
     });
     await Promise.race([work, timeout]);
-    return { ok: true };
+    return { ok: true, ...details };
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   } finally {

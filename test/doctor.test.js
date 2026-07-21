@@ -93,7 +93,14 @@ test("runDoctor deep:true runs handshake via clientFactory", async () => {
     workspace: process.cwd(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.deepEqual(out.agent.handshake, { ok: true });
+  assert.deepEqual(out.agent.handshake, {
+    ok: true,
+    protocolVersion: null,
+    agentCapabilities: {},
+    models: [],
+    currentModel: null,
+    modes: [],
+  });
   assert.ok(calls.includes("start"));
   assert.ok(calls.includes("initialize"));
   assert.ok(calls.includes("newSession"));
@@ -163,4 +170,33 @@ test("runDoctor reports portable runtime diagnostics", async () => {
   assert.equal(out.runtime.node, process.versions.node);
   assert.equal(out.runtime.platform, process.platform);
   assert.equal(out.client.supportsElicitation, true);
+});
+
+test("runDoctor deep:true reports the negotiated capability matrix", async () => {
+  const clientFactory = () => ({
+    start: async () => {},
+    initialize: async function () {
+      this.protocolVersion = 1;
+      this.agentCapabilities = { loadSession: true, promptCapabilities: { image: true }, sessionCapabilities: { list: {} } };
+    },
+    newSession: async function () {
+      this.sessionModels = { currentModelId: "composer-2.5", availableModels: [{ modelId: "composer-2.5" }, { modelId: "claude-opus-4-8" }] };
+      this.sessionModes = { currentModeId: "agent", availableModes: [{ id: "agent" }, { id: "plan" }, { id: "ask" }] };
+      return { sessionId: "s" };
+    },
+    stop: () => {},
+  });
+  const out = await runDoctor({
+    deep: true,
+    spawnSpec: stubSpawnSpec(),
+    clientFactory,
+    workspace: process.cwd(),
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.equal(out.agent.handshake.ok, true);
+  assert.equal(out.agent.handshake.protocolVersion, 1);
+  assert.equal(out.agent.handshake.currentModel, "composer-2.5");
+  assert.deepEqual(out.agent.handshake.models, ["composer-2.5", "claude-opus-4-8"]);
+  assert.deepEqual(out.agent.handshake.modes, ["agent", "plan", "ask"]);
+  assert.equal(out.agent.handshake.agentCapabilities.sessionCapabilities.list !== undefined, true);
 });
