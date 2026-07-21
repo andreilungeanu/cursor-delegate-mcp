@@ -516,8 +516,8 @@ test("runDelegate waits for all active tools before collecting final text", asyn
   assert.equal(out.resultSource, "post-tool");
 });
 
-// The reversal of P0-3: this shape used to return "" with stopReason end_turn and no error,
-// and the discarded text is as often the whole answer as a preamble. Label it, warn, return it.
+// This shape used to return "" with stopReason end_turn and no error. The discarded text is
+// as often the whole answer as a preamble, so label it, warn, and return it.
 test("runDelegate falls back to the last message when a tool call ends the turn", async () => {
   const out = await replayResult([
     msgChunk("I will make the edit."),
@@ -1564,8 +1564,8 @@ function modeFactory(modeIds) {
   };
 }
 
-// Measured live against composer-2.5: a plan run told to write did so through a single
-// execute tool call, with no current_mode_update and no session/request_permission.
+// A plan run that writes through the shell emits one execute tool call and no
+// current_mode_update: the mode is ignored without ever being left.
 const execCall = (title) => ({ sessionUpdate: "tool_call", toolCallId: "x1", kind: "execute", title, status: "pending" });
 
 test("runDelegate reports write-capable tool calls made during a plan turn", async () => {
@@ -1584,8 +1584,8 @@ test("runDelegate reports write-capable tool calls made during a plan turn", asy
   assert.equal(out.modeChanged, undefined, "the agent never left plan mode, so nothing drifted");
 });
 
-// Measured: an edit tool_call carries title "Edit File" and no locations, so the file it
-// touched is only knowable from the diff frame that follows.
+// An edit tool_call carries title "Edit File" and no locations, so the file it touched is
+// only knowable from the diff frame that follows.
 test("runDelegate names the file an edit-kind plan write touched", async () => {
   const out = await runDelegate({
     spec: "plan it",

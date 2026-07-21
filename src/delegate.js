@@ -402,10 +402,9 @@ export async function runDelegate({
   // The bridge cannot see inside a running shell command, so a long silence is reported
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
-  // execute and edit are both measured against composer-2.5: a shell write arrives as
-  // execute with the command in the title, a file write as edit with the path only in the
-  // diff frame that follows. read and search were measured too, and are correctly absent
-  // here. delete and move come from ACP's kind list rather than observation.
+  // A shell write arrives as execute, a file write as edit; delete and move round out ACP's
+  // write-capable kinds. read, search, think and fetch stay out — a plan turn is expected
+  // to do those.
   const WRITE_CAPABLE_KINDS = new Set(["edit", "delete", "move", "execute"]);
   // Scoped to plan/ask deliberately. In agent mode this is every turn and carries nothing;
   // in plan/ask a disk-touching turn is abnormal — the plan itself travels over ACP as a
@@ -467,10 +466,10 @@ export async function runDelegate({
       if (watchingWrites && WRITE_CAPABLE_KINDS.has(up.kind) && writeCapableActivity.length < WRITE_ACTIVITY_CAP) {
         const entry = { kind: up.kind, detail: lastToolLabel.slice(0, 300) };
         writeCapableActivity.push(entry);
-        // An execute call names itself — title is the shell command. An edit call does not:
-        // measured, its title is the bare string "Edit File" and locations is empty, so the
-        // only thing distinguishing docs/plan.md from src/api.js is the diff frame that
-        // follows. Keep the id so that frame can fill the path in.
+        // An execute call names itself — its title is the shell command. An edit call does
+        // not: the title is a bare "Edit File" and locations is empty, so the only thing
+        // separating docs/plan.md from src/api.js is the diff frame that follows. Keep the
+        // id so that frame can fill the path in.
         if (up.toolCallId != null) writeActivityById.set(up.toolCallId, entry);
       }
       try { onProgress?.(("running: " + lastToolLabel).slice(0, 200)); } catch {}
