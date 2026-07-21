@@ -34,7 +34,7 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 | ----- | ----------- |
 | `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. Capped at 10MB, with a trailing `[output truncated at 10MB]` marker. |
 | `resultSource` | How `result` was selected: `"tool-free-stream"`, `"post-tool"`, or `"none"`. |
-| `finalMessageAvailable` | Whether Cursor emitted final agent text for this turn. When false, inspect `filesReportedByAgent`, the diff, and tests without assuming success. |
+| `finalMessageAvailable` | Whether Cursor emitted final agent text for this turn. `false` is not failure and `true` is not success — a refusal ends the turn as cleanly as real work does (a plan-limited account returns `end_turn` with `"Upgrade your plan to continue"` as the whole result). Judge by the diff either way. |
 | `stopReason` | ACP stop reason (e.g. `end_turn`). |
 | `sessionId` | Session id for resume. |
 | `filesReportedByAgent` | Files the agent reported editing (native ACP diff events). Not a complete change record — shell-driven edits may be absent; the git diff is authoritative. |
@@ -45,7 +45,7 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
 | `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
 | `autoAnswered` | Present on non-elicitation clients using the default first-option fallback (`prompt`, `chosen`). |
-| `fallbackAnswers` | Present when a free-text answer matched no option: the first option was submitted instead (`prompt`, `given`, `chosen`). |
+| `fallbackAnswers` | Present when a free-text answer matched no option: the user's answer was **discarded** and the first option submitted instead (`prompt`, `given`, `chosen`). Treat it like `autoAnswered` — an unconfirmed choice worth checking against the brief. |
 | `plan` | Present when a plan was emitted (plan mode). |
 | `protocolWarnings` | Non-fatal diagnostics that did not justify failing the call. Read it whenever it is present. |
 
