@@ -82,6 +82,14 @@ export async function runDelegate({
   // so a keyed set is enough — no field-level merging.
   let todos = new Map();
   let sawTodoFrame = false;
+  const todoLabel = () => {
+    const entries = [...todos.values()].filter((t) => typeof t?.content === "string");
+    if (!entries.length) return null;
+    const i = entries.findIndex((t) => t.status === "in_progress");
+    if (i !== -1) return `todo ${i + 1}/${entries.length}: ${entries[i].content}`;
+    const done = entries.filter((t) => t.status === "completed").length;
+    return `todos ${done}/${entries.length} complete`;
+  };
   const recordTodos = ({ todos: incoming, merge }) => {
     if (!Array.isArray(incoming)) return;
     sawTodoFrame = true;
@@ -90,6 +98,8 @@ export async function runDelegate({
       if (t?.id === undefined || t?.id === null) continue;
       todos.set(String(t.id), t);
     }
+    const label = todoLabel();
+    if (label) { try { onProgress?.(label.slice(0, 200)); } catch {} }
   };
 
   let planEntries = [];
@@ -270,6 +280,8 @@ export async function runDelegate({
         `still working — ${fmtDuration(Date.now() - startedAt)} elapsed`,
         `last agent frame ${fmtDuration(supervisor.msSinceActivity())} ago`,
       ];
+      const todo = todoLabel();
+      if (todo) parts.push(todo);
       if (lastToolLabel) parts.push(`running: ${lastToolLabel}`);
       try { onProgress?.(parts.join(", ").slice(0, 200)); } catch {}
     }, heartbeatMs);

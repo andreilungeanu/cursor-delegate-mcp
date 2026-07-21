@@ -881,3 +881,69 @@ test("runDelegate collects type:content blocks emitted after tools finish", asyn
   const out = await runDelegate({ spec: "run it", workspace: process.cwd(), clientFactory: factory });
   assert.equal(out.result, "streamed output");
 });
+
+test("runDelegate streams todo progress as it arrives", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "three steps",
+    workspace: process.cwd(),
+    clientFactory: todoFactory(MEASURED_TODO_FRAMES),
+    onProgress: (m) => seen.push(m),
+  });
+  const todoMessages = seen.filter((m) => m.startsWith("todo"));
+  assert.deepEqual(todoMessages, [
+    "todo 1/3: Create b1.txt containing 'b1'",
+    "todo 2/3: Create b2.txt containing 'b2'",
+    "todo 3/3: Create b3.txt containing 'b3'",
+    "todos 3/3 complete",
+  ]);
+});
+
+test("todo progress messages are omitted when the agent tracks none", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "one small thing",
+    workspace: process.cwd(),
+    clientFactory: todoFactory([]),
+    onProgress: (m) => seen.push(m),
+  });
+  assert.equal(seen.filter((m) => m.startsWith("todo")).length, 0);
+});
+
+test("heartbeat names the in-progress todo during a silent turn", async () => {
+  const lines = [];
+  const factory = ({ onTodos }) => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-hb" });
+    client.setModel = async () => {};
+    client.setFast = async () => {};
+    client.setMode = async () => {};
+    client.prompt = () => {
+      onTodos({ merge: false, todos: [
+        { id: "1", content: "Set up fixtures", status: "completed" },
+        { id: "2", content: "Run integration tests", status: "in_progress" },
+      ] });
+      return new Promise(() => {});
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: factory,
+      handshakeMs: 10000,
+      hardCapMs: 700,
+      heartbeatMs: 100,
+      onProgress: (m) => lines.push(m),
+    }),
+    (err) => err.reason === "hard-cap"
+  );
+  const beats = lines.filter((l) => l.startsWith("still working"));
+  assert.ok(beats.length >= 2, `expected repeated heartbeats, got ${JSON.stringify(beats)}`);
+  assert.match(beats[0], /todo 2\/2: Run integration tests/);
+});
