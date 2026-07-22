@@ -877,6 +877,20 @@ test("runDelegate rejects a bare spec path that is a directory", async () => {
   );
 });
 
+test("runDelegate rejects a blank spec before spending a session", async () => {
+  const track = {};
+  await assert.rejects(
+    runDelegate({
+      spec: "   \n\t ",
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: promptTextFactory(track),
+    }),
+    (err) => err.reason === "invalid-spec" && /empty/.test(err.message),
+  );
+  assert.equal(track.promptText, undefined, "rejected before the agent was spawned");
+});
+
 test("runDelegate still sends prose that merely names a missing path", async () => {
   const track = {};
   await runDelegate({

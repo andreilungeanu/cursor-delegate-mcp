@@ -36,6 +36,13 @@ const isBareSpecPath = (spec) => !/\s/.test(spec.trim());
 
 function resolveSpec(spec) {
   if (typeof spec !== "string") return spec;
+  // A blank spec spins up a live session that only replies "No prompt content provided" —
+  // a billed turn for nothing. Reject it here, before the spawn, like the other bad specs.
+  if (spec.trim() === "") {
+    const err = new Error("spec is empty. Provide a task brief inline, or a path to one.");
+    err.reason = "invalid-spec";
+    throw err;
+  }
   if (!looksLikeSpecPath(spec)) return spec;
   let stat;
   try {
