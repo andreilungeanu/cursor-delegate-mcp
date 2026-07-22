@@ -16,6 +16,16 @@ if (nodeMajor < 22) {
 }
 
 const inFlight = new Map();
+// Session ids seen this process, kept after the turn ends so cancel can tell a finished
+// session (resumable, only the turn is over) from an id that never existed. Bounded so a
+// long-lived server does not grow without limit.
+const seenSessions = new Set();
+const SEEN_SESSIONS_CAP = 500;
+function rememberSession(set, id) {
+  if (id == null || set.has(id)) return;
+  set.add(id);
+  if (set.size > SEEN_SESSIONS_CAP) set.delete(set.values().next().value);
+}
 
 // Loaded at connect, before any tool schema is, so this carries only pre-call facts: what a
 // caller needs to decide whether to delegate at all. Call-time facts belong on the parameter
@@ -129,7 +139,7 @@ function matchOptions(choice, opts = [], allowMultiple = false) {
   return ids;
 }
 
-export async function runDelegateTool({ args, extra, server, runDelegate, inFlight }) {
+export async function runDelegateTool({ args, extra, server, runDelegate, inFlight, seenSessions = new Set() }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles, maxResultChars } = args;
 
   const progressToken = extra?._meta?.progressToken;
@@ -218,6 +228,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
         capturedSessionId = sessionId;
         handle = { client, cancelRequested: false };
         inFlight.set(sessionId, handle);
+        rememberSession(seenSessions, sessionId);
       },
     });
     if (autoAnswered.length) out.autoAnswered = autoAnswered;
@@ -262,19 +273,19 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: true,
       },
     },
-    async (args, extra) => runDelegateTool({ args, extra, server, runDelegate, inFlight })
+    async (args, extra) => runDelegateTool({ args, extra, server, runDelegate, inFlight, seenSessions })
   );
 
   server.registerTool(
     "cancel",
     {
       description:
-        "Best-effort cancel of an in-flight ACP delegation by sessionId. Sends session/cancel; the agent may finish the turn anyway. The delegate result carries cancelRequested: true when the turn was cancelled mid-run. MCP hosts that serialize tool calls cannot run this while delegate is in flight. With force: true, the agent process is killed if the turn is still running after a short grace period.",
+        "Best-effort cancel of an in-flight ACP delegation by sessionId. Sends session/cancel; the agent may finish the turn anyway. The delegate result carries cancelRequested: true when the turn was cancelled mid-run. MCP hosts that serialize tool calls cannot run this while delegate is in flight. With force: true, the agent process is killed if the turn is still running after a short grace period. Returns not-running for a session whose turn already ended (it is still resumable), and not-found for an id never seen this process.",
       inputSchema: {
         sessionId: z.string(),
         force: z.boolean().default(false).describe("After the cancel notify, wait a short grace period and kill the agent process if the delegation is still running"),
       },
-      outputSchema: z.object({ status: z.enum(["cancelled", "killed", "not-found"]), sessionId: z.string() }),
+      outputSchema: z.object({ status: z.enum(["cancelled", "killed", "not-running", "not-found"]), sessionId: z.string() }),
       annotations: {
         title: "Cancel Cursor delegation",
         readOnlyHint: false,
@@ -286,9 +297,14 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     async ({ sessionId, force }) => {
       const handle = inFlight.get(sessionId);
       if (!handle) {
+        // A finished session and a garbage id used to look identical (both not-found), which
+        // read as "bad id" for a session that in fact ran and is still resumable. Split them.
+        const known = seenSessions.has(sessionId);
         return {
-          content: [{ type: "text", text: `no in-flight session ${sessionId}` }],
-          structuredContent: { status: "not-found", sessionId },
+          content: [{ type: "text", text: known
+            ? `session ${sessionId} is not running; its turn already ended (still resumable via resumeSessionId)`
+            : `no in-flight session ${sessionId}` }],
+          structuredContent: { status: known ? "not-running" : "not-found", sessionId },
         };
       }
       handle.cancelRequested = true;

@@ -430,7 +430,8 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     assert.notEqual(delegateRes.isError, true);
     assert.equal(delegateRes.structuredContent.cancelRequested, true);
     const again = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
-    assert.match(again.content[0].text, /^no in-flight session sess-live$/);
+    assert.equal(again.structuredContent.status, "not-running");
+    assert.match(again.content[0].text, /^session sess-live is not running/);
   } finally {
     await client.close();
   }
@@ -578,7 +579,33 @@ test("cancel tool reports unknown sessions without erroring", async () => {
   try {
     const res = await client.callTool({ name: "cancel", arguments: { sessionId: "never-existed" } });
     assert.notEqual(res.isError, true);
+    assert.equal(res.structuredContent.status, "not-found");
     assert.match(res.content[0].text, /^no in-flight session never-existed$/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("cancel distinguishes a finished session (not-running) from an unknown id (not-found)", async () => {
+  // A delegation that runs to completion, so its id is remembered but no longer in flight.
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-finished", { cancel: async () => {}, stop: () => {} });
+    return { result: "done", stopReason: "end_turn", sessionId: "sess-finished", filesReportedByAgent: [], questionsAsked: [] };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateRes = await client.callTool({ name: "delegate", arguments: { spec: "task" } });
+    assert.notEqual(delegateRes.isError, true);
+
+    const finished = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-finished" } });
+    assert.equal(finished.structuredContent.status, "not-running");
+
+    const unknown = await client.callTool({ name: "cancel", arguments: { sessionId: "brand-new-uuid" } });
+    assert.equal(unknown.structuredContent.status, "not-found");
   } finally {
     await client.close();
   }
