@@ -14,7 +14,7 @@ test("e2e: delegate creates a file in a temp workspace", { skip: !RUN }, async (
     mode: "agent",
     workspace: ws,
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.ok(existsSync(join(ws, "hello.txt")), "hello.txt should exist");
   // Canary: live cursor-agent must emit an ACP diff event for an editor-tool edit.
   assert.ok(

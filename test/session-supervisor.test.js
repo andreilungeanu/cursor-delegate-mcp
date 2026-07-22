@@ -73,7 +73,7 @@ test("idle timeout does not fire while stub streams updates faster than idleMs",
     ...TIMING,
     hardCapMs: 10000,
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.match(out.result, /tick-/);
 });
 
@@ -212,7 +212,7 @@ test("the handshake deadline does not fire once the prompt is in flight", async 
     handshakeMs: 250,
     hardCapMs: 10000,
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
 });
 
 test("opt-in idle guard trips on mid-turn silence when configured", async () => {

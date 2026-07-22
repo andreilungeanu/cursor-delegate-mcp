@@ -34,7 +34,9 @@ const delegateOutputSchema = z.object({
     "Where result came from. pre-tool-fallback means no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it as the answer."
   ),
   finalMessageAvailable: z.boolean().optional(),
-  stopReason: z.string().optional(),
+  stopReason: z.string().optional().describe(
+    "Present only when it is not the ordinary end_turn — a refusal, a cancel, or an output cap. Absence means the turn ended normally."
+  ),
   sessionId: z.string(),
   filesReportedByAgent: z.array(z.string()).describe(
     "Files the agent reported editing via native ACP diff events (may omit shell-driven edits)."

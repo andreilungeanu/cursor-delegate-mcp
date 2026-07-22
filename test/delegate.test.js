@@ -81,7 +81,7 @@ function fastToggleFactory({ onSetFast }) {
 
 test("runDelegate returns assembled result for a fresh session", async () => {
   const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.equal(out.sessionId, "sess-1");
   assert.equal(out.result, "done");
   assert.equal(out.resultSource, "post-tool");
@@ -144,7 +144,7 @@ test("runDelegate warns but completes when the model refuses the fast toggle", a
     spec: "task", model: "claude-haiku-4-5", fast: true, workspace: process.cwd(),
     clientFactory: fastToggleFactory({ onSetFast: FAST_REFUSED }),
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.ok(out.protocolWarnings.some((w) => /claude-haiku-4-5 has no fast option/.test(w)));
 });
 
@@ -211,7 +211,7 @@ test("runDelegate warns when the model has no reasoning option", async () => {
     spec: "task", model: "composer-2.5", reasoning: "high",
     workspace: process.cwd(), clientFactory: configFactory({ refuse: ["reasoning"] }),
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.deepEqual(configWarnings(out), [
     "model composer-2.5 has no reasoning option; the requested value was ignored",
   ]);
@@ -306,7 +306,7 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
 
 test("runDelegate captures session/update:plan with latest update winning", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.equal(out.result, "plan ready");
   assert.ok(out.plan);
   assert.deepEqual(out.plan.entries, [
@@ -622,7 +622,7 @@ test("runDelegate resumes a persisted session via session/load", async () => {
   assert.equal(out.sessionId, knownId);
   assert.equal(out.resumed, true);
   assert.equal(track.promptSessionId, knownId);
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.equal(out.result, "done");
 });
 
@@ -637,7 +637,7 @@ test("runDelegate falls back to a fresh session when session/load fails", async 
   assert.equal(out.resumed, false);
   assert.equal(out.sessionId, "sess-1");
   assert.notEqual(out.sessionId, "unknown");
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
 });
 
 function replayHistoryFactory() {
@@ -745,7 +745,7 @@ test("runDelegate reports a missing contextFile instead of linking or failing", 
     contextFiles: ["package.json", "no-such-file-here.txt"],
     clientFactory: promptTextFactory(track),
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.equal(track.blocks.length, 2, "the missing file must not be linked");
   assert.ok(out.protocolWarnings.some((w) => /contextFile no-such-file-here\.txt skipped: not found/.test(w)));
 });
@@ -1078,7 +1078,7 @@ test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them"
     }),
   });
   assert.equal(out.result, "plan ready");
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.deepEqual(out.plan.entries, [
     { content: "valid step", priority: "high", status: "pending" },
     { content: "loose fields" },
@@ -1087,6 +1087,16 @@ test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them"
   assert.match(out.protocolWarnings[0], /plan entry 1 dropped/);
   assert.match(out.protocolWarnings[1], /priority/);
   assert.match(out.protocolWarnings[2], /status/);
+});
+
+test("runDelegate surfaces a stop reason that is not end_turn", async () => {
+  const out = await runDelegate({
+    spec: "do the thing",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: scriptedFactory({ stopReason: "refusal", message: "no" }),
+  });
+  assert.equal(out.stopReason, "refusal");
 });
 
 test("runDelegate drops a non-string stopReason with a protocol warning", async () => {
@@ -1235,7 +1245,7 @@ test("runDelegate reports a turn that ends with todos still pending", async () =
     workspace: process.cwd(),
     clientFactory: todoFactory(MEASURED_TODO_FRAMES.slice(0, 2)),
   });
-  assert.equal(out.stopReason, "end_turn");
+  assert.equal(out.stopReason, undefined);
   assert.deepEqual(out.todoProgress, { total: 3, completed: 1, inProgress: 1, pending: 1 });
 });
 

@@ -582,19 +582,25 @@ export async function runDelegate({
     }
     let stopReason;
     if (res?.stopReason !== undefined) {
-      if (typeof res.stopReason === "string") stopReason = res.stopReason;
-      else protocolWarnings.push("stopReason dropped: ACP requires a string stop reason");
+      if (typeof res.stopReason !== "string") {
+        protocolWarnings.push("stopReason dropped: ACP requires a string stop reason");
+      } else if (res.stopReason !== "end_turn") {
+        // end_turn is the near-universal default and carries no signal — it was end_turn on
+        // every call across the stress test. Surface a stop reason only when it says something
+        // happened: a refusal, a cancel, an output cap. Absence means the ordinary end_turn.
+        stopReason = res.stopReason;
+      }
     }
     const out = {
       result,
       resultSource,
       finalMessageAvailable,
-      stopReason,
       sessionId,
       filesReportedByAgent: normalizeAgentReportedFiles([...touched], workspace),
       questionsAsked,
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
+    if (stopReason !== undefined) out.stopReason = stopReason;
     if (sessionTitle) out.sessionTitle = sessionTitle;
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
