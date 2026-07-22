@@ -609,6 +609,14 @@ export async function runDelegate({
     protocolWarnings.push(...contextWarnings);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
+      // plan.detail duplicated the prose already in result on every observed plan turn — the
+      // same plan in two forms, ~2x the context for one answer. Drop it when result is at least
+      // as long (result is carrying the plan), but keep it when result is too terse to be the
+      // plan itself, so a plan that lived only in the detail is never lost. entries and overview
+      // are structured and unique, and always stay.
+      if (typeof out.plan.detail === "string" && result.length >= out.plan.detail.length) {
+        delete out.plan.detail;
+      }
     }
     // Most successful turns emit no todos at all, so an empty list would read as "nothing
     // done" rather than "not tracked". Report only what the agent actually sent.

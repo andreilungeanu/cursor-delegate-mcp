@@ -317,6 +317,50 @@ test("runDelegate captures session/update:plan with latest update winning", asyn
   assert.deepEqual(out.filesReportedByAgent, []);
 });
 
+function planDetailFactory({ message, overview, plan }) {
+  return ({ onCreatePlan }) => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-plandetail" });
+    client.setModel = async () => {};
+    client.setConfigOption = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      onCreatePlan?.({ overview, plan });
+      client.emit("update", { update: { sessionUpdate: "plan", entries: [{ content: "step", priority: "low", status: "pending" }] } });
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: message } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate drops plan.detail when result already carries the plan", async () => {
+  const plan = "# Plan\n\n1. Do the thing";
+  const message = "Here is the full plan: 1. Do the thing, in detail, with steps and rationale.";
+  const out = await runDelegate({
+    spec: "plan it", mode: "plan", workspace: process.cwd(),
+    clientFactory: planDetailFactory({ message, overview: "ov", plan }),
+  });
+  assert.equal(out.result, message);
+  assert.equal(out.plan.detail, undefined, "detail duplicated result and was dropped");
+  assert.equal(out.plan.overview, "ov");
+  assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
+});
+
+test("runDelegate keeps plan.detail when result is too terse to be the plan", async () => {
+  const plan = "# Plan\n\n1. Do the thing with a lot of detailed explanation and several steps.";
+  const out = await runDelegate({
+    spec: "plan it", mode: "plan", workspace: process.cwd(),
+    clientFactory: planDetailFactory({ message: "plan ready", overview: "ov", plan }),
+  });
+  assert.equal(out.result, "plan ready");
+  assert.equal(out.plan.detail, plan, "the substantive plan lived only in detail, so keep it");
+});
+
 test("runDelegate plan-mode filesReportedByAgent is empty (no diff events)", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.deepEqual(out.filesReportedByAgent, []);
