@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-07-22
+
+### Changed
+
+- `plan.detail` handling is now a one-plan contract: in `plan`/`ask` it is dropped when
+  `result` is a real plan message, or folded into `result` (reported as
+  `resultSource: "plan-detail"`) when the message is too terse to be the plan; in `agent` mode
+  it is kept alongside the implementation report. Replaces the earlier length comparison.
+- Documented that `writeCapableActivity` `kind` is what a tool could do, not proof it wrote (an
+  `execute` entry may be read-only), and that `ask` holds across models where `plan` compliance
+  varies.
+
 ## [1.11.0] - 2026-07-22
 
 ### Added
