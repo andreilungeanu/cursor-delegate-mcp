@@ -84,10 +84,10 @@ test("runDelegate returns assembled result for a fresh session", async () => {
   assert.equal(out.stopReason, undefined);
   assert.equal(out.sessionId, "sess-1");
   assert.equal(out.result, "done");
-  assert.equal(out.resultSource, "post-tool");
-  assert.equal(out.finalMessageAvailable, true);
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.finalMessageAvailable, undefined);
   assert.equal(out.questionsAsked, undefined);
-  assert.equal(out.resumed, false);
+  assert.equal(out.resumed, undefined);
   assert.equal(out.plan, undefined);
 });
 
@@ -300,7 +300,7 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
     spec: "task", resumeSessionId: "old-id", workspace: process.cwd(), clientFactory: factory,
   });
   assert.equal(out.sessionId, "sess-fresh");
-  assert.equal(out.resumed, false);
+  assert.equal(out.resumed, undefined);
   assert.ok(out.protocolWarnings.some((w) => /resuming old-id failed.*Session old-id not found/.test(w)));
 });
 
@@ -357,7 +357,7 @@ test("runDelegate drops plan.detail when result is a real plan message, even if 
     clientFactory: planDetailFactory({ message, overview: "ov", plan }),
   });
   assert.equal(out.result, message, "the real message stays as result");
-  assert.equal(out.resultSource, "tool-free-stream");
+  assert.equal(out.resultSource, undefined);
   assert.equal(out.plan.detail, undefined, "detail is a duplicate of the filed plan and is dropped");
   assert.equal(out.plan.overview, "ov");
   assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
@@ -382,7 +382,7 @@ test("runDelegate folds plan.detail into result when a trailing tool leaves no f
   });
   assert.equal(out.result, plan, "the filed plan wins over the discarded preamble");
   assert.equal(out.resultSource, "plan-detail");
-  assert.equal(out.finalMessageAvailable, false);
+  assert.equal(out.finalMessageAvailable, undefined);
   assert.equal(out.plan.detail, undefined);
   assert.ok(!out.protocolWarnings?.some((w) => /never spoke again/.test(w)), "result carries the plan, so no stale fallback warning");
 });
@@ -554,8 +554,8 @@ test("runDelegate includes the tool location in running: progress when present",
 test("runDelegate returns the complete stream when the turn uses no tools", async () => {
   const out = await replayResult([msgChunk("Code:\n"), msgChunk("```js\nrun();\n```")]);
   assert.equal(out.result, "Code:\n```js\nrun();\n```");
-  assert.equal(out.resultSource, "tool-free-stream");
-  assert.equal(out.finalMessageAvailable, true);
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.finalMessageAvailable, undefined);
 });
 
 test("runDelegate returns only text emitted after the final tool completes", async () => {
@@ -567,8 +567,8 @@ test("runDelegate returns only text emitted after the final tool completes", asy
     msgChunk("Updated `sbin/setup-llm` and validated it."),
   ]);
   assert.equal(out.result, "Updated `sbin/setup-llm` and validated it.");
-  assert.equal(out.resultSource, "post-tool");
-  assert.equal(out.finalMessageAvailable, true);
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.finalMessageAvailable, undefined);
 });
 
 test("runDelegate discards text that is followed by another tool call", async () => {
@@ -582,7 +582,7 @@ test("runDelegate discards text that is followed by another tool call", async ()
     msgChunk("The callers are updated and tests pass."),
   ]);
   assert.equal(out.result, "The callers are updated and tests pass.");
-  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.resultSource, undefined);
 });
 
 test("runDelegate waits for all active tools before collecting final text", async () => {
@@ -595,7 +595,7 @@ test("runDelegate waits for all active tools before collecting final text", asyn
     msgChunk("Both reads completed; here is the answer."),
   ]);
   assert.equal(out.result, "Both reads completed; here is the answer.");
-  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.resultSource, undefined);
 });
 
 // This shape used to return "" with stopReason end_turn and no error. The discarded text is
@@ -608,7 +608,7 @@ test("runDelegate falls back to the last message when a tool call ends the turn"
   ]);
   assert.equal(out.result, "I will make the edit.");
   assert.equal(out.resultSource, "pre-tool-fallback");
-  assert.equal(out.finalMessageAvailable, false, "no final message did close the turn");
+  assert.equal(out.finalMessageAvailable, undefined);
   assert.ok(out.protocolWarnings.some((w) => /never spoke again/.test(w)), "the fallback is disclosed");
 });
 
@@ -629,7 +629,7 @@ test("runDelegate warns rather than returning a bare empty success", async () =>
   const out = await replayResult([toolCall("edit-1"), toolUpdate("edit-1", "completed")]);
   assert.equal(out.result, "");
   assert.equal(out.resultSource, "none");
-  assert.equal(out.finalMessageAvailable, false);
+  assert.equal(out.finalMessageAvailable, undefined);
   assert.ok(out.protocolWarnings.some((w) => /without emitting any message/.test(w)));
 });
 
@@ -641,7 +641,7 @@ test("runDelegate prefers a real final message over the fallback", async () => {
     msgChunk("Edited the parser."),
   ]);
   assert.equal(out.result, "Edited the parser.");
-  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.resultSource, undefined);
   assert.ok(!(out.protocolWarnings || []).some((w) => /never spoke again/.test(w)));
 });
 
@@ -653,8 +653,8 @@ test("runDelegate keeps the final message when a duplicate terminal tool update 
     toolUpdate("edit-1", "completed"),
   ]);
   assert.equal(out.result, "Fixed the parser and added a regression test.");
-  assert.equal(out.resultSource, "post-tool");
-  assert.equal(out.finalMessageAvailable, true);
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.finalMessageAvailable, undefined);
 });
 
 test("runDelegate preserves a legitimate code-only final response", async () => {
@@ -665,7 +665,7 @@ test("runDelegate preserves a legitimate code-only final response", async () => 
     msgChunk(code),
   ]);
   assert.equal(out.result, code);
-  assert.equal(out.resultSource, "post-tool");
+  assert.equal(out.resultSource, undefined);
 });
 
 test("runDelegate survives a throwing onProgress callback", async () => {
@@ -716,7 +716,7 @@ test("runDelegate falls back to a fresh session when session/load fails", async 
     workspace: process.cwd(),
     clientFactory: fakeFactory,
   });
-  assert.equal(out.resumed, false);
+  assert.equal(out.resumed, undefined);
   assert.equal(out.sessionId, "sess-1");
   assert.notEqual(out.sessionId, "unknown");
   assert.equal(out.stopReason, undefined);
@@ -1872,7 +1872,7 @@ test("replayed session/load frames do not leak into the result or touched files"
   // never reach onProgress in the first place.
   assert.deepEqual(progress.filter((m) => /Edit File|from-a-previous-turn/.test(m)), []);
   assert.equal(out.result, "fresh answer");
-  assert.equal(out.resultSource, "tool-free-stream");
+  assert.equal(out.resultSource, undefined);
   assert.deepEqual(out.filesReportedByAgent, []);
   assert.equal(out.resumed, true);
 });

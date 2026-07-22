@@ -40,10 +40,9 @@ const planEntrySchema = z.object({
 
 const delegateOutputSchema = z.object({
   result: z.string(),
-  resultSource: z.enum(["tool-free-stream", "post-tool", "pre-tool-fallback", "plan-detail", "none"]).optional().describe(
-    "Where result came from. pre-tool-fallback means no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it as the answer. plan-detail (plan/ask only) means the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan."
+  resultSource: z.enum(["pre-tool-fallback", "plan-detail", "none"]).optional().describe(
+    "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. plan-detail (plan/ask only): the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan. none: the turn produced no message and result is empty."
   ),
-  finalMessageAvailable: z.boolean().optional(),
   stopReason: z.string().optional().describe(
     "Present only when it is not the ordinary end_turn — a refusal, a cancel, or an output cap. Absence means the turn ended normally."
   ),
@@ -54,7 +53,9 @@ const delegateOutputSchema = z.object({
   questionsAsked: z.array(z.string()).optional().describe(
     "Clarifying questions the agent raised through elicitation. Absent on most turns — the agent usually asks in prose and ends the turn, which this does not capture; read result for that."
   ),
-  resumed: z.boolean().optional(),
+  resumed: z.boolean().optional().describe(
+    "Present and true only when a requested resume took (the returned session id matched resumeSessionId). Absent for a fresh session, or when a resume failed — a failed resume is reported in protocolWarnings."
+  ),
   sessionTitle: z.string().optional().describe(
     "Short title the agent gave this turn. Present on most turns; purely a label."
   ),

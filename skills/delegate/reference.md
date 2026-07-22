@@ -33,13 +33,12 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 | Field | Description |
 | ----- | ----------- |
 | `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. Capped at 10MB, with a trailing `[output truncated at 10MB]` marker. |
-| `resultSource` | How `result` was selected: `"tool-free-stream"`, `"post-tool"`, or `"none"`. |
-| `finalMessageAvailable` | Whether Cursor emitted final agent text for this turn. `false` is not failure and `true` is not success — a refusal ends the turn as cleanly as real work does (a plan-limited account returns `end_turn` with `"Upgrade your plan to continue"` as the whole result). Judge by the diff either way. |
+| `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it), `"plan-detail"` (plan/ask only: the chat message was too terse to be the plan, so `result` carries the plan the agent filed), or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
 | `stopReason` | ACP stop reason (e.g. `end_turn`). |
 | `sessionId` | Session id for resume. |
 | `filesReportedByAgent` | Files the agent reported editing (native ACP diff events). Not a complete change record — shell-driven edits may be absent; the git diff is authoritative. |
 | `questionsAsked` | Prompts surfaced via `cursor/ask_question`. In practice **always empty**: cursor-agent has never been measured emitting that request, so clarifying questions arrive as ordinary text in `result`. |
-| `resumed` | Whether `resumeSessionId` was honored. When `false`, read `protocolWarnings` for why the load failed. |
+| `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
 | `sessionTitle` | Short title the agent gave this turn. A label for telling concurrent delegations apart; also named in timeout errors. |
 | `modeChanged` | `{from, to}`, set when the agent switched itself out of the requested mode. A `plan` run that becomes `agent` is **write-capable** — inspect the diff before reporting a plan-only outcome. Absence proves nothing; see Mode behavior. |
 | `writeCapableActivity` | Write-capable tool calls (`edit`/`delete`/`move`/`execute`) run during a `plan` or `ask` turn, each with the tool's own label and, when a diff frame named one, the `path` it touched. **Only populated for `plan` and `ask`** — in `agent` mode every turn would fill it, so it carries no signal there and is omitted. It records what the agent **ran**, not what changed: a shell command is not a change list, and an entry without a `path` may be a no-op or a retry that changed nothing. Treat the count as an upper bound on writes, never a total. |

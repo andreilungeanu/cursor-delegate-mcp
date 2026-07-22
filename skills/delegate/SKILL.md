@@ -116,13 +116,13 @@ strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast`, 
 - **`resumeSessionId`:** only when the prior run was on the right track and needs a small
 clarification or follow-up in the same session. Unknown or stale ids fall back to a new session.
 - Never guess a `resumeSessionId`. After any resume call, check `resumed` in the
-response — if `false`, the run had **zero** prior context, so re-send a full brief.
-`protocolWarnings` carries why the load failed, which separates a stale id from a typo.
+response — if it is **absent** (not `true`), the run had **zero** prior context, so re-send a
+full brief. `protocolWarnings` carries why the load failed, which separates a stale id from a typo.
 
 ## Clarifying questions
 
 When Cursor needs a decision it usually asks in its final message and ends the turn
-(`finalMessageAvailable: true`, no files changed). Read the question in `result` and
+(a normal `result`, no files changed). Read the question in `result` and
 continue by resuming the **same session** with a free-text answer in `spec` — you are not
 limited to any options Cursor listed.
 

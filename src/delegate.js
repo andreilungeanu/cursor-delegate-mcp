@@ -623,12 +623,17 @@ export async function runDelegate({
     }
     const out = {
       result,
-      resultSource,
-      finalMessageAvailable,
       sessionId,
       filesReportedByAgent: normalizeAgentReportedFiles([...touched], workspace),
-      resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
+    // resultSource is a caveat, not a fact worth stating on every turn: on the happy path
+    // (post-tool / tool-free-stream) result is simply the answer, so say nothing. Surface it only
+    // when it warns — pre-tool-fallback, plan-detail, none. finalMessageAvailable is dropped
+    // outright: it stated the same thing in a second boolean. resumed is emitted only when a
+    // resume actually took; a fresh session or a failed resume (which carries its own warning)
+    // leaves it absent.
+    if (resultSource !== "post-tool" && resultSource !== "tool-free-stream") out.resultSource = resultSource;
+    if (!!resumeSessionId && sessionId === resumeSessionId) out.resumed = true;
     if (stopReason !== undefined) out.stopReason = stopReason;
     // Elicitation almost never fires (the agent tends to ask in prose and end the turn), so an
     // always-empty array is steady noise. Report it only when a question actually came through.
