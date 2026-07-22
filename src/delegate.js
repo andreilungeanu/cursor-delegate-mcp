@@ -181,7 +181,7 @@ async function applyConfig(client, sessionId, configId, value) {
 }
 
 export async function runDelegate({
-  spec, mode = "agent", resumeSessionId, workspace,
+  spec, mode = "agent", resumeSessionId, workspace, maxResultChars,
   model = DEFAULT_MODEL, fast = false, reasoning, context, contextFiles, clientFactory, onElicit,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
@@ -579,6 +579,17 @@ export async function runDelegate({
       );
     } else if (!finalMessageAvailable) {
       protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
+    }
+    // A runaway reply comes back whole and can blow the caller's context (104K chars in one
+    // test). When the caller sets a ceiling, cut the result to it and say so, so the truncation
+    // is never mistaken for a complete answer.
+    if (Number.isFinite(maxResultChars) && maxResultChars > 0 && result.length > maxResultChars) {
+      const original = result.length;
+      result = result.slice(0, maxResultChars) + `\n\n[result truncated at ${maxResultChars} chars]`;
+      protocolWarnings.push(
+        `result was ${original} chars and exceeded maxResultChars ${maxResultChars}; it was truncated.`
+        + " Raise maxResultChars or narrow the task if you need the full output."
+      );
     }
     let stopReason;
     if (res?.stopReason !== undefined) {
