@@ -6,6 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-22
+
+### Added
+
+- `maxResultChars` delegate input caps the returned result: a longer result is truncated
+  with a marker and a `protocolWarning`, so a runaway reply cannot blow up the caller's
+  context and the cut is never mistaken for a complete answer.
+- `cancel` reports `not-running` for a session whose turn has ended (still resumable via
+  `resumeSessionId`), distinct from `not-found` for an id never seen this process — the two
+  used to look identical.
+
+### Changed
+
+- The response drops fields that carried no signal: `stopReason` is omitted unless it is
+  something other than the usual `end_turn`, and `questionsAsked` is omitted until
+  elicitation actually populates it.
+- `plan.detail` is no longer returned when `result` already carries the plan — it duplicated
+  the same prose. It is kept only when `result` is too terse to be the plan itself;
+  `plan.entries` and `plan.overview` are unchanged.
+- `contextFiles` are deduplicated by resolved path, so equivalent entries are sent once.
+- The session id is emitted in an early progress notification, giving a host that can call
+  tools concurrently an id to pass to `cancel` while the turn is still running.
+- **Breaking:** a blank or whitespace-only `spec` is rejected before a session starts,
+  instead of spending a live turn on a "No prompt content provided" reply.
+
+### Fixed
+
+- `doctor` reads the plugin version fresh on each call instead of a value captured at process
+  start, so it reflects an in-place upgrade rather than reporting the old version until a
+  full client restart.
+
 ## [1.10.0] - 2026-07-21
 
 Two input validations change behavior: calls that used to succeed by accident now fail
