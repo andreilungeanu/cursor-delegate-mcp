@@ -82,7 +82,7 @@ const delegateOutputSchema = z.object({
     "Set when the agent switched itself out of the requested mode mid-session. Absence does not mean the mode was honored — an agent can write while staying in plan."
   ),
   writeCapableActivity: z.array(z.object({ kind: z.string(), detail: z.string(), path: z.string().optional() })).optional().describe(
-    "Write-capable tool calls (edit/delete/move/execute) the agent ran during a plan or ask turn, which are expected to change nothing. Records what ran, not what changed — a shell command is not a change list. Only populated for mode plan and ask."
+    "Write-capable tool calls (edit/delete/move/execute) the agent ran during a plan or ask turn, which are expected to change nothing. Records what ran, not what changed — kind is what the tool could do, not proof it wrote: an execute entry may be a read-only command like `ls -la`. Read detail for the evidence and the git diff for the truth. Only populated for mode plan and ask."
   ),
   todoProgress: z.object({
     total: z.number(),
