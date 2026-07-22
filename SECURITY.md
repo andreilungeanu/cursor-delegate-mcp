@@ -11,7 +11,7 @@ Treat every `delegate` call like handing an engineer write access to that tree.
 ## Recommendations
 
 - Point `workspace` at the smallest directory that contains the task (not `$HOME` or `/`).
-- Review `filesReportedByAgent` and the git diff before committing.
+- Review `filesReportedByEditTools` and the git diff before committing.
 - Use `mode: "plan"` when you only want a plan, not file changes.
 - Run verification (tests, lint) after delegation — the delegate skill asks Claude to do
   this, but automated gates in CI are still your backstop.

@@ -30,7 +30,7 @@ function rememberSession(set, id) {
 // Loaded at connect, before any tool schema is, so this carries only pre-call facts: what a
 // caller needs to decide whether to delegate at all. Call-time facts belong on the parameter
 // descriptions, read while the call is being written.
-export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: mode="plan" and mode="ask" are instructions to the agent, not limits the bridge enforces, and the bridge cannot detect one being ignored. So scope workspace to the smallest relevant directory and review the git diff after every run, not only write-capable ones; filesReportedByAgent lists what the agent reported editing but the diff is authoritative.`;
+export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: mode="plan" and mode="ask" are instructions to the agent, not limits the bridge enforces, and the bridge cannot detect one being ignored. So scope workspace to the smallest relevant directory and review the git diff after every run, not only write-capable ones; filesReportedByEditTools lists what the agent's edit tools reported changing but the diff is authoritative.`;
 
 const planEntrySchema = z.object({
   content: z.string(),
@@ -47,8 +47,8 @@ const delegateOutputSchema = z.object({
     "Present only when it is not the ordinary end_turn — a refusal, a cancel, or an output cap. Absence means the turn ended normally."
   ),
   sessionId: z.string(),
-  filesReportedByAgent: z.array(z.string()).describe(
-    "Files the agent reported editing via native ACP diff events (may omit shell-driven edits)."
+  filesReportedByEditTools: z.array(z.string()).describe(
+    "Files the agent's edit tools reported changing, via native ACP diff events. Not a complete change record — shell-driven edits leave no diff event; the git diff is authoritative."
   ),
   questionsAsked: z.array(z.string()).optional().describe(
     "Clarifying questions the agent raised through elicitation. Absent on most turns — the agent usually asks in prose and ends the turn, which this does not capture; read result for that."

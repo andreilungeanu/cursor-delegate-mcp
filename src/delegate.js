@@ -624,7 +624,7 @@ export async function runDelegate({
     const out = {
       result,
       sessionId,
-      filesReportedByAgent: normalizeAgentReportedFiles([...touched], workspace),
+      filesReportedByEditTools: normalizeAgentReportedFiles([...touched], workspace),
     };
     // resultSource is a caveat, not a fact worth stating on every turn: on the happy path
     // (post-tool / tool-free-stream) result is simply the answer, so say nothing. Surface it only

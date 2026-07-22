@@ -18,7 +18,7 @@ test("e2e: delegate creates a file in a temp workspace", { skip: !RUN }, async (
   assert.ok(existsSync(join(ws, "hello.txt")), "hello.txt should exist");
   // Canary: live cursor-agent must emit an ACP diff event for an editor-tool edit.
   assert.ok(
-    out.filesReportedByAgent.some((p) => basename(p) === "hello.txt"),
-    `filesReportedByAgent should include hello.txt, got: ${JSON.stringify(out.filesReportedByAgent)}`
+    out.filesReportedByEditTools.some((p) => basename(p) === "hello.txt"),
+    `filesReportedByEditTools should include hello.txt, got: ${JSON.stringify(out.filesReportedByEditTools)}`
   );
 });

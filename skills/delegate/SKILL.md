@@ -65,7 +65,7 @@ Scale effort to the task:
 
    Do not create a spec file unless the user wants one saved in the repo.
 2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
-3. **Review** — read `filesReportedByAgent`, inspect the git diff, run tests/lint **yourself**,
+3. **Review** — read `filesReportedByEditTools`, inspect the git diff, run tests/lint **yourself**,
    and check the result against the brief's acceptance criteria.
    - If `modeChanged` is set, the run was write-capable regardless of the mode you asked
      for — review the diff before reporting a plan-only outcome. Its **absence** proves
