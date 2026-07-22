@@ -229,6 +229,11 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
         handle = { client, cancelRequested: false };
         inFlight.set(sessionId, handle);
         rememberSession(seenSessions, sessionId);
+        // Emit the id the moment the session opens, before the turn finishes, so a host that
+        // can call tools concurrently has something to pass to cancel mid-run — otherwise the
+        // id only arrives when delegate returns, by which point there is nothing to cancel.
+        // (Hosts that serialize tool calls still cannot cancel in flight; that is a host limit.)
+        onProgress(`session ready: ${sessionId}`);
       },
     });
     if (autoAnswered.length) out.autoAnswered = autoAnswered;

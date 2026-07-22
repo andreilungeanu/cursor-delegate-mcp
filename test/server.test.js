@@ -197,11 +197,14 @@ test("runDelegateTool sends progress notifications when progressToken is set", a
   });
 
   assert.equal(result.isError, undefined);
-  assert.equal(notifications.length, 1);
+  // The first notification surfaces the session id (for a mid-run cancel), then "tick".
+  assert.equal(notifications.length, 2);
   assert.equal(notifications[0].method, "notifications/progress");
   assert.equal(notifications[0].params.progressToken, "tok-1");
   assert.equal(notifications[0].params.progress, 1);
-  assert.equal(notifications[0].params.message, "tick");
+  assert.match(notifications[0].params.message, /^session ready: sess-p$/);
+  assert.equal(notifications[1].params.progress, 2);
+  assert.equal(notifications[1].params.message, "tick");
 });
 
 test("runDelegateTool skips progress notifications when progressToken is absent", async () => {
