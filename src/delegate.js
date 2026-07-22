@@ -101,9 +101,14 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 //   - report anything skipped, since a dropped attachment is otherwise invisible.
 function buildContextBlocks(contextFiles, workspace, client, warnings) {
   const blocks = [];
+  // A glob plus an explicit path (or the same file named a few ways) resolves to one file;
+  // sending it several times just wastes prompt space. Collapse by resolved absolute path.
+  const seen = new Set();
   for (const entry of contextFiles || []) {
     if (typeof entry !== "string" || !entry.trim()) continue;
     const abs = path.resolve(workspace || process.cwd(), entry);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
     let stat;
     try {
       stat = statSync(abs);

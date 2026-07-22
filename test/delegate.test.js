@@ -720,6 +720,22 @@ test("runDelegate attaches contextFiles as resource_link blocks", async () => {
   assert.equal(out.protocolWarnings, undefined);
 });
 
+test("runDelegate deduplicates contextFiles that resolve to the same path", async () => {
+  const track = {};
+  const abs = path.join(process.cwd(), "package.json");
+  const out = await runDelegate({
+    spec: "review these",
+    mode: "agent",
+    workspace: process.cwd(),
+    contextFiles: ["package.json", "package.json", "./package.json", abs],
+    clientFactory: promptTextFactory(track),
+  });
+  const links = track.blocks.slice(1);
+  assert.equal(links.length, 1, "equivalent entries collapse to one link");
+  assert.match(links[0].uri, /\/package\.json$/);
+  assert.equal(out.protocolWarnings, undefined);
+});
+
 test("runDelegate reports a missing contextFile instead of linking or failing", async () => {
   const track = {};
   const out = await runDelegate({
