@@ -86,7 +86,7 @@ test("runDelegate returns assembled result for a fresh session", async () => {
   assert.equal(out.result, "done");
   assert.equal(out.resultSource, "post-tool");
   assert.equal(out.finalMessageAvailable, true);
-  assert.deepEqual(out.questionsAsked, []);
+  assert.equal(out.questionsAsked, undefined);
   assert.equal(out.resumed, false);
   assert.equal(out.plan, undefined);
 });

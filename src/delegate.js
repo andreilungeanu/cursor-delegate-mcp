@@ -597,10 +597,12 @@ export async function runDelegate({
       finalMessageAvailable,
       sessionId,
       filesReportedByAgent: normalizeAgentReportedFiles([...touched], workspace),
-      questionsAsked,
       resumed: !!resumeSessionId && sessionId === resumeSessionId,
     };
     if (stopReason !== undefined) out.stopReason = stopReason;
+    // Elicitation almost never fires (the agent tends to ask in prose and end the turn), so an
+    // always-empty array is steady noise. Report it only when a question actually came through.
+    if (questionsAsked.length) out.questionsAsked = questionsAsked;
     if (sessionTitle) out.sessionTitle = sessionTitle;
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);

@@ -41,7 +41,9 @@ const delegateOutputSchema = z.object({
   filesReportedByAgent: z.array(z.string()).describe(
     "Files the agent reported editing via native ACP diff events (may omit shell-driven edits)."
   ),
-  questionsAsked: z.array(z.string()).optional(),
+  questionsAsked: z.array(z.string()).optional().describe(
+    "Clarifying questions the agent raised through elicitation. Absent on most turns — the agent usually asks in prose and ends the turn, which this does not capture; read result for that."
+  ),
   resumed: z.boolean().optional(),
   sessionTitle: z.string().optional().describe(
     "Short title the agent gave this turn. Present on most turns; purely a label."
