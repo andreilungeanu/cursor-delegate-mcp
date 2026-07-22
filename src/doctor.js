@@ -2,7 +2,7 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
 import { resolveAcpSpawn } from "./spawn.js";
-import { VERSION } from "./version.js";
+import { readPackageVersion } from "./version.js";
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const DEFAULT_LOG_SIZE = "2000";
@@ -75,12 +75,13 @@ export async function runDoctor({
   clientFactory = (opts) => new AcpClient(opts),
   workspace,
   handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS,
+  readVersion = readPackageVersion,
 } = {}) {
   const { capabilities, version } = getClientInfo();
   const agentProbe = await probeAgentVersion(spawnSpec);
 
   const out = {
-    plugin: { version: VERSION },
+    plugin: { version: readVersion() },
     client: {
       name: version?.name ?? null,
       version: version?.version ?? null,

@@ -160,6 +160,17 @@ test("runDoctor reports plugin version and ACP_LOG_SIZE default", async () => {
   }
 });
 
+test("runDoctor reads the plugin version fresh rather than from a load-time constant", async () => {
+  // The MCP child is long-lived; a version frozen at process start goes stale after an
+  // in-place upgrade. doctor must resolve it through the reader it is given, each call.
+  const out = await runDoctor({
+    spawnSpec: stubSpawnSpec(),
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+    readVersion: () => "9.9.9-fresh",
+  });
+  assert.equal(out.plugin.version, "9.9.9-fresh");
+});
+
 test("runDoctor reports portable runtime diagnostics", async () => {
   const out = await runDoctor({
     getClientInfo: () => ({ capabilities: { elicitation: {} }, version: { name: "host", version: "1" } }),
