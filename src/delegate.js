@@ -570,15 +570,34 @@ export async function runDelegate({
       ? (sawToolCall ? "post-tool" : "tool-free-stream")
       : "none";
     const protocolWarnings = [];
-    if (!finalMessageAvailable && discardedResult) {
-      result = discardedResult;
-      resultSource = "pre-tool-fallback";
-      protocolWarnings.push(
-        "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
-        + " result carries the last message before that tool call — it may be a preamble rather than the answer."
-      );
-    } else if (!finalMessageAvailable) {
-      protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
+    // plan.detail is the model restating — into chat's sibling channel — a plan it also filed via
+    // create_plan; cursor-agent narrates across the IDE's two surfaces and here they flatten into
+    // one ACP payload. The detail is never load-bearing: the plan lives in the agent's own session
+    // (which is what a resume-to-implement reads, not this field) and the orchestrator approves
+    // from result + plan.entries. So in plan/ask keep the plan in one prose channel — drop the
+    // detail as a duplicate when result already is a real plan message, fold it into result when
+    // the message is too terse (or a fallback preamble) to be the plan itself. In agent mode the
+    // plan was accepted and result is the implementation report, a separate artifact — both stay.
+    const PLAN_TERSE_FLOOR = 200;
+    let dropPlanDetail = false;
+    if (typeof planDetail === "string" && (mode === "plan" || mode === "ask")) {
+      dropPlanDetail = true;
+      if (!(finalMessageAvailable && result.length >= PLAN_TERSE_FLOOR)) {
+        result = planDetail;
+        resultSource = "plan-detail";
+      }
+    }
+    if (resultSource !== "plan-detail") {
+      if (!finalMessageAvailable && discardedResult) {
+        result = discardedResult;
+        resultSource = "pre-tool-fallback";
+        protocolWarnings.push(
+          "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
+          + " result carries the last message before that tool call — it may be a preamble rather than the answer."
+        );
+      } else if (!finalMessageAvailable) {
+        protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
+      }
     }
     // A runaway reply comes back whole and can blow the caller's context (104K chars in one
     // test). When the caller sets a ceiling, cut the result to it and say so, so the truncation
@@ -620,14 +639,10 @@ export async function runDelegate({
     protocolWarnings.push(...contextWarnings);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
-      // plan.detail duplicated the prose already in result on every observed plan turn — the
-      // same plan in two forms, ~2x the context for one answer. Drop it when result is at least
-      // as long (result is carrying the plan), but keep it when result is too terse to be the
-      // plan itself, so a plan that lived only in the detail is never lost. entries and overview
-      // are structured and unique, and always stay.
-      if (typeof out.plan.detail === "string" && result.length >= out.plan.detail.length) {
-        delete out.plan.detail;
-      }
+      // In plan/ask the plan is already carried by result (a real message, or folded in per the
+      // one-plan contract above), so the detail here is a duplicate — drop it. entries and
+      // overview are structured and unique, and always stay.
+      if (dropPlanDetail) delete out.plan.detail;
     }
     // Most successful turns emit no todos at all, so an empty list would read as "nothing
     // done" rather than "not tracked". Report only what the agent actually sent.

@@ -307,17 +307,19 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
 test("runDelegate captures session/update:plan with latest update winning", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, undefined);
-  assert.equal(out.result, "plan ready");
+  // "plan ready" is too terse to be the plan, so the filed plan is folded into result.
+  assert.equal(out.result, "# Plan\n\n1. Create CHANGELOG.md");
+  assert.equal(out.resultSource, "plan-detail");
   assert.ok(out.plan);
   assert.deepEqual(out.plan.entries, [
     { content: "Create CHANGELOG.md", priority: "medium", status: "pending" },
   ]);
   assert.equal(out.plan.overview, "Add a changelog file");
-  assert.equal(out.plan.detail, "# Plan\n\n1. Create CHANGELOG.md");
+  assert.equal(out.plan.detail, undefined, "the plan is now in result, not duplicated in detail");
   assert.deepEqual(out.filesReportedByAgent, []);
 });
 
-function planDetailFactory({ message, overview, plan }) {
+function planDetailFactory({ message, overview, plan, trailingTool = false }) {
   return ({ onCreatePlan }) => {
     const client = new EventEmitter();
     client.start = async () => {};
@@ -330,6 +332,11 @@ function planDetailFactory({ message, overview, plan }) {
       onCreatePlan?.({ overview, plan });
       client.emit("update", { update: { sessionUpdate: "plan", entries: [{ content: "step", priority: "low", status: "pending" }] } });
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: message } } });
+      // A trailing tool call discards the message, so no final message closes the turn.
+      if (trailingTool) {
+        client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "tool", status: "pending" } });
+        client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" } });
+      }
       return { stopReason: "end_turn" };
     };
     client.getTranscript = () => "";
@@ -338,27 +345,58 @@ function planDetailFactory({ message, overview, plan }) {
   };
 }
 
-test("runDelegate drops plan.detail when result already carries the plan", async () => {
-  const plan = "# Plan\n\n1. Do the thing";
-  const message = "Here is the full plan: 1. Do the thing, in detail, with steps and rationale.";
+// The one-plan contract: in plan/ask the plan is never load-bearing (it lives in the agent's own
+// session, which is what a resume-to-implement reads), so it is kept in exactly one prose channel
+// — result — and dropped from plan.detail. entries and overview always survive.
+test("runDelegate drops plan.detail when result is a real plan message, even if detail is longer", async () => {
+  const message = "Here is the plan in full. " + "Ship the change step by step with rationale. ".repeat(5);
+  const plan = message + " " + "Extra rendered detail with mermaid the orchestrator never needs. ".repeat(5);
+  assert.ok(message.length >= 200 && plan.length > message.length, "a real message longer than the floor, shorter than detail");
   const out = await runDelegate({
     spec: "plan it", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message, overview: "ov", plan }),
   });
-  assert.equal(out.result, message);
-  assert.equal(out.plan.detail, undefined, "detail duplicated result and was dropped");
+  assert.equal(out.result, message, "the real message stays as result");
+  assert.equal(out.resultSource, "tool-free-stream");
+  assert.equal(out.plan.detail, undefined, "detail is a duplicate of the filed plan and is dropped");
   assert.equal(out.plan.overview, "ov");
   assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
 });
 
-test("runDelegate keeps plan.detail when result is too terse to be the plan", async () => {
+test("runDelegate folds plan.detail into result when the message is too terse", async () => {
   const plan = "# Plan\n\n1. Do the thing with a lot of detailed explanation and several steps.";
   const out = await runDelegate({
     spec: "plan it", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message: "plan ready", overview: "ov", plan }),
   });
-  assert.equal(out.result, "plan ready");
-  assert.equal(out.plan.detail, plan, "the substantive plan lived only in detail, so keep it");
+  assert.equal(out.result, plan, "the terse message is replaced by the filed plan");
+  assert.equal(out.resultSource, "plan-detail");
+  assert.equal(out.plan.detail, undefined, "the plan is in result now, not duplicated in detail");
+});
+
+test("runDelegate folds plan.detail into result when a trailing tool leaves no final message", async () => {
+  const plan = "# Plan\n\n1. A detailed multi-step plan filed before the agent ran a tool.";
+  const out = await runDelegate({
+    spec: "plan it", mode: "plan", workspace: process.cwd(),
+    clientFactory: planDetailFactory({ message: "Reviewing the code.", overview: "ov", plan, trailingTool: true }),
+  });
+  assert.equal(out.result, plan, "the filed plan wins over the discarded preamble");
+  assert.equal(out.resultSource, "plan-detail");
+  assert.equal(out.finalMessageAvailable, false);
+  assert.equal(out.plan.detail, undefined);
+  assert.ok(!out.protocolWarnings?.some((w) => /never spoke again/.test(w)), "result carries the plan, so no stale fallback warning");
+});
+
+test("runDelegate keeps plan.detail in agent mode alongside the implementation report", async () => {
+  const plan = "# Plan\n\n1. The plan document the agent filed via create_plan.";
+  const message = "Implemented the change: edited three files and the tests pass.";
+  const out = await runDelegate({
+    spec: "do it", mode: "agent", workspace: process.cwd(),
+    clientFactory: planDetailFactory({ message, overview: "ov", plan }),
+  });
+  assert.equal(out.result, message, "result is the implementation report");
+  assert.equal(out.plan.detail, plan, "the plan doc and the report are different artifacts; both stay");
+  assert.equal(out.plan.overview, "ov");
 });
 
 test("runDelegate plan-mode filesReportedByAgent is empty (no diff events)", async () => {

@@ -40,8 +40,8 @@ const planEntrySchema = z.object({
 
 const delegateOutputSchema = z.object({
   result: z.string(),
-  resultSource: z.enum(["tool-free-stream", "post-tool", "pre-tool-fallback", "none"]).optional().describe(
-    "Where result came from. pre-tool-fallback means no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it as the answer."
+  resultSource: z.enum(["tool-free-stream", "post-tool", "pre-tool-fallback", "plan-detail", "none"]).optional().describe(
+    "Where result came from. pre-tool-fallback means no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it as the answer. plan-detail (plan/ask only) means the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan."
   ),
   finalMessageAvailable: z.boolean().optional(),
   stopReason: z.string().optional().describe(
@@ -68,7 +68,9 @@ const delegateOutputSchema = z.object({
     entries: z.array(planEntrySchema),
     overview: z.string().optional(),
     detail: z.string().optional(),
-  }).optional(),
+  }).optional().describe(
+    "The agent's plan. entries and overview are the structured plan and always present when a plan exists. detail (a prose rendition the agent also filed) is kept only in agent mode; in plan/ask it is dropped because result already carries the plan — as the agent's own message, or folded in (resultSource plan-detail) when that message was too terse. To act on a plan, resume the sessionId rather than forwarding detail: the plan lives in the agent's session."
+  ),
   todos: z.array(z.object({
     id: z.string(),
     content: z.string(),
