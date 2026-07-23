@@ -1544,6 +1544,28 @@ test("hard-cap error reports todo progress, files touched and the resume id", as
       assert.match(err.message, /todo 2\/3: Create b2\.txt/);
       assert.match(err.message, /Files reported edited: b1\.txt/);
       assert.match(err.message, /Resume with resumeSessionId sess-forensics/);
+      assert.match(err.message, /raise CURSOR_DELEGATE_HARD_CAP_MS/);
+      return true;
+    }
+  );
+});
+
+// The advice must name the knob that fired: raising the hard cap does nothing when the
+// idle guard tripped.
+test("idle-timeout error advises CURSOR_DELEGATE_IDLE_MS, not the hard cap", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory(),
+      handshakeMs: 10000,
+      idleMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      assert.equal(err.reason, "idle-timeout");
+      assert.match(err.message, /raise CURSOR_DELEGATE_IDLE_MS/);
+      assert.ok(!/CURSOR_DELEGATE_HARD_CAP_MS/.test(err.message), "the hard cap is the wrong knob here");
       return true;
     }
   );

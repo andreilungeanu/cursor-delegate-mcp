@@ -706,9 +706,11 @@ export async function runDelegate({
       }
       if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
       if (isTimeout) {
+        // Name the knob that actually fired: raising the hard cap does nothing for an
+        // idle-timeout, whose ceiling is CURSOR_DELEGATE_IDLE_MS.
+        const knob = err.reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
         err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
-          + " nothing until it exits. Split the command, run it in the background and poll, or raise"
-          + " CURSOR_DELEGATE_HARD_CAP_MS.";
+          + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`;
       }
     }
     // Opt-in, because the frames land in the caller's context and nothing there is
