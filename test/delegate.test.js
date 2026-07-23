@@ -63,6 +63,26 @@ function oversizedFactory() {
   return client;
 }
 
+// One "x" then a single emoji chunk longer than the remaining budget, so the 10MB cut lands
+// on the high surrogate of a pair (an even index) and must step back to stay well-formed.
+function surrogateBoundaryFactory() {
+  const client = new EventEmitter();
+  client.start = async () => {};
+  client.initialize = async () => {};
+  client.newSession = async () => ({ sessionId: "sess-surrogate" });
+  client.setModel = async () => {};
+  client.setConfigOption = async () => {};
+  client.setMode = async () => {};
+  client.prompt = async () => {
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "x" } } });
+    const emoji = "\u{1f525}".repeat(5 * 1024 * 1024);
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: emoji } } });
+    return { stopReason: "end_turn" };
+  };
+  client.stop = () => {};
+  return client;
+}
+
 function fastToggleFactory({ onSetFast }) {
   return () => {
     const client = new EventEmitter();
@@ -1080,6 +1100,21 @@ test("runDelegate truncates accumulated output at 10MB", async () => {
   });
   assert.ok(out.result.endsWith(marker));
   assert.equal(out.result.length, maxOutput + marker.length);
+});
+
+test("runDelegate cuts the 10MB output at a code-point boundary", async () => {
+  const marker = "\n\n[output truncated at 10MB]";
+  const maxOutput = 10 * 1024 * 1024;
+  const out = await runDelegate({
+    spec: "big emoji task",
+    mode: "agent",
+    workspace: process.cwd(),
+    clientFactory: () => surrogateBoundaryFactory(),
+  });
+  assert.ok(out.result.endsWith(marker));
+  assert.ok(out.result.isWellFormed(), "result must not contain a lone surrogate");
+  // Stepped back one unit off the surrogate pair, so one short of the raw cap.
+  assert.equal(out.result.length, maxOutput - 1 + marker.length);
 });
 
 function failingPromptFactory() {

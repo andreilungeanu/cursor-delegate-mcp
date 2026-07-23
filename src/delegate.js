@@ -23,6 +23,15 @@ function fmtDuration(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
+// Cutting a UTF-16 string at an arbitrary index can split a surrogate pair and leave a lone
+// half-character — ill-formed Unicode that strict JSON consumers reject or mangle. Step back
+// one unit when the boundary would land inside a pair.
+function cutAtCodePoint(s, n) {
+  if (n >= s.length) return s;
+  const cu = s.charCodeAt(n - 1);
+  return s.slice(0, cu >= 0xd800 && cu <= 0xdbff ? n - 1 : n);
+}
+
 // Two different questions, and conflating them is what made a typo'd brief cost a live turn.
 // "Could this be a path?" is deliberately loose — a one-line brief ending in .md is worth a
 // stat. "Was a path clearly intended?" has to be strict, because an ordinary inline spec
@@ -342,8 +351,9 @@ export async function runDelegate({
       resultChunks.push(text);
       resultLength += text.length;
     } else if (remaining > 0) {
-      resultChunks.push(text.slice(0, remaining));
-      resultLength += remaining;
+      const cut = cutAtCodePoint(text, remaining);
+      resultChunks.push(cut);
+      resultLength += cut.length;
       truncated = true;
     } else {
       truncated = true;
