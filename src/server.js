@@ -77,7 +77,7 @@ const delegateOutputSchema = z.object({
     content: z.string(),
     status: z.enum(["pending", "in_progress", "completed"]).optional(),
   })).optional().describe(
-    "Todo list the agent tracked for this turn. Absent when the agent tracked none, which is common on short tasks and does not imply incompleteness."
+    "Todo items the agent left unfinished, present only when todoProgress shows completed < total — read it to see what remains before resuming. Absent both when the agent tracked no todos (common on short tasks) and when everything tracked was completed; todoProgress tells those apart."
   ),
   modeChanged: z.object({ from: z.string(), to: z.string() }).optional().describe(
     "Set when the agent switched itself out of the requested mode mid-session. Absence does not mean the mode was honored — an agent can write while staying in plan."

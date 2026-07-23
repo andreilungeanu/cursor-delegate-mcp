@@ -55,10 +55,15 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 ### `todos` / `todoProgress` — absence means nothing
 
 Both fields are **omitted entirely** when the agent tracked no todos, rather than reported as
-zeros. Most correct, complete turns emit no todo frames at all — short tasks especially. So:
+zeros. Most correct, complete turns emit no todo frames at all — short tasks especially. When
+todos were tracked, `todoProgress` is always returned; the full `todos` list is returned
+**only when `completed < total`** — on a fully-completed turn it would just restate the
+counts entry by entry. So:
 
-- `todoProgress` present with `completed < total` is direct evidence of unfinished work.
-- `todos` absent is **not** evidence of anything, and must not be read as incompleteness.
+- `todoProgress` present with `completed < total` is direct evidence of unfinished work, and
+  `todos` is present alongside it naming exactly what remains — read it before resuming.
+- `todoProgress` present and complete means everything tracked was done; no list follows.
+- Both absent is **not** evidence of anything, and must not be read as incompleteness.
 
 `todoProgress` is `{total, completed, inProgress, pending}`.
 

@@ -1334,14 +1334,14 @@ const MEASURED_TODO_FRAMES = [
   ] },
 ];
 
-test("runDelegate folds the measured todo stream into a completed list", async () => {
+test("runDelegate reports a fully-completed todo stream as counts only", async () => {
   const out = await runDelegate({
     spec: "three steps",
     workspace: process.cwd(),
     clientFactory: todoFactory(MEASURED_TODO_FRAMES),
   });
-  assert.equal(out.todos.length, 3);
-  assert.deepEqual(out.todos.map((t) => t.status), ["completed", "completed", "completed"]);
+  // The full list on a 3/3 turn restates the counts entry by entry — counts carry it alone.
+  assert.equal(out.todos, undefined);
   assert.deepEqual(out.todoProgress, { total: 3, completed: 3, inProgress: 0, pending: 0 });
   assert.equal(out.protocolWarnings, undefined);
 });
@@ -1354,6 +1354,9 @@ test("runDelegate reports a turn that ends with todos still pending", async () =
   });
   assert.equal(out.stopReason, undefined);
   assert.deepEqual(out.todoProgress, { total: 3, completed: 1, inProgress: 1, pending: 1 });
+  // Unfinished work is when the list earns its place: it names what remains.
+  assert.equal(out.todos.length, 3);
+  assert.deepEqual(out.todos.map((t) => t.status), ["completed", "in_progress", "pending"]);
 });
 
 test("runDelegate omits todo fields when the agent tracked none", async () => {

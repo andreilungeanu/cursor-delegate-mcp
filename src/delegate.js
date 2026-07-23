@@ -654,8 +654,14 @@ export async function runDelegate({
       if (dropPlanDetail) delete out.plan.detail;
     }
     // Most successful turns emit no todos at all, so an empty list would read as "nothing
-    // done" rather than "not tracked". Report only what the agent actually sent.
-    if (sawTodoFrame) Object.assign(out, sanitizeTodos(protocolWarnings));
+    // done" rather than "not tracked". Report only what the agent actually sent — and of
+    // that, the full list only when it says something todoProgress cannot: which items
+    // remain. On a fully-completed turn the list restates the counts entry by entry.
+    if (sawTodoFrame) {
+      const { todos: todoList, todoProgress } = sanitizeTodos(protocolWarnings);
+      out.todoProgress = todoProgress;
+      if (todoProgress.completed < todoProgress.total) out.todos = todoList;
+    }
     if (writeCapableActivity.length) {
       out.writeCapableActivity = writeCapableActivity;
       // "the diff for what changed" overclaims when every entry is a pathless execute — live
