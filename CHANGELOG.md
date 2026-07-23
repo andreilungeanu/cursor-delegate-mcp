@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking**: the `maxResultChars` delegate input is removed. Modern context windows make a
+  caller-set character cap redundant, and its blunt mid-text cut was never a summarizer; the
+  always-on 10MB streaming ceiling still guards against a runaway reply. Control reply length
+  through the spec instead.
+
 ## [1.12.0] - 2026-07-23
 
 ### Changed

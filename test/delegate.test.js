@@ -1208,31 +1208,6 @@ test("runDelegate omits protocolWarnings when frames are well-formed", async () 
   assert.deepEqual(out.plan.entries, [{ content: "ok", priority: "low", status: "completed" }]);
 });
 
-test("runDelegate truncates result to maxResultChars and warns", async () => {
-  const out = await runDelegate({
-    spec: "do it",
-    mode: "agent",
-    workspace: process.cwd(),
-    maxResultChars: 10,
-    clientFactory: scriptedFactory({ message: "x".repeat(100) }),
-  });
-  assert.equal(out.result.slice(0, 10), "xxxxxxxxxx");
-  assert.match(out.result, /\n\n\[result truncated at 10 chars\]$/);
-  assert.ok(out.protocolWarnings.some((w) => /exceeded maxResultChars 10/.test(w)));
-});
-
-test("runDelegate leaves a result under maxResultChars untouched", async () => {
-  const out = await runDelegate({
-    spec: "do it",
-    mode: "agent",
-    workspace: process.cwd(),
-    maxResultChars: 100,
-    clientFactory: scriptedFactory({ message: "short" }),
-  });
-  assert.equal(out.result, "short");
-  assert.equal(out.protocolWarnings, undefined);
-});
-
 function abortablePromptFactory({ onAbortReady, track }) {
   return () => {
     const client = new EventEmitter();

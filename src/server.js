@@ -121,7 +121,6 @@ export const delegateInputSchema = z.object({
   reasoning: z.string().trim().min(1).optional().describe("Reasoning effort. Not offered by every model; gpt-5.x accepts none, low, medium, high, extra-high."),
   context: z.string().trim().min(1).optional().describe("Context window size. Not offered by every model; gpt-5.x accepts 272k and 1m."),
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace, and paths outside it are allowed — attach only files the agent should read. Anything skipped is reported in protocolWarnings, never fatal."),
-  maxResultChars: z.number().int().positive().optional().describe("Cap the returned result to this many characters. A longer result is truncated with a marker and a protocolWarning, so a runaway agent reply cannot blow up your context; the truncation is never reported as a complete answer."),
 });
 
 // A cursor/ask_question question is multi-select when it sets allowMultiple, and the answer
@@ -140,7 +139,7 @@ function matchOptions(choice, opts = [], allowMultiple = false) {
 }
 
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight, seenSessions = new Set() }) {
-  const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles, maxResultChars } = args;
+  const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles } = args;
 
   const progressToken = extra?._meta?.progressToken;
   let onProgress = () => {};
@@ -220,7 +219,6 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       reasoning,
       context,
       contextFiles,
-      maxResultChars,
       onElicit,
       onProgress,
       signal: extra?.signal,
