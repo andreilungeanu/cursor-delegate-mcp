@@ -157,10 +157,12 @@ A delegation is still cancellable at any time via the `cancel` tool or a host in
 
 ## Other tools
 
-**`cancel`** — `{sessionId, force?}` → `status: "cancelled" | "killed" | "not-found"`.
+**`cancel`** — `{sessionId, force?}` → `status: "cancelled" | "killed" | "not-running" | "not-found"`.
 `session/cancel` is best-effort and the agent may finish the turn; the session stays
 cancellable afterwards, so a follow-up call with `force: true` kills the process after a
-grace period and reports `killed`. `not-found` means the delegation has already settled.
+grace period and reports `killed`. `not-running` means the turn already ended — the session
+is still resumable via `resumeSessionId`; `not-found` means the id was never seen by this
+process.
 
 **`doctor`** — `{deep?}`. Always reports plugin version, MCP client capabilities (including
 `supportsElicitation`), launcher resolution and `agent.found`, plus runtime info. With
