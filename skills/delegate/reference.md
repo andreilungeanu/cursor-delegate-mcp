@@ -39,7 +39,6 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 | `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Omitted when empty — absence means no edit tool reported a change, **not** that nothing changed: shell-driven edits leave no diff event; the git diff is authoritative. |
 | `questionsAsked` | Prompts surfaced via `cursor/ask_question`. In practice **always empty**: cursor-agent has never been measured emitting that request, so clarifying questions arrive as ordinary text in `result`. |
 | `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
-| `sessionTitle` | Short title the agent gave this turn. A label for telling concurrent delegations apart; also named in timeout errors. |
 | `modeChanged` | `{from, to}`, set when the agent switched itself out of the requested mode. A `plan` run that becomes `agent` is **write-capable** — inspect the diff before reporting a plan-only outcome. Absence proves nothing; see Mode behavior. |
 | `writeCapableActivity` | Write-capable tool calls (`edit`/`delete`/`move`/`execute`) run during a `plan` or `ask` turn, each with the tool's own label and, when a diff frame named one, the `path` it touched. **Only populated for `plan` and `ask`** — in `agent` mode every turn would fill it, so it carries no signal there and is omitted. It records what the agent **ran**, not what changed: a shell command is not a change list, and an entry without a `path` may be a no-op or a retry that changed nothing. Treat the count as an upper bound on writes, never a total. |
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
@@ -126,8 +125,10 @@ Cross-process resume via `session/load`. Unknown ids fall back to a fresh sessio
 
 ## Progress
 
-Thinking, streamed response sentences, tool starts, and todo-list changes arrive as ephemeral
-MCP progress notifications — separate from `result`.
+Thinking, streamed response sentences, tool starts, todo-list changes, and the turn title the
+agent picks (`turn titled: …`) arrive as ephemeral MCP progress notifications — separate from
+`result`. The title is a live label for telling concurrent delegations apart and is also named
+in timeout errors; it is not returned in the result, where it can even contradict the answer.
 
 While a turn is running, a `still working — <elapsed>, last agent frame <age> ago, running: <tool>`
 heartbeat is emitted periodically, with a `todo i/n: …` segment when the agent tracks todos. A

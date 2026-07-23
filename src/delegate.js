@@ -462,9 +462,12 @@ export async function runDelegate({
     if (up.sessionUpdate === "current_mode_update" && up.currentModeId && up.currentModeId !== mode) {
       modeChanged = { from: mode, to: up.currentModeId };
     }
-    // The agent names the turn a beat after the prompt lands ("File Creator"). Cheap
-    // label for a caller juggling several delegations.
+    // The agent names the turn a beat after the prompt lands ("File Creator"). Useful as an
+    // ephemeral label while several delegations run, and in timeout forensics — but not in
+    // the result, where it arrives after there is nothing left to tell apart and has been
+    // measured contradicting the answer ("No Image Detected" on a turn describing an image).
     if (up.sessionUpdate === "session_info_update" && typeof up.title === "string" && up.title) {
+      if (up.title !== sessionTitle) { try { onProgress?.(`turn titled: ${up.title}`.slice(0, 200)); } catch {} }
       sessionTitle = up.title;
     }
     if (up.sessionUpdate === "agent_thought_chunk" && up.content?.text) {
@@ -642,7 +645,8 @@ export async function runDelegate({
     // Elicitation almost never fires (the agent tends to ask in prose and end the turn), so an
     // always-empty array is steady noise. Report it only when a question actually came through.
     if (questionsAsked.length) out.questionsAsked = questionsAsked;
-    if (sessionTitle) out.sessionTitle = sessionTitle;
+    // sessionTitle stays out of the result: it is a live label (progress) and a forensic one
+    // (timeout errors), not a fact about the finished turn.
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
     protocolWarnings.push(...contextWarnings);

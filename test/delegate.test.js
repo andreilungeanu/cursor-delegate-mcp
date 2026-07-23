@@ -258,7 +258,8 @@ test("runDelegate leaves an existing reason alone and tags nothing without an rp
   );
 });
 
-test("runDelegate reports the agent-assigned session title", async () => {
+test("runDelegate surfaces the agent-assigned title as progress, not in the result", async () => {
+  const progress = [];
   const factory = () => {
     const client = new EventEmitter();
     client.start = async () => {};
@@ -276,8 +277,11 @@ test("runDelegate reports the agent-assigned session title", async () => {
     client.stop = () => {};
     return client;
   };
-  const out = await runDelegate({ spec: "task", workspace: process.cwd(), clientFactory: factory });
-  assert.equal(out.sessionTitle, "File Creator");
+  const out = await runDelegate({ spec: "task", workspace: process.cwd(), clientFactory: factory, onProgress: (m) => progress.push(m) });
+  // The title is a live label (and timeout forensics); in the result it arrives too late to
+  // help and has been measured contradicting the answer.
+  assert.equal(out.sessionTitle, undefined);
+  assert.ok(progress.includes("turn titled: File Creator"), `expected title progress line, got ${JSON.stringify(progress)}`);
   assert.equal(out.result, "done");
 });
 

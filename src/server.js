@@ -56,9 +56,6 @@ const delegateOutputSchema = z.object({
   resumed: z.boolean().optional().describe(
     "Present and true only when a requested resume took (the returned session id matched resumeSessionId). Absent for a fresh session, or when a resume failed — a failed resume is reported in protocolWarnings."
   ),
-  sessionTitle: z.string().optional().describe(
-    "Short title the agent gave this turn. Present on most turns; purely a label."
-  ),
   autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
   fallbackAnswers: z.array(z.object({ prompt: z.string(), given: z.string(), chosen: z.string() })).optional(),
   cancelRequested: z.boolean().optional(),
