@@ -41,7 +41,7 @@ const planEntrySchema = z.object({
 const delegateOutputSchema = z.object({
   result: z.string(),
   resultSource: z.enum(["pre-tool-fallback", "plan-detail", "none"]).optional().describe(
-    "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. plan-detail (plan/ask only): the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan. none: the turn produced no message and result is empty."
+    "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. plan-detail (plan/ask only): the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan, with any non-empty chat message appended under a '--- agent chat reply:' separator (this is where a short clarifying question survives). none: the turn produced no message and result is empty."
   ),
   stopReason: z.string().optional().describe(
     "Present only when it is not the ordinary end_turn — a refusal, a cancel, or an output cap. Absence means the turn ended normally."

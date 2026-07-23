@@ -331,8 +331,9 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
 test("runDelegate captures session/update:plan with latest update winning", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, undefined);
-  // "plan ready" is too terse to be the plan, so the filed plan is folded into result.
-  assert.equal(out.result, "# Plan\n\n1. Create CHANGELOG.md");
+  // "plan ready" is too terse to be the plan, so the filed plan is folded into result — with
+  // the agent's own reply preserved under a separator rather than silently dropped.
+  assert.equal(out.result, "# Plan\n\n1. Create CHANGELOG.md\n\n--- agent chat reply:\nplan ready");
   assert.equal(out.resultSource, "plan-detail");
   assert.ok(out.plan);
   assert.deepEqual(out.plan.entries, [
@@ -393,9 +394,30 @@ test("runDelegate folds plan.detail into result when the message is too terse", 
     spec: "plan it", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message: "plan ready", overview: "ov", plan }),
   });
-  assert.equal(out.result, plan, "the terse message is replaced by the filed plan");
+  assert.equal(out.result, plan + "\n\n--- agent chat reply:\nplan ready", "the terse message is replaced by the filed plan, its text kept under a separator");
   assert.equal(out.resultSource, "plan-detail");
   assert.equal(out.plan.detail, undefined, "the plan is in result now, not duplicated in detail");
+});
+
+test("runDelegate preserves a real question the agent asked when promoting the filed plan", async () => {
+  const plan = "# Plan\n\n1. Add the config loader with a detailed multi-step rollout description.";
+  const question = "Should the config format be TOML or JSON?";
+  const out = await runDelegate({
+    spec: "file the plan and ask the format", mode: "plan", workspace: process.cwd(),
+    clientFactory: planDetailFactory({ message: question, overview: "ov", plan }),
+  });
+  assert.equal(out.resultSource, "plan-detail");
+  assert.ok(out.result.endsWith("\n\n--- agent chat reply:\n" + question), "the agent's question survives promotion");
+});
+
+test("runDelegate does not re-append a chat message identical to the filed plan", async () => {
+  const plan = "# Plan\n\n1. A short plan the agent also sent verbatim as its chat message.";
+  const out = await runDelegate({
+    spec: "plan it", mode: "plan", workspace: process.cwd(),
+    clientFactory: planDetailFactory({ message: plan, overview: "ov", plan }),
+  });
+  assert.equal(out.result, plan, "no self-duplication when message equals the plan");
+  assert.ok(!out.result.includes("--- agent chat reply:"));
 });
 
 test("runDelegate folds plan.detail into result when a trailing tool leaves no final message", async () => {
@@ -408,6 +430,7 @@ test("runDelegate folds plan.detail into result when a trailing tool leaves no f
   assert.equal(out.resultSource, "plan-detail");
   assert.equal(out.finalMessageAvailable, undefined);
   assert.equal(out.plan.detail, undefined);
+  assert.ok(!out.result.includes("--- agent chat reply:"), "a discarded preamble is not the agent's closing reply, so it is not appended");
   assert.ok(!out.protocolWarnings?.some((w) => /never spoke again/.test(w)), "result carries the plan, so no stale fallback warning");
 });
 

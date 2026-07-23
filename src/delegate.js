@@ -596,7 +596,15 @@ export async function runDelegate({
     if (typeof planDetail === "string" && (mode === "plan" || mode === "ask")) {
       dropPlanDetail = true;
       if (!(finalMessageAvailable && result.length >= PLAN_TERSE_FLOOR)) {
+        // The terse floor cannot tell a trivial "FILED." from a real question — a question is
+        // always short. Promotion overwrites result with the plan, so never let it silently
+        // eat the agent's own words: carry a real final message under the plan. A pre-tool
+        // preamble (no final message) stays dropped — it is not the agent's closing reply.
+        const suppressed = finalMessageAvailable ? result : "";
         result = planDetail;
+        if (suppressed.trim() && suppressed !== planDetail) {
+          result += "\n\n--- agent chat reply:\n" + suppressed;
+        }
         resultSource = "plan-detail";
       }
     }
