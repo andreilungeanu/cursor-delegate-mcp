@@ -316,7 +316,7 @@ test("runDelegate captures session/update:plan with latest update winning", asyn
   ]);
   assert.equal(out.plan.overview, "Add a changelog file");
   assert.equal(out.plan.detail, undefined, "the plan is now in result, not duplicated in detail");
-  assert.deepEqual(out.filesReportedByEditTools, []);
+  assert.equal(out.filesReportedByEditTools, undefined);
 });
 
 function planDetailFactory({ message, overview, plan, trailingTool = false }) {
@@ -399,9 +399,9 @@ test("runDelegate keeps plan.detail in agent mode alongside the implementation r
   assert.equal(out.plan.overview, "ov");
 });
 
-test("runDelegate plan-mode filesReportedByEditTools is empty (no diff events)", async () => {
+test("runDelegate plan-mode filesReportedByEditTools is omitted (no diff events)", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
-  assert.deepEqual(out.filesReportedByEditTools, []);
+  assert.equal(out.filesReportedByEditTools, undefined, "absence, not an empty list, means nothing was reported");
 });
 
 test("runDelegate omits plan when no plan was emitted", async () => {
@@ -1809,7 +1809,7 @@ test("runDelegate reports an edit-kind tool call that never emits a diff", async
     ]),
   });
   assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File" }]);
-  assert.deepEqual(out.filesReportedByEditTools, [], "no diff frame, so the edit-tool channel saw nothing");
+  assert.equal(out.filesReportedByEditTools, undefined, "no diff frame, so the edit-tool channel saw nothing");
 });
 
 test("runDelegate stays quiet about write-capable tool calls in agent mode", async () => {
@@ -1900,6 +1900,6 @@ test("replayed session/load frames do not leak into the result or touched files"
   assert.deepEqual(progress.filter((m) => /Edit File|from-a-previous-turn/.test(m)), []);
   assert.equal(out.result, "fresh answer");
   assert.equal(out.resultSource, undefined);
-  assert.deepEqual(out.filesReportedByEditTools, []);
+  assert.equal(out.filesReportedByEditTools, undefined, "replayed diff frames must not surface as this turn's edits");
   assert.equal(out.resumed, true);
 });

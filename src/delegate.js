@@ -624,8 +624,12 @@ export async function runDelegate({
     const out = {
       result,
       sessionId,
-      filesReportedByEditTools: normalizeAgentReportedFiles([...touched], workspace),
     };
+    // Like every other collection here, absence means "nothing reported": an empty list on
+    // every read-only turn read as a claim that nothing changed, which this field cannot make
+    // (shell-driven edits leave no diff event).
+    const filesReported = normalizeAgentReportedFiles([...touched], workspace);
+    if (filesReported.length) out.filesReportedByEditTools = filesReported;
     // resultSource is a caveat, not a fact worth stating on every turn: on the happy path
     // (post-tool / tool-free-stream) result is simply the answer, so say nothing. Surface it only
     // when it warns — pre-tool-fallback, plan-detail, none. finalMessageAvailable is dropped
