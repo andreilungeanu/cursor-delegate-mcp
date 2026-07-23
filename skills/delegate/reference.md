@@ -16,17 +16,14 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
 | `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**. Skips are reported in `protocolWarnings`, never fatal. |
 
-The ACP model namespace is not the CLI's. `session/new` advertises bare family ids, while
-`cursor-agent --list-models` prints tier-suffixed variants (`cursor-grok-4.5-high`,
-`gpt-5.4-high`, `composer-2.5-fast`). Over ACP the tier is a config option instead, so the
-CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `reasoning: "high"`, and any `-fast` suffix
-is `fast: true`. Passing a suffixed id fails with `Invalid model value`. `doctor` with
-`deep: true` prints the list this agent actually offers.
+ACP model ids are bare families, not the CLI's tier-suffixed `--list-models` strings: the
+CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `reasoning: "high"`, and `-fast` is
+`fast: true`. A suffixed id fails with `Invalid model value`; `doctor` with `deep: true`
+lists the ids this agent offers.
 
-Which config options a model offers is not discoverable up front, so `reasoning` and
-`context` are sent and the rejection is read as the answer: a model without the knob yields
-a `protocolWarnings` note and the run continues, while an invalid value for a knob the model
-*does* have fails the call. Do not pass them speculatively.
+Which knobs a model offers is not discoverable up front: a model without the knob yields a
+`protocolWarnings` note and the run continues, while an invalid value for a knob it *does*
+have fails the call. Do not pass `reasoning`/`context` speculatively.
 
 ## Return value
 
@@ -84,12 +81,9 @@ In `plan` and `ask`, write-capable tool calls are reported in `writeCapableActiv
 `protocolWarning`. That is disclosure, not a boundary: the call is reported as it is dispatched,
 never withheld. In `agent` mode nothing is reported — review the diff, as always.
 
-`modeChanged` only fires on a `current_mode_update` frame — the agent formally switching modes.
-It is **not** a signal that the mode was ignored: a measured `plan` run wrote two files via
-shell while staying in `plan`, so no frame was sent and `modeChanged` stayed unset. Nothing
-about that run was ignoring the mode from the protocol's point of view; the agent simply did
-not honor the instruction. cursor-agent never sends `session/request_permission` for shell
-work either, so there is no approval the bridge could have withheld.
+`modeChanged` fires only on a formal mode-switch frame, so it is **not** a signal the mode
+was ignored: a measured `plan` run wrote two files via shell while staying in `plan` — no
+frame, and no permission request the bridge could have withheld.
 
 - **`agent`** — implements; auto-approves writes; accepts `cursor/create_plan` if emitted.
 - **`plan`** — plan only; the sole mode-dependent gate is rejecting `cursor/create_plan`
