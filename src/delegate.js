@@ -654,10 +654,17 @@ export async function runDelegate({
     if (sawTodoFrame) Object.assign(out, sanitizeTodos(protocolWarnings));
     if (writeCapableActivity.length) {
       out.writeCapableActivity = writeCapableActivity;
+      // "the diff for what changed" overclaims when every entry is a pathless execute — live
+      // runs drew the same warning for read-only commands (git log, git show, ls -la) as for
+      // a real write. Hedge when nothing reported a path.
+      const anyPath = writeCapableActivity.some((a) => a.path);
       protocolWarnings.push(
         `mode ${mode} asked the agent not to change anything, but it ran ${writeCapableActivity.length}`
         + ` write-capable tool call${writeCapableActivity.length === 1 ? "" : "s"} — see writeCapableActivity`
-        + " for what ran, and the diff for what changed."
+        + " for what ran"
+        + (anyPath
+          ? ", and the diff for what changed."
+          : "; none reported touching a file, so this may be read-only activity — check the git diff to confirm nothing changed.")
       );
     }
     if (modeChanged) {

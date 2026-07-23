@@ -1728,6 +1728,9 @@ test("runDelegate reports write-capable tool calls made during a plan turn", asy
   });
   assert.deepEqual(out.writeCapableActivity, [{ kind: "execute", detail: "`echo LEAKED > leak.txt`" }]);
   assert.ok(out.protocolWarnings.some((w) => /write-capable tool call/.test(w)));
+  // A pathless execute may be a read-only command, so the warning must not assert a change.
+  assert.ok(out.protocolWarnings.some((w) => /none reported touching a file/.test(w)));
+  assert.ok(!out.protocolWarnings.some((w) => /the diff for what changed/.test(w)));
   assert.equal(out.modeChanged, undefined, "the agent never left plan mode, so nothing drifted");
 });
 
@@ -1746,6 +1749,8 @@ test("runDelegate names the file an edit-kind plan write touched", async () => {
     ]),
   });
   assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File", path: "docs/plan.md" }]);
+  // A reported path is evidence something changed, so here the warning points at the diff.
+  assert.ok(out.protocolWarnings.some((w) => /the diff for what changed/.test(w)));
 });
 
 // A rename arrives as an edit/delete pair rather than a move-kind call; delete carries a
