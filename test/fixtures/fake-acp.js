@@ -4,6 +4,7 @@ import readline from "node:readline";
 
 const CREATE_PLAN_REQ_ID = 9001;
 let currentMode = "agent";
+let currentModel = "composer-2.5";
 let pendingPrompt = null;
 
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
@@ -83,9 +84,16 @@ rl.on("line", (line) => {
       ],
     } });
   }
-  if (m.method === "session/set_model") return out({ jsonrpc: "2.0", id: m.id, result: {} });
+  if (m.method === "session/set_model") {
+    if (m.params?.modelId) currentModel = m.params.modelId;
+    return out({ jsonrpc: "2.0", id: m.id, result: {} });
+  }
   if (m.method === "session/set_config_option") {
-    if (m.params?.configId) return out({ jsonrpc: "2.0", id: m.id, result: {} });
+    // The real agent echoes the now-current model's configOptions here — the only place the
+    // served model surfaces after set_model.
+    if (m.params?.configId) return out({ jsonrpc: "2.0", id: m.id, result: { configOptions: [
+      { id: "model", currentValue: currentModel, options: [{ value: currentModel }] },
+    ] } });
     return out({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "Internal error" } });
   }
   if (m.method === "session/set_mode") {

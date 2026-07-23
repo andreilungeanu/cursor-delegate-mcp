@@ -178,15 +178,27 @@ function assertKnownModel(client, model) {
 // rejection as the answer. Two distinct -32602s, both measured: "Unknown model config
 // option: X" means this model has no such knob — report it and carry on. "Invalid value
 // for X: Y" means the caller named a value the model rejects, which must not be swallowed.
-// Returns true when the option is unsupported.
+// Returns { unsupported, res }: unsupported is true when the model has no such knob; res is the
+// set_config_option reply, which echoes the now-current model's configOptions (incl. the served
+// model id) — the only place the agent reports what model actually took after set_model.
 async function applyConfig(client, sessionId, configId, value) {
   try {
-    await client.setConfigOption(sessionId, configId, value);
-    return false;
+    const res = await client.setConfigOption(sessionId, configId, value);
+    return { unsupported: false, res };
   } catch (err) {
     if (err?.code !== -32602 || !/unknown model config option/i.test(err?.message || "")) throw err;
-    return true;
+    return { unsupported: true };
   }
+}
+
+// The agent reports the resolved model only inside a set_config_option reply's configOptions
+// (set_model itself returns nothing). Read it there when present; absent for models that reject
+// every option we send, which is fine — the field then stays off.
+function servedModelFrom(res) {
+  const opts = res?.configOptions;
+  if (!Array.isArray(opts)) return undefined;
+  const m = opts.find((o) => o?.id === "model");
+  return typeof m?.currentValue === "string" ? m.currentValue : undefined;
 }
 
 export async function runDelegate({
@@ -528,6 +540,7 @@ export async function runDelegate({
   let sessionId;
   let resumeError;
   const unsupportedOptions = [];
+  let servedModel;
   const contextWarnings = [];
   try {
     const res = await supervisor.supervise(async () => {
@@ -541,11 +554,16 @@ export async function runDelegate({
       assertKnownModel(client, model);
       await client.setModel(sessionId, model);
       // fast is always sent: a resumed session may already have it on, so false is a real
-      // instruction. reasoning and context are only sent when the caller named one.
-      if (await applyConfig(client, sessionId, "fast", fast) && fast) unsupportedOptions.push("fast");
+      // instruction. reasoning and context are only sent when the caller named one. Each reply
+      // reports the now-current model; keep the last one seen as the served model.
+      const fastResult = await applyConfig(client, sessionId, "fast", fast);
+      if (fastResult.unsupported && fast) unsupportedOptions.push("fast");
+      else servedModel = servedModelFrom(fastResult.res) ?? servedModel;
       for (const [id, value] of [["reasoning", reasoning], ["context", context]]) {
         if (value === undefined) continue;
-        if (await applyConfig(client, sessionId, id, value)) unsupportedOptions.push(id);
+        const r = await applyConfig(client, sessionId, id, value);
+        if (r.unsupported) unsupportedOptions.push(id);
+        else servedModel = servedModelFrom(r.res) ?? servedModel;
       }
       await client.setMode(sessionId, mode);
       resetResult();
@@ -648,6 +666,9 @@ export async function runDelegate({
     // leaves it absent.
     if (resultSource !== "post-tool" && resultSource !== "tool-free-stream") out.resultSource = resultSource;
     if (!!resumeSessionId && sessionId === resumeSessionId) out.resumed = true;
+    // Only when the agent served a different model than asked — e.g. "default" routing to a
+    // concrete id, or a cross-model resume. Silence means the request was honored.
+    if (servedModel !== undefined && servedModel !== model) out.effectiveModel = servedModel;
     if (stopReason !== undefined) out.stopReason = stopReason;
     // Elicitation almost never fires (the agent tends to ask in prose and end the turn), so an
     // always-empty array is steady noise. Report it only when a question actually came through.

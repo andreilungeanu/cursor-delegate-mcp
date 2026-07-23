@@ -99,6 +99,59 @@ function fastToggleFactory({ onSetFast }) {
   };
 }
 
+// setConfigOption echoes the served model in configOptions (the measured post-set_model shape);
+// rejectFast throws the -32602 a model without the fast knob returns.
+function servedModelFactory({ served, rejectFast = false }) {
+  return () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-model" });
+    client.setModel = async () => {};
+    client.setConfigOption = async (_sid, configId) => {
+      if (rejectFast && configId === "fast") {
+        const err = new Error("Unknown model config option: fast");
+        err.code = -32602;
+        throw err;
+      }
+      return { configOptions: [{ id: "model", currentValue: served, options: [{ value: served }] }] };
+    };
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+}
+
+test("runDelegate reports effectiveModel when the agent serves a different model than requested", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "default", workspace: process.cwd(),
+    clientFactory: servedModelFactory({ served: "composer-2.5" }),
+  });
+  assert.equal(out.effectiveModel, "composer-2.5");
+});
+
+test("runDelegate omits effectiveModel when the agent confirms the requested model", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: servedModelFactory({ served: "composer-2.5" }),
+  });
+  assert.equal(out.effectiveModel, undefined);
+});
+
+test("runDelegate omits effectiveModel when the model reports no config (fast rejected)", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", fast: true, workspace: process.cwd(),
+    clientFactory: servedModelFactory({ served: "ignored", rejectFast: true }),
+  });
+  assert.equal(out.effectiveModel, undefined);
+  assert.ok(out.protocolWarnings.some((w) => /has no fast option/.test(w)));
+});
+
 test("runDelegate returns assembled result for a fresh session", async () => {
   const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, undefined);

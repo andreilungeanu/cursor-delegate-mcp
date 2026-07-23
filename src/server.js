@@ -43,6 +43,9 @@ const delegateOutputSchema = z.object({
   resultSource: z.enum(["pre-tool-fallback", "plan-detail", "none"]).optional().describe(
     "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. plan-detail (plan/ask only): the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan, with any non-empty chat message appended under a '--- agent chat reply:' separator (this is where a short clarifying question survives). none: the turn produced no message and result is empty."
   ),
+  effectiveModel: z.string().optional().describe(
+    "The model id the agent reported serving, present only when it differs from the model you requested — e.g. \"default\" resolving to a concrete id, or a cross-model resume. Read from the agent's post-set_model config report; absent when the agent confirmed the requested id or reported no model (some models report none)."
+  ),
   stopReason: z.string().optional().describe(
     "Present only when it is not the ordinary end_turn — a refusal, a cancel, or an output cap. Absence means the turn ended normally."
   ),
