@@ -19,8 +19,8 @@ test("Codex plugin manifest references real portable components", () => {
     assert.match(manifest[field], /^\.\//);
     assert.ok(existsSync(resolve(dirname(manifestPath), "..", manifest[field])), `${field} path must exist`);
   }
-  assert.equal(manifest.mcpServers["cursor-delegate-mcp"].command, "npx");
-  assert.deepEqual(manifest.mcpServers["cursor-delegate-mcp"].args, ["-y", pin]);
+  assert.equal(manifest.mcpServers["cursor-delegate"].command, "npx");
+  assert.deepEqual(manifest.mcpServers["cursor-delegate"].args, ["-y", pin]);
   for (const field of ["composerIcon", "logo"]) {
     const target = resolve(dirname(manifestPath), "..", manifest.interface[field]);
     assert.ok(existsSync(target), `${field} asset must exist`);
@@ -42,7 +42,7 @@ test("marketplaces and Copilot plugin point at the intended package", () => {
   assert.ok(existsSync(resolve(ROOT, copilot.skills)));
   assert.ok(existsSync(resolve(ROOT, copilot.mcpServers)));
   const copilotMcp = read(".mcp.copilot.json");
-  assert.deepEqual(copilotMcp["cursor-delegate-mcp"].args, ["-y", pin]);
+  assert.deepEqual(copilotMcp["cursor-delegate"].args, ["-y", pin]);
 
   const copilotMarketplace = read(".github/plugin/marketplace.json");
   assert.equal(copilotMarketplace.plugins[0].source, "./");
@@ -54,7 +54,7 @@ test("Claude plugin launches bundled code and bootstraps its runtime dependencie
   assert.equal(manifest.hooks, "./.claude-plugin/hooks.json");
 
   const claudeMcp = read(".claude-plugin/mcp.json");
-  const server = claudeMcp.mcpServers["cursor-delegate-mcp"];
+  const server = claudeMcp.mcpServers["cursor-delegate"];
   assert.equal(server.command, "node");
   assert.deepEqual(server.args, ["${CLAUDE_PLUGIN_ROOT}/src/server.js"]);
 

@@ -13,13 +13,13 @@
   "keywords": ["mcp", "cursor", "codex", "delegation", "coding-agent"],
   "skills": "./skills/",
   "mcpServers": {
-    "cursor-delegate-mcp": {
+    "cursor-delegate": {
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp@1.11.1"]
     }
   },
   "interface": {
-    "displayName": "Cursor Delegate MCP",
+    "displayName": "Cursor Delegate",
     "shortDescription": "Delegate coding tasks to Cursor",
     "longDescription": "Plan and orchestrate in ChatGPT or Codex, delegate local implementation to Cursor's CLI agent, then review structured results and changed files.",
     "developerName": "Andrei Lungeanu",

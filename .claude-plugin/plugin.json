@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "cursor-delegate-mcp",
-  "displayName": "Cursor Delegate MCP",
+  "displayName": "Cursor Delegate",
   "version": "1.11.1",
   "description": "Delegate coding tasks to cursor-agent over ACP, with structured results, plan mode, and clarification handling.",
   "author": {

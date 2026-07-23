@@ -1,4 +1,4 @@
-# Cursor Delegate MCP
+# Cursor Delegate
 
 **Keep the brains. Delegate the build.**
 
@@ -8,7 +8,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![tests](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml)
 
-<img src="assets/logo-light.png" alt="Cursor Delegate MCP logo" width="150" align="left" hspace="15">
+<img src="assets/logo-light.png" alt="Cursor Delegate logo" width="150" align="left" hspace="15">
 
 Use your best coding agent where its judgment matters most: understanding the task, shaping the plan, and reviewing the result.
 
@@ -88,7 +88,7 @@ copilot plugin install andreilungeanu/cursor-delegate-mcp
 ```json
 {
   "servers": {
-    "cursor-delegate-mcp": {
+    "cursor-delegate": {
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp"]
@@ -114,7 +114,7 @@ Under **Settings → Tools → AI Assistant → Model Context Protocol (MCP)**, 
 ```json
 {
   "mcpServers": {
-    "cursor-delegate-mcp": {
+    "cursor-delegate": {
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp"]
     }
@@ -132,7 +132,7 @@ Heads-up: Cascade caps you at 100 tools across all servers.
 ```json
 {
   "servers": {
-    "cursor-delegate-mcp": {
+    "cursor-delegate": {
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp"]
@@ -152,7 +152,7 @@ Add the following server to the client's MCP config:
 ```json
 {
   "mcpServers": {
-    "cursor-delegate-mcp": {
+    "cursor-delegate": {
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp"]
     }

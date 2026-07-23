@@ -1,7 +1,7 @@
 {
   "name": "cursor-delegate-mcp",
   "interface": {
-    "displayName": "Cursor Delegate MCP"
+    "displayName": "Cursor Delegate"
   },
   "plugins": [
     {

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "cursor-delegate-mcp": {
+    "cursor-delegate": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/src/server.js"]
     }

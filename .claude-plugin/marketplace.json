@@ -5,7 +5,7 @@
     "name": "Andrei Lungeanu",
     "email": "andrei@lungeanu.ro"
   },
-  "description": "Marketplace hosting the Cursor Delegate MCP plugin.",
+  "description": "Marketplace hosting the Cursor Delegate plugin.",
   "plugins": [
     {
       "name": "cursor-delegate-mcp",

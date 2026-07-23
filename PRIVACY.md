@@ -1,6 +1,6 @@
 # Privacy
 
-Cursor Delegate MCP runs as a local stdio MCP server. The project author does not operate a backend for the plugin and does not receive your code, prompts, workspace contents, session identifiers, diagnostics, or usage telemetry.
+Cursor Delegate runs as a local stdio MCP server. The project author does not operate a backend for the plugin and does not receive your code, prompts, workspace contents, session identifiers, diagnostics, or usage telemetry.
 
 Claude Code installs run the server bundled in the plugin cache. On first session, the plugin may run `npm install --omit=dev` inside that cache to fetch its open-source runtime dependencies; it does not install them into your project. Codex, Copilot, VS Code, and standalone MCP configurations start the published package through `npx`, so npm may apply its own registry logging under npm's policies.
 
