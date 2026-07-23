@@ -1,6 +1,6 @@
 {
   "cursor-delegate": {
     "command": "npx",
-    "args": ["-y", "cursor-delegate-mcp@1.11.1"]
+    "args": ["-y", "cursor-delegate-mcp@1.12.0"]
   }
 }

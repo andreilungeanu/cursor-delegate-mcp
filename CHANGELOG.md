@@ -4,7 +4,41 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.12.0] - 2026-07-23
+
+### Changed
+
+- **Breaking**: the plugin-bundled MCP server key is renamed `cursor-delegate-mcp` →
+  `cursor-delegate`, removing the duplicated `cursor-delegate-mcp:cursor-delegate-mcp`
+  label. Update permission rules from `mcp__plugin_cursor-delegate-mcp_cursor-delegate-mcp__*`
+  to `mcp__plugin_cursor-delegate-mcp_cursor-delegate__*` and restart Claude Code.
+  Standalone installs (`claude mcp add` / project `.mcp.json`) are unaffected.
+- **Breaking**: `filesReportedByAgent` is renamed `filesReportedByEditTools`, naming what
+  it is built from — edit-tool diff events — and it is omitted when empty instead of
+  returned as `[]`. Absence means no edit tool reported a change, not that nothing
+  changed; the git diff remains authoritative.
+- **Breaking**: `resultSource` is emitted only as a caveat (`pre-tool-fallback`,
+  `plan-detail`, `none`) and `resumed` only when a resume actually took;
+  `finalMessageAvailable` is dropped — it restated `resultSource` as a boolean.
+- **Breaking**: `sessionTitle` is no longer in the result — it arrived after the turn and
+  could contradict the answer. It now shows as a `turn titled: …` progress notification
+  while the turn runs; timeout forensics still name it.
+- **Breaking**: `todos` is returned only when `todoProgress` shows unfinished work; on a
+  fully-completed turn `todoProgress` alone carries the counts. Timeout forensics and the
+  `todo i/n` heartbeat are unchanged.
+- The skill reference is trimmed to contract facts per the 2026-07-23 audit ruling; all
+  tables are unchanged.
+
+### Fixed
+
+- Skill reference: the `stopReason` and `plan.detail` rows now match the 1.11.x omission
+  behavior, and the `cancel` status list includes `not-running` (added in 1.11.0).
+- The `writeCapableActivity` warning no longer says "the diff for what changed" when no
+  entry reported a path — it now says to check the diff to confirm nothing changed.
+- Idle-timeout failures now advise raising `CURSOR_DELEGATE_IDLE_MS` instead of
+  `CURSOR_DELEGATE_HARD_CAP_MS`, which does nothing for the idle guard.
+- Spawn failures are tagged `[spawn-failed]` like every other failure class, instead of a
+  bare `delegate failed:` with no reason.
 
 ## [1.11.1] - 2026-07-22
 
