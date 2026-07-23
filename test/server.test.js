@@ -1,9 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { DEFAULT_MODEL } from "../src/delegate.js";
+import { AcpClient } from "../src/acp-client.js";
+import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
 import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server.js";
+
+// Real AcpClient over a stub subprocess, so force-kill exercises the actual treeKill path.
+function stubClientFactory(stubFile) {
+  return ({ onElicit, mode, onCreatePlan }) => new AcpClient({
+    spawnSpec: {
+      command: process.execPath,
+      args: [fileURLToPath(new URL(`./fixtures/${stubFile}`, import.meta.url))],
+      options: { shell: false },
+    },
+    onElicit,
+    mode,
+    onCreatePlan,
+  });
+}
 
 test("runDelegateTool cleans up inFlight and returns isError when runDelegate throws", async () => {
   const inFlight = new Map();
@@ -546,6 +563,47 @@ test("cancel tool with force returns cancelled when delegation settles during gr
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
     assert.equal(delegateRes.structuredContent.cancelRequested, true);
+  } finally {
+    await client.close();
+  }
+});
+
+test("cancel force kills a real stub agent whose prompt never finishes", async () => {
+  // The live MCP host serializes tool calls, so force-kill can only be exercised here: a real
+  // AcpClient drives infinite-stream-stub.js (handshakes, then streams forever), and the
+  // non-serializing InMemoryTransport lets cancel run while delegate is in flight.
+  const runDelegate = (opts) => realRunDelegate({
+    ...opts,
+    clientFactory: stubClientFactory("infinite-stream-stub.js"),
+    idleMs: 0,          // no idle timeout — the stub streams steadily
+    hardCapMs: 60000,   // far beyond the test, so the kill is what ends the turn
+    handshakeMs: 10000,
+  });
+  const server = buildServer({ runDelegate, forceGraceMs: 100 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "stream forever" } });
+    // Poll a plain cancel until the session registers (not-found → cancelled).
+    const started = Date.now();
+    let registered = false;
+    while (Date.now() - started < 8000) {
+      const probe = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-infinite" } });
+      if (probe.structuredContent.status !== "not-found") { registered = true; break; }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.ok(registered, "the stub session should register as in-flight");
+
+    const killedAt = Date.now();
+    const killRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-infinite", force: true } });
+    assert.equal(killRes.structuredContent.status, "killed");
+
+    const delegateRes = await delegateP;
+    assert.equal(delegateRes.isError, true);
+    assert.match(delegateRes.content[0].text, /agent-exit/);
+    assert.ok(Date.now() - killedAt < 10000, "the kill, not the 60s hard cap, ended the turn");
   } finally {
     await client.close();
   }
