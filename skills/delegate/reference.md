@@ -34,7 +34,7 @@ a `protocolWarnings` note and the run continues, while an invalid value for a kn
 | ----- | ----------- |
 | `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. Capped at 10MB, with a trailing `[output truncated at 10MB]` marker. |
 | `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it), `"plan-detail"` (plan/ask only: the chat message was too terse to be the plan, so `result` carries the plan the agent filed), or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
-| `stopReason` | ACP stop reason (e.g. `end_turn`). |
+| `stopReason` | Present only when it is not the ordinary `end_turn` — a refusal, a cancel, or an output cap. Absence means the turn ended normally. |
 | `sessionId` | Session id for resume. |
 | `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Not a complete change record — shell-driven edits may be absent; the git diff is authoritative. |
 | `questionsAsked` | Prompts surfaced via `cursor/ask_question`. In practice **always empty**: cursor-agent has never been measured emitting that request, so clarifying questions arrive as ordinary text in `result`. |
@@ -68,7 +68,7 @@ zeros. Most correct, complete turns emit no todo frames at all — short tasks e
 | ----- | ----------- |
 | `plan.entries` | Structured steps from `session/update:plan`. |
 | `plan.overview` | One-line summary from `cursor/create_plan` (may be absent). |
-| `plan.detail` | Markdown plan body from `cursor/create_plan` (may be absent). |
+| `plan.detail` | Markdown plan body from `cursor/create_plan`. Kept only in `agent` mode; in `plan`/`ask` it is dropped because `result` already carries the plan — as the agent's own message, or folded in (`resultSource: "plan-detail"`) when that message was too terse. |
 
 ## Mode behavior
 
