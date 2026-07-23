@@ -50,6 +50,27 @@ test("captures stderr and surfaces it on exit", async () => {
   client.stop();
 });
 
+// Spawn failure was the one untagged failure class: every other error carries a reason,
+// so the server rendered this one as a bare "delegate failed:" with no [reason].
+test("start() rejects a failed spawn with reason spawn-failed", async () => {
+  const client = new AcpClient({
+    spawnSpec: {
+      command: "definitely-not-a-real-command-xyz",
+      args: [],
+      options: { shell: false },
+    },
+  });
+  await assert.rejects(
+    () => client.start(),
+    (err) => {
+      assert.equal(err.reason, "spawn-failed");
+      assert.match(err.message, /Failed to spawn agent \(definitely-not-a-real-command-xyz\)/);
+      return true;
+    }
+  );
+  client.stop();
+});
+
 test("stop() terminates a live agent child (regression: Windows orphaned agent)", async () => {
   const client = new AcpClient({
     spawnSpec: {

@@ -58,8 +58,13 @@ export class AcpClient extends EventEmitter {
       log: (e) => this.emit("ack", e),
     });
     return new Promise((resolve, reject) => {
-      this.child.once("error", (e) =>
-        reject(new Error(`Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'cursor-agent login'.`)));
+      this.child.once("error", (e) => {
+        // Tagged like every other failure class so the caller gets
+        // "delegate failed [spawn-failed]: ..." instead of the one untagged prose error.
+        const err = new Error(`Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'cursor-agent login'.`);
+        err.reason = "spawn-failed";
+        reject(err);
+      });
       this.child.once("spawn", () => resolve());
     });
   }
