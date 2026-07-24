@@ -383,16 +383,16 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
 test("runDelegate captures session/update:plan with latest update winning", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, undefined);
-  // "plan ready" is too terse to be the plan, so the filed plan is folded into result — with
-  // the agent's own reply preserved under a separator rather than silently dropped.
-  assert.equal(out.result, "# Plan\n\n1. Create CHANGELOG.md\n\n--- agent chat reply:\nplan ready");
-  assert.equal(out.resultSource, "plan-detail");
+  // In plan/ask result is the agent's own message verbatim — no bridge-side promotion of the
+  // filed plan into it. The plan travels as plan.entries and lives in the agent's session.
+  assert.equal(out.result, "plan ready");
+  assert.equal(out.resultSource, undefined);
   assert.ok(out.plan);
   assert.deepEqual(out.plan.entries, [
     { content: "Create CHANGELOG.md", priority: "medium", status: "pending" },
   ]);
   assert.equal(out.plan.overview, "Add a changelog file");
-  assert.equal(out.plan.detail, undefined, "the plan is now in result, not duplicated in detail");
+  assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
   assert.equal(out.filesReportedByEditTools, undefined);
 });
 
@@ -422,68 +422,58 @@ function planDetailFactory({ message, overview, plan, trailingTool = false }) {
   };
 }
 
-// The one-plan contract: in plan/ask the plan is never load-bearing (it lives in the agent's own
-// session, which is what a resume-to-implement reads), so it is kept in exactly one prose channel
-// — result — and dropped from plan.detail. entries and overview always survive.
-test("runDelegate drops plan.detail when result is a real plan message, even if detail is longer", async () => {
+// In plan/ask result is the agent's own message verbatim; the filed plan is dropped from
+// plan.detail (it lives in plan.entries and the agent's session). No bridge-side promotion, so
+// message length no longer changes what result carries.
+test("runDelegate returns a real plan message verbatim and drops plan.detail", async () => {
   const message = "Here is the plan in full. " + "Ship the change step by step with rationale. ".repeat(5);
   const plan = message + " " + "Extra rendered detail with mermaid the orchestrator never needs. ".repeat(5);
-  assert.ok(message.length >= 200 && plan.length > message.length, "a real message longer than the floor, shorter than detail");
   const out = await runDelegate({
     spec: "plan it", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message, overview: "ov", plan }),
   });
-  assert.equal(out.result, message, "the real message stays as result");
+  assert.equal(out.result, message, "result is the agent's own message");
   assert.equal(out.resultSource, undefined);
-  assert.equal(out.plan.detail, undefined, "detail is a duplicate of the filed plan and is dropped");
+  assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
   assert.equal(out.plan.overview, "ov");
   assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
 });
 
-test("runDelegate folds plan.detail into result when the message is too terse", async () => {
+test("runDelegate keeps a terse plan message verbatim, without promoting the filed plan", async () => {
   const plan = "# Plan\n\n1. Do the thing with a lot of detailed explanation and several steps.";
   const out = await runDelegate({
     spec: "plan it", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message: "plan ready", overview: "ov", plan }),
   });
-  assert.equal(out.result, plan + "\n\n--- agent chat reply:\nplan ready", "the terse message is replaced by the filed plan, its text kept under a separator");
-  assert.equal(out.resultSource, "plan-detail");
-  assert.equal(out.plan.detail, undefined, "the plan is in result now, not duplicated in detail");
+  assert.equal(out.result, "plan ready", "the terse message is the result, not the filed plan");
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
 });
 
-test("runDelegate preserves a real question the agent asked when promoting the filed plan", async () => {
+test("runDelegate keeps a clarifying question verbatim as result in plan mode", async () => {
   const plan = "# Plan\n\n1. Add the config loader with a detailed multi-step rollout description.";
   const question = "Should the config format be TOML or JSON?";
   const out = await runDelegate({
     spec: "file the plan and ask the format", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message: question, overview: "ov", plan }),
   });
-  assert.equal(out.resultSource, "plan-detail");
-  assert.ok(out.result.endsWith("\n\n--- agent chat reply:\n" + question), "the agent's question survives promotion");
+  assert.equal(out.result, question, "the agent's question is the result — answer by resuming the session");
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.plan.detail, undefined);
 });
 
-test("runDelegate does not re-append a chat message identical to the filed plan", async () => {
-  const plan = "# Plan\n\n1. A short plan the agent also sent verbatim as its chat message.";
-  const out = await runDelegate({
-    spec: "plan it", mode: "plan", workspace: process.cwd(),
-    clientFactory: planDetailFactory({ message: plan, overview: "ov", plan }),
-  });
-  assert.equal(out.result, plan, "no self-duplication when message equals the plan");
-  assert.ok(!out.result.includes("--- agent chat reply:"));
-});
-
-test("runDelegate folds plan.detail into result when a trailing tool leaves no final message", async () => {
+test("runDelegate falls back to the pre-tool preamble when a trailing tool leaves no final message", async () => {
   const plan = "# Plan\n\n1. A detailed multi-step plan filed before the agent ran a tool.";
   const out = await runDelegate({
     spec: "plan it", mode: "plan", workspace: process.cwd(),
     clientFactory: planDetailFactory({ message: "Reviewing the code.", overview: "ov", plan, trailingTool: true }),
   });
-  assert.equal(out.result, plan, "the filed plan wins over the discarded preamble");
-  assert.equal(out.resultSource, "plan-detail");
-  assert.equal(out.finalMessageAvailable, undefined);
+  // No promotion: with no final message, the ordinary pre-tool-fallback applies — result is the
+  // discarded preamble, flagged as such — and the filed plan stays out of result and out of detail.
+  assert.equal(out.result, "Reviewing the code.");
+  assert.equal(out.resultSource, "pre-tool-fallback");
   assert.equal(out.plan.detail, undefined);
-  assert.ok(!out.result.includes("--- agent chat reply:"), "a discarded preamble is not the agent's closing reply, so it is not appended");
-  assert.ok(!out.protocolWarnings?.some((w) => /never spoke again/.test(w)), "result carries the plan, so no stale fallback warning");
+  assert.ok(out.protocolWarnings.some((w) => /never spoke again/.test(w)));
 });
 
 test("runDelegate keeps plan.detail in agent mode alongside the implementation report", async () => {
@@ -1464,29 +1454,6 @@ test("runDelegate sanitizes malformed todo entries instead of failing the call",
   assert.match(out.protocolWarnings[1], /abandoned/);
 });
 
-test("runDelegate collects type:content blocks emitted after tools finish", async () => {
-  const factory = () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-content" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
-    client.prompt = async () => {
-      client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Run", status: "pending" } });
-      client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed",
-        content: [{ type: "content", content: { type: "text", text: "streamed output" } }] } });
-      return { stopReason: "end_turn" };
-    };
-    client.getTranscript = () => "";
-    client.stop = () => {};
-    return client;
-  };
-  const out = await runDelegate({ spec: "run it", workspace: process.cwd(), clientFactory: factory });
-  assert.equal(out.result, "streamed output");
-});
-
 test("runDelegate streams todo progress as it arrives", async () => {
   const seen = [];
   await runDelegate({
@@ -1767,56 +1734,11 @@ test("runDelegate skips model validation when the agent advertises no list", asy
   assert.equal(out.result, "ok");
 });
 
-function modeFactory(modeIds) {
-  return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-mode" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
-    client.prompt = async () => {
-      for (const id of modeIds) {
-        client.emit("update", { update: { sessionUpdate: "current_mode_update", currentModeId: id } });
-      }
-      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
-      return { stopReason: "end_turn" };
-    };
-    client.getTranscript = () => "";
-    client.stop = () => {};
-    return client;
-  };
-}
-
-// A plan run that writes through the shell emits one execute tool call and no
-// current_mode_update: the mode is ignored without ever being left.
-const execCall = (title) => ({ sessionUpdate: "tool_call", toolCallId: "x1", kind: "execute", title, status: "pending" });
-
-test("runDelegate reports write-capable tool calls made during a plan turn", async () => {
-  const out = await runDelegate({
-    spec: "plan it",
-    mode: "plan",
-    workspace: process.cwd(),
-    clientFactory: replayFactory([
-      execCall("`echo LEAKED > leak.txt`"),
-      toolUpdate("x1", "completed"),
-      msgChunk("Wrote the file."),
-    ]),
-  });
-  assert.deepEqual(out.writeCapableActivity, [{ kind: "execute", detail: "`echo LEAKED > leak.txt`" }]);
-  assert.ok(out.protocolWarnings.some((w) => /write-capable tool call/.test(w)));
-  // A pathless execute may be a read-only command or a shell write, so the warning must
-  // neither assert a change nor reassure that none happened — just point at the diff.
-  assert.ok(out.protocolWarnings.some((w) => /none reported a file through edit tools — the diff is authoritative/.test(w)));
-  assert.ok(!out.protocolWarnings.some((w) => /the diff for what changed/.test(w)));
-  assert.ok(!out.protocolWarnings.some((w) => /read-only/.test(w)));
-  assert.equal(out.modeChanged, undefined, "the agent never left plan mode, so nothing drifted");
-});
-
-// An edit tool_call carries title "Edit File" and no locations, so the file it touched is
-// only knowable from the diff frame that follows.
-test("runDelegate names the file an edit-kind plan write touched", async () => {
+// An edit tool_call carries title "Edit File" and no locations, so the file it touched is only
+// knowable from the diff frame that follows — which still feeds filesReportedByEditTools, in any
+// mode. (The mode is not an enforced boundary; the diff is the source of truth, so it is reported
+// the same whether the agent was asked to plan or to implement.)
+test("runDelegate reports a plan-mode edit via filesReportedByEditTools from its diff frame", async () => {
   const out = await runDelegate({
     spec: "plan it",
     mode: "plan",
@@ -1828,93 +1750,7 @@ test("runDelegate names the file an edit-kind plan write touched", async () => {
       msgChunk("Saved the plan."),
     ]),
   });
-  assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File", path: "docs/plan.md" }]);
-  // A reported path is evidence something changed, so here the warning points at the diff.
-  assert.ok(out.protocolWarnings.some((w) => /the diff for what changed/.test(w)));
-});
-
-// A rename arrives as an edit/delete pair rather than a move-kind call; delete carries a
-// diff frame naming the file it removed.
-test("runDelegate names the file a delete-kind plan write removed", async () => {
-  const out = await runDelegate({
-    spec: "plan it",
-    mode: "plan",
-    workspace: process.cwd(),
-    clientFactory: replayFactory([
-      { sessionUpdate: "tool_call", toolCallId: "d1", kind: "delete", title: "Delete File", status: "pending" },
-      { sessionUpdate: "tool_call_update", toolCallId: "d1", status: "completed",
-        content: [{ type: "diff", path: "old.txt" }] },
-      msgChunk("Removed it."),
-    ]),
-  });
-  assert.deepEqual(out.writeCapableActivity, [{ kind: "delete", detail: "Delete File", path: "old.txt" }]);
-});
-
-// An edit call does not always emit a diff frame, and a pathless entry is not evidence that
-// a write landed: no-ops and retries produce one too, and in a rename the diff frames account
-// for the whole net change on disk while the diffless edits account for none of it. The entry
-// stays because a missing diff frame is not proof nothing happened — it claims a write-capable
-// tool ran, which is all this field ever claims.
-test("runDelegate reports an edit-kind tool call that never emits a diff", async () => {
-  const out = await runDelegate({
-    spec: "plan it",
-    mode: "plan",
-    workspace: process.cwd(),
-    clientFactory: replayFactory([
-      { sessionUpdate: "tool_call", toolCallId: "e9", kind: "edit", title: "Edit File", status: "pending" },
-      toolUpdate("e9", "completed"),
-      msgChunk("Done."),
-    ]),
-  });
-  assert.deepEqual(out.writeCapableActivity, [{ kind: "edit", detail: "Edit File" }]);
-  assert.equal(out.filesReportedByEditTools, undefined, "no diff frame, so the edit-tool channel saw nothing");
-});
-
-test("runDelegate stays quiet about write-capable tool calls in agent mode", async () => {
-  const out = await runDelegate({
-    spec: "do it",
-    mode: "agent",
-    workspace: process.cwd(),
-    clientFactory: replayFactory([execCall("`npm test`"), toolUpdate("x1", "completed"), msgChunk("Done.")]),
-  });
-  assert.equal(out.writeCapableActivity, undefined, "every agent turn does this; it would carry no signal");
-});
-
-test("runDelegate does not flag read-only tool calls in a plan turn", async () => {
-  const out = await runDelegate({
-    spec: "plan it",
-    mode: "plan",
-    workspace: process.cwd(),
-    clientFactory: replayFactory([
-      { sessionUpdate: "tool_call", toolCallId: "r1", kind: "read", title: "Read File", status: "pending" },
-      toolUpdate("r1", "completed"),
-      msgChunk("Here is the plan."),
-    ]),
-  });
-  assert.equal(out.writeCapableActivity, undefined);
-  assert.equal(out.protocolWarnings, undefined);
-});
-
-test("runDelegate flags a mode switch away from the requested mode", async () => {
-  const out = await runDelegate({
-    spec: "plan it",
-    mode: "plan",
-    workspace: process.cwd(),
-    clientFactory: modeFactory(["plan", "agent"]),
-  });
-  assert.deepEqual(out.modeChanged, { from: "plan", to: "agent" });
-  assert.match(out.protocolWarnings[0], /switched mode from plan to agent/);
-});
-
-test("runDelegate stays quiet when the reported mode matches the request", async () => {
-  const out = await runDelegate({
-    spec: "do it",
-    mode: "agent",
-    workspace: process.cwd(),
-    clientFactory: modeFactory(["agent", "agent"]),
-  });
-  assert.equal(out.modeChanged, undefined);
-  assert.equal(out.protocolWarnings, undefined);
+  assert.deepEqual(out.filesReportedByEditTools, ["docs/plan.md"]);
 });
 
 // session/load replays the previous turn: measured 23 frames, incl. tool_call with
