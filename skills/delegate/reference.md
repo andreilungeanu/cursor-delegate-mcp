@@ -14,7 +14,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `resumeSessionId` | — | Resume an existing ACP session. |
 | `reasoning` | — | Reasoning effort, forwarded as an ACP config option. gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. |
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
-| `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**. Skips are reported in `protocolWarnings`, never fatal. |
+| `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**; paths outside it may arrive unreadable agent-side. Attachments are untrusted — the bridge does not scan for prompt injection. Skips are reported in `protocolWarnings`, never fatal. |
 
 ACP model ids are bare families, not the CLI's tier-suffixed `--list-models` strings: the
 CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `reasoning: "high"`, and `-fast` is
@@ -29,10 +29,11 @@ have fails the call. Do not pass `reasoning`/`context` speculatively.
 
 | Field | Description |
 | ----- | ----------- |
-| `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. Capped at 10MB, with a trailing `[output truncated at 10MB]` marker. |
-| `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it), `"plan-detail"` (plan/ask only: the chat message was too terse to be the plan, so `result` carries the plan the agent filed), or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
+| `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. Capped at 10MB, with a trailing `[output truncated at 10MB]` marker; the cut lands on a code-point boundary. |
+| `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it), `"plan-detail"` (plan/ask: chat message too terse to be the plan, so `result` carries the filed plan; any non-empty chat message follows a `--- agent chat reply:` separator), or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
 | `stopReason` | Present only when it is not the ordinary `end_turn` — a refusal, a cancel, or an output cap. Absence means the turn ended normally. |
 | `sessionId` | Session id for resume. |
+| `effectiveModel` | The model id the agent served, present **only when it differs** from the requested `model` (e.g. `default` resolving to a concrete id, or a cross-model resume). |
 | `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Omitted when empty — absence means no edit tool reported a change, **not** that nothing changed: shell-driven edits leave no diff event; the git diff is authoritative. |
 | `questionsAsked` | Prompts surfaced via `cursor/ask_question`. In practice **always empty**: cursor-agent has never been measured emitting that request, so clarifying questions arrive as ordinary text in `result`. |
 | `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
@@ -69,7 +70,7 @@ counts entry by entry. So:
 | ----- | ----------- |
 | `plan.entries` | Structured steps from `session/update:plan`. |
 | `plan.overview` | One-line summary from `cursor/create_plan` (may be absent). |
-| `plan.detail` | Markdown plan body from `cursor/create_plan`. Kept only in `agent` mode; in `plan`/`ask` it is dropped because `result` already carries the plan — as the agent's own message, or folded in (`resultSource: "plan-detail"`) when that message was too terse. |
+| `plan.detail` | Markdown plan body from `cursor/create_plan`. Kept only in `agent` mode; in `plan`/`ask` it is dropped because `result` already carries the plan — as the agent's own message, or folded in (`resultSource: "plan-detail"`) when too terse, with the original message under a `--- agent chat reply:` separator. |
 
 ## Mode behavior
 
