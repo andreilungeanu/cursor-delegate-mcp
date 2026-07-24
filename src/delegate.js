@@ -11,6 +11,7 @@ import { SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 import { makeTurnState } from "./turn-state.js";
 import { makeError } from "./errors.js";
+import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
@@ -224,8 +225,6 @@ export async function runDelegate({
   // ACP requires plan entry content to be a string and bounds priority/status to
   // known values. Frames that violate that must not fail the MCP call after the
   // work is done — drop the bad data and report it as a protocol diagnostic.
-  const PLAN_PRIORITIES = ["high", "medium", "low"];
-  const PLAN_STATUSES = ["pending", "in_progress", "completed"];
   const sanitizePlan = (warnings) => {
     const entries = [];
     state.planEntries.forEach((raw, i) => {
@@ -256,7 +255,6 @@ export async function runDelegate({
     return plan;
   };
 
-  const TODO_STATUSES = ["pending", "in_progress", "completed"];
   const sanitizeTodos = (warnings) => {
     const entries = [];
     let i = -1;

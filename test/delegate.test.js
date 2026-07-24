@@ -6,8 +6,20 @@ import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { z } from "zod";
 import { AcpClient } from "../src/acp-client.js";
-import { runDelegate } from "../src/delegate.js";
+import { runDelegate as rawRunDelegate } from "../src/delegate.js";
+import { delegateOutputShape } from "../src/server.js";
+
+// Every result this suite produces is parsed against a strict copy of the advertised output
+// schema. The production schema is passthrough by design, so without this a field added here
+// but forgotten in the schema would simply never reach hosts, and no test would notice.
+const strictOutput = z.object(delegateOutputShape).strict();
+const runDelegate = async (opts) => {
+  const out = await rawRunDelegate(opts);
+  strictOutput.parse(out);
+  return out;
+};
 
 function thinkingFactory() {
   return () => {

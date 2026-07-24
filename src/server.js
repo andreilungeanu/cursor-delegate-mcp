@@ -8,6 +8,7 @@ import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION } from "./version.js";
+import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 
 const nodeMajor = Number(process.versions.node.split(".")[0]);
 if (nodeMajor < 22) {
@@ -49,11 +50,15 @@ export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the d
 
 const planEntrySchema = z.object({
   content: z.string(),
-  priority: z.enum(["high", "medium", "low"]).optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  priority: z.enum(PLAN_PRIORITIES).optional(),
+  status: z.enum(PLAN_STATUSES).optional(),
 }).passthrough();
 
-const delegateOutputSchema = z.object({
+// Exported as a plain shape so tests can build a .strict() copy of it. Production stays
+// passthrough — a field the agent adds must not fail a finished call — but that same
+// tolerance means a field added in delegate.js and forgotten here would never be advertised
+// to hosts, and nothing would complain. The strict copy is what complains.
+export const delegateOutputShape = {
   result: z.string(),
   resultSource: z.enum(["pre-tool-fallback", "none"]).optional().describe(
     "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. none: the turn produced no message and result is empty."
@@ -85,7 +90,7 @@ const delegateOutputSchema = z.object({
   todos: z.array(z.object({
     id: z.string(),
     content: z.string(),
-    status: z.enum(["pending", "in_progress", "completed"]).optional(),
+    status: z.enum(TODO_STATUSES).optional(),
   })).optional().describe(
     "Todo items the agent left unfinished, present only when todoProgress shows completed < total — read it to see what remains before resuming. Absent both when the agent tracked no todos (common on short tasks) and when everything tracked was completed; todoProgress tells those apart."
   ),
@@ -95,7 +100,9 @@ const delegateOutputSchema = z.object({
     inProgress: z.number(),
     pending: z.number(),
   }).optional(),
-}).passthrough();
+};
+
+const delegateOutputSchema = z.object(delegateOutputShape).passthrough();
 
 const doctorOutputSchema = z.object({
   plugin: z.object({ version: z.string() }).passthrough(),
