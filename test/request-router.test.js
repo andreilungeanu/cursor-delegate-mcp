@@ -27,6 +27,12 @@ test("request_permission auto-selects allow_always", async () => {
   assert.deepEqual(responses[0], { id: 5, result: { outcome: { outcome: "selected", optionId: "allow-always" } } });
 });
 
+test("request_permission with no options answers cancelled, not a selection without an id", async () => {
+  const { router, responses } = harness();
+  await router(7, "session/request_permission", { options: [] });
+  assert.deepEqual(responses[0], { id: 7, result: { outcome: { outcome: "cancelled" } } });
+});
+
 test("ask_question is an unhandled method (elicitation removed) and fails safe with -32601", async () => {
   // cursor-agent never exposes AskQuestion over ACP; the bridge no longer implements a
   // structured answer path, so a frame (if one ever arrived) falls through to the default.

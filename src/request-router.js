@@ -9,7 +9,11 @@ export function createRequestRouter({ respond, respondError, onCreatePlan, onTod
           opts.find((o) => o.kind === "allow_always") ||
           opts.find((o) => o.kind === "allow_once") ||
           opts[0];
-        return respond(id, { outcome: { outcome: "selected", optionId: pick?.optionId } });
+        // Selecting nothing is not a selection: an options-less request answered with
+        // optionId undefined is a malformed ACP response. Say cancelled and let the agent
+        // decide what to do about it.
+        if (!pick?.optionId) return respond(id, { outcome: { outcome: "cancelled" } });
+        return respond(id, { outcome: { outcome: "selected", optionId: pick.optionId } });
       }
       if (method === "cursor/create_plan") {
         onCreatePlan?.({
