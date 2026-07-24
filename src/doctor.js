@@ -2,16 +2,22 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
 import { resolveAcpSpawn } from "./spawn.js";
+import { treeKill } from "./proc.js";
 import { readPackageVersion } from "./version.js";
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
+const VERSION_PROBE_TIMEOUT_MS = 10_000;
 const DEFAULT_LOG_SIZE = "2000";
 
 function formatCommand({ command, args }) {
   return args?.length ? `${command} ${args.join(" ")}` : command;
 }
 
-export function probeAgentVersion(spawnSpec) {
+// A launcher that accepts --version and then never answers used to hang doctor forever — and
+// doctor is the tool you run when delegation is already broken, so a wedged agent is exactly
+// the case it has to survive. Deep handshakes have always been time-boxed; this is that guard
+// applied to the shallow probe that runs on every call.
+export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
   const { command, options } = spawnSpec;
   const isJsScript = /\.js$/i.test(command);
   const execCommand = isJsScript ? process.execPath : command;
@@ -19,9 +25,11 @@ export function probeAgentVersion(spawnSpec) {
   return new Promise((resolve) => {
     let settled = false;
     let stdout = "";
+    let timer;
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve(result);
     };
     const child = spawn(execCommand, execArgs, { ...options, stdio: ["ignore", "pipe", "pipe"] });
@@ -33,6 +41,15 @@ export function probeAgentVersion(spawnSpec) {
         version: code === 0 ? stdout.trim() || null : null,
       });
     });
+    timer = setTimeout(() => {
+      // treeKill, not child.kill: the spawn spec carries shell:true on win32, where a plain
+      // kill only reaches the wrapper and leaves the launcher running.
+      if (child.pid) treeKill(child.pid).catch(() => {});
+      // The launcher exists — it spawned — it just never answered, which is a different
+      // diagnosis from "not installed" and has to read that way.
+      finish({ found: true, version: null, error: `version probe timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
+    timer.unref?.();
   });
 }
 
@@ -75,10 +92,11 @@ export async function runDoctor({
   clientFactory = (opts) => new AcpClient(opts),
   workspace,
   handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS,
+  versionTimeoutMs = VERSION_PROBE_TIMEOUT_MS,
   readVersion = readPackageVersion,
 } = {}) {
   const { capabilities, version } = getClientInfo();
-  const agentProbe = await probeAgentVersion(spawnSpec);
+  const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs);
 
   const out = {
     plugin: { version: readVersion() },
@@ -91,6 +109,7 @@ export async function runDoctor({
       found: agentProbe.found,
       command: formatCommand(spawnSpec),
       version: agentProbe.version,
+      ...(agentProbe.error ? { error: agentProbe.error } : {}),
     },
     runtime: {
       node: process.versions.node,

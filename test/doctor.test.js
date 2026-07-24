@@ -35,6 +35,21 @@ test("runDoctor reports agent.version null when the command fails", async () => 
   assert.equal(out.agent.version, null);
 });
 
+test("runDoctor times out a launcher that never answers --version", async () => {
+  const hangPath = fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url));
+  const started = Date.now();
+  const out = await runDoctor({
+    spawnSpec: { command: hangPath, args: ["acp"], options: { shell: false } },
+    versionTimeoutMs: 250,
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.ok(Date.now() - started < 8000, "the probe must time out, not hang");
+  // The launcher spawned, so it is found; it just never answered.
+  assert.equal(out.agent.found, true);
+  assert.equal(out.agent.version, null);
+  assert.match(out.agent.error, /version probe timed out after 250ms/);
+});
+
 test("runDoctor reports raw client capabilities and identity from injected getClientInfo", async () => {
   const withElicit = await runDoctor({
     spawnSpec: stubSpawnSpec(),
