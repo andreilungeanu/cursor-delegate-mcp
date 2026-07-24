@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { StringDecoder } from "node:string_decoder";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
 import { resolveAcpSpawn } from "./spawn.js";
@@ -15,15 +16,37 @@ export class AcpClient extends EventEmitter {
     this.mode = mode;
     this.onCreatePlan = onCreatePlan;
     this.onTodos = onTodos;
+    this._stderrChunks = [];
+    this._stderrLength = 0;
+  }
+
+  // The tail of stderr, which is what an exit error quotes. Kept as chunks and joined on read:
+  // rebuilding a 64KB string per chunk was the whole cost of a noisy agent. A StringDecoder
+  // holds partial UTF-8 across chunk boundaries, so a multi-byte character split by the pipe
+  // does not land in the error message as a replacement char.
+  get stderrBuffer() {
+    const joined = this._stderrChunks.join("");
+    return joined.length > STDERR_CAP ? joined.slice(-STDERR_CAP) : joined;
   }
 
   start() {
     const { command, args, options } = this.spawnSpec;
-    this.stderrBuffer = "";
+    this._stderrChunks = [];
+    this._stderrLength = 0;
+    const stderrDecoder = new StringDecoder("utf8");
     this._exitEmitted = false;
     this.child = spawn(command, args, { ...options, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr.on("data", (chunk) => {
-      this.stderrBuffer = (this.stderrBuffer + chunk.toString()).slice(-STDERR_CAP);
+      const text = stderrDecoder.write(chunk);
+      if (text) {
+        this._stderrChunks.push(text);
+        this._stderrLength += text.length;
+        // Drop whole chunks from the front only once well past the cap, so the common case
+        // costs one push. The joined tail is trimmed exactly on read.
+        while (this._stderrChunks.length > 1 && this._stderrLength - this._stderrChunks[0].length >= STDERR_CAP) {
+          this._stderrLength -= this._stderrChunks.shift().length;
+        }
+      }
       this.emit("activity");
     });
     this.child.stderr.on("error", () => {});
