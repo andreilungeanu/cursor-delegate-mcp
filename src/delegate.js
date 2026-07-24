@@ -539,10 +539,15 @@ export async function runDelegate({
       supervisor.promptStarted();
       startHeartbeat();
       promptInFlight = true;
-      return client.prompt(sessionId, [
-        { type: "text", text: promptText },
-        ...buildContextBlocks(contextFiles, workspace, client, contextWarnings),
-      ]);
+      try {
+        const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
+        return await client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
+      } finally {
+        // The result is assembled across awaits below, so frames that trail the settled turn
+        // would otherwise still be folded into it — the same reason the flag exists for the
+        // frames session/load replays before it.
+        promptInFlight = false;
+      }
     });
     thoughtProgress.end();
     messageProgress.end();

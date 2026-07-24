@@ -1810,3 +1810,42 @@ test("a non-positive hard cap falls back to the default instead of firing instan
     else process.env.CURSOR_DELEGATE_HARD_CAP_MS = prev;
   }
 });
+
+test("frames arriving after the prompt settles do not mutate the finished turn", async () => {
+  // A late tool_call_update carrying a diff used to be folded into the result while it was
+  // still being assembled across awaits.
+  let emitLate;
+  const clientFactory = () => {
+    const client = new EventEmitter();
+    client.start = async () => {};
+    client.initialize = async () => {};
+    client.newSession = async () => ({ sessionId: "sess-late" });
+    client.setModel = async () => {};
+    client.setConfigOption = async () => {};
+    client.setMode = async () => {};
+    client.prompt = async () => {
+      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "answer" } } });
+      emitLate = () => client.emit("update", {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "late",
+          status: "completed",
+          content: [{ type: "diff", path: "ghost.js" }],
+        },
+      });
+      return { stopReason: "end_turn" };
+    };
+    client.getTranscript = () => "";
+    client.stop = () => {};
+    return client;
+  };
+  const out = await runDelegate({
+    spec: "task",
+    workspace: process.cwd(),
+    clientFactory,
+    heartbeatMs: 0,
+    onProgress: () => emitLate?.(),
+  });
+  assert.equal(out.result, "answer");
+  assert.equal(out.filesReportedByEditTools, undefined, "a frame after the turn belongs to no turn");
+});
