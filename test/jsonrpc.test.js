@@ -20,6 +20,20 @@ test("request writes a framed call and resolves on matching response", async () 
   assert.deepEqual(await p, { ok: true });
 });
 
+test("a response echoing the id as a string still resolves its request", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let written = "";
+  output.on("data", (c) => { written += c.toString(); });
+  const peer = new JsonRpcPeer(input, output, {});
+  const p = peer.request("initialize", {});
+  const sent = lines(written)[0];
+  assert.equal(typeof sent.id, "number");
+  input.write(JSON.stringify({ jsonrpc: "2.0", id: String(sent.id), result: { ok: true } }) + "\n");
+  assert.deepEqual(await p, { ok: true });
+  peer.close();
+});
+
 test("inbound notification and request are dispatched by shape", () => {
   const input = new PassThrough();
   const output = new PassThrough();

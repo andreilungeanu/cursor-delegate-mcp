@@ -50,9 +50,12 @@ export class JsonRpcPeer {
     try { msg = JSON.parse(line); } catch { return; }
     const hasId = msg.id !== undefined && msg.id !== null;
     if (hasId && (msg.result !== undefined || msg.error !== undefined)) {
-      const p = this.pending.get(msg.id);
+      // Keyed by string: a peer that echoes "1" for the id 1 is still answering that request,
+      // and matching by identity left it pending until a timeout fired an hour later.
+      const key = String(msg.id);
+      const p = this.pending.get(key);
       if (p) {
-        this.pending.delete(msg.id);
+        this.pending.delete(key);
         // cursor-agent puts the actual reason in error.data.message; error.message alone
         // is a bare "Invalid params".
         if (msg.error) {
@@ -78,7 +81,7 @@ export class JsonRpcPeer {
   request(method, params) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(String(id), { resolve, reject });
       this._write({ jsonrpc: "2.0", id, method, params });
     });
   }
