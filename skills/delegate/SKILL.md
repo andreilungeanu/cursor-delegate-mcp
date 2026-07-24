@@ -68,9 +68,9 @@ Scale effort to the task:
 3. **Review** — read `filesReportedByEditTools` (absent when no edit tool reported a change),
    inspect the git diff, run tests/lint **yourself**,
    and check the result against the brief's acceptance criteria.
-   - If `modeChanged` is set, the run was write-capable regardless of the mode you asked
-     for — review the diff before reporting a plan-only outcome. Its **absence** proves
-     nothing: a `plan` run can write without ever leaving `plan`, and does not fire it.
+   - `plan`/`ask` are agent conventions, not enforced boundaries — a run can write while
+     nominally in `plan`. Review the git diff after **every** run before reporting a
+     plan-only outcome, whatever mode you asked for.
    - If `todoProgress` is present and `completed < total`, the agent left work unfinished —
      `todos` lists exactly what remains; resume rather than reporting done. Its **absence**
      means nothing; most turns track no todos at all.

@@ -30,14 +30,12 @@ have fails the call. Do not pass `reasoning`/`context` speculatively.
 | Field | Description |
 | ----- | ----------- |
 | `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. Capped at 10MB, with a trailing `[output truncated at 10MB]` marker; the cut lands on a code-point boundary. |
-| `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it), `"plan-detail"` (plan/ask: chat message too terse to be the plan, so `result` carries the filed plan; any non-empty chat message follows a `--- agent chat reply:` separator), or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
+| `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it) or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
 | `stopReason` | Present only when it is not the ordinary `end_turn` — a refusal, a cancel, or an output cap. Absence means the turn ended normally. |
 | `sessionId` | Session id for resume. |
 | `effectiveModel` | The model id the agent served, present **only when it differs** from the requested `model` (e.g. `default` resolving to a concrete id, or a cross-model resume). |
 | `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Omitted when empty — absence means no edit tool reported a change, **not** that nothing changed: shell-driven edits leave no diff event; the git diff is authoritative. |
 | `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
-| `modeChanged` | `{from, to}`, set when the agent switched itself out of the requested mode. A `plan` run that becomes `agent` is **write-capable** — inspect the diff before reporting a plan-only outcome. Absence proves nothing; see Mode behavior. |
-| `writeCapableActivity` | Write-capable tool calls (`edit`/`delete`/`move`/`execute`) run during a `plan` or `ask` turn, each with the tool's own label and, when a diff frame named one, the `path` it touched. **Only populated for `plan` and `ask`** — in `agent` mode every turn would fill it, so it carries no signal there and is omitted. It records what the agent **ran**, not what changed: a shell command is not a change list, and an entry without a `path` may be a no-op or a retry that changed nothing. Treat the count as an upper bound on writes, never a total. |
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
 | `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
 | `plan` | Present when a plan was emitted (plan mode). |
@@ -64,21 +62,15 @@ counts entry by entry. So:
 | ----- | ----------- |
 | `plan.entries` | Structured steps from `session/update:plan`. |
 | `plan.overview` | One-line summary from `cursor/create_plan` (may be absent). |
-| `plan.detail` | Markdown plan body from `cursor/create_plan`. Kept only in `agent` mode; in `plan`/`ask` it is dropped because `result` already carries the plan — as the agent's own message, or folded in (`resultSource: "plan-detail"`) when too terse, with the original message under a `--- agent chat reply:` separator. |
+| `plan.detail` | Markdown plan body from `cursor/create_plan`. Kept only in `agent` mode; in `plan`/`ask` it is dropped because `result` already carries the agent's own plan message. The plan also lives in the agent's session — resume to act on it. |
 
 ## Mode behavior
 
 `mode` is set on the agent via `session/set_mode`. The bridge auto-approves **every**
 `session/request_permission` regardless of mode, so read-only-ness in `plan` and `ask` is the
-agent's behavior, not an enforced boundary.
-
-In `plan` and `ask`, write-capable tool calls are reported in `writeCapableActivity` with a
-`protocolWarning`. That is disclosure, not a boundary: the call is reported as it is dispatched,
-never withheld. In `agent` mode nothing is reported — review the diff, as always.
-
-`modeChanged` fires only on a formal mode-switch frame, so it is **not** a signal the mode
-was ignored: a measured `plan` run wrote two files via shell while staying in `plan` — no
-frame, and no permission request the bridge could have withheld.
+agent's behavior, not an enforced boundary. The bridge cannot detect a mode being ignored — an
+agent can write while nominally in `plan`, via shell, with no permission request to withhold and
+no frame to report it. **Review the git diff after every run**, whatever mode you asked for.
 
 - **`agent`** — implements; auto-approves writes; accepts `cursor/create_plan` if emitted.
 - **`plan`** — plan only; the sole mode-dependent gate is rejecting `cursor/create_plan`
