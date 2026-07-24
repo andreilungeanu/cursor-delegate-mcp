@@ -6,19 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-24
+
+Leaner, more honest results: four low-signal surfaces dropped, and the plan/ask reply now
+comes back as the agent's own words. All breaking, all output-contract.
+
+### Changed
+
+- **Breaking**: in `plan`/`ask`, `result` is the agent's own message **verbatim** — the bridge
+  no longer promotes the filed plan into it or folds a chat reply under a separator, and
+  `resultSource: "plan-detail"` is gone. The plan travels as `plan.entries` and lives in the
+  session; resume to act on it.
+
 ### Removed
 
-- **Breaking**: the `cursor/ask_question` elicitation path is removed, along with the
-  `questionsAsked`, `autoAnswered`, and `fallbackAnswers` output fields. cursor-agent never
-  exposes its AskQuestion tool over ACP — measured 0 firings across 100+ turns and 6 model
-  families (`docs/research/2026-07-23-elicitation-final-verdict.md`) — so the structured
-  question path and its option-matching machinery were answering a request that never arrives.
-  Clarifying questions come as prose in `result`; answer by resuming the session with free text
-  in `spec`. An `ask_question` frame (if one ever arrived) now returns JSON-RPC `-32601`.
-- **Breaking**: the `maxResultChars` delegate input is removed. Modern context windows make a
-  caller-set character cap redundant, and its blunt mid-text cut was never a summarizer; the
-  always-on 10MB streaming ceiling still guards against a runaway reply. Control reply length
-  through the spec instead.
+- **Breaking**: `cursor/ask_question` elicitation, with `questionsAsked`, `autoAnswered`, and
+  `fallbackAnswers`. cursor-agent never sends it over ACP — clarifying questions arrive as prose
+  in `result`; resume with free text in `spec` to answer.
+- **Breaking**: `writeCapableActivity`. It could not tell a read (`ls`) from a write, so it only
+  ever cried wolf; review the git diff, which is authoritative on every run.
+- **Breaking**: `modeChanged`. A `plan` run can write without a mode-switch frame, so its
+  absence proved nothing and its presence just echoed the diff review you already owe every run.
+- **Breaking**: the `maxResultChars` input. The always-on 10MB streaming ceiling still guards
+  runaways; shape reply length through the spec.
 
 ## [1.12.0] - 2026-07-23
 
