@@ -140,7 +140,7 @@ does not scan for prompt injection.
 
 ## Other MCP tools
 
-- **`doctor`** — setup diagnostics when the user asks or delegation fails (`agent.found`, version, elicitation; `deep: true` for handshake).
+- **`doctor`** — setup diagnostics when the user asks or delegation fails (`agent.found`, version, client capabilities; `deep: true` for handshake).
 - **`cancel`** — best-effort cancel by `sessionId` (MCP calls are serialized; often delegate
   must finish first). If the agent ignores it and keeps going, call again with `force: true`
   to kill the process after a grace period.

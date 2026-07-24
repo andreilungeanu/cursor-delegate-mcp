@@ -13,13 +13,12 @@ import { runDelegate } from "../src/delegate.js";
 const TIMING = { idleMs: 200, handshakeMs: 400, hardCapMs: 1500 };
 
 function stubFactory(stubFile) {
-  return ({ onElicit, mode, onCreatePlan }) => new AcpClient({
+  return ({ mode, onCreatePlan }) => new AcpClient({
     spawnSpec: {
       command: process.execPath,
       args: [fileURLToPath(new URL(`./fixtures/${stubFile}`, import.meta.url))],
       options: { shell: false },
     },
-    onElicit,
     mode,
     onCreatePlan,
   });
@@ -258,8 +257,8 @@ test("escalation order idle→cancel→kill with child dead afterward", async ()
   let childRef;
   let exitPromise;
 
-  const factory = ({ onElicit, mode, onCreatePlan }) => {
-    const client = stubFactory("escalation-stub.js")({ onElicit, mode, onCreatePlan });
+  const factory = ({ mode, onCreatePlan }) => {
+    const client = stubFactory("escalation-stub.js")({ mode, onCreatePlan });
     const origStart = client.start.bind(client);
     client.start = async () => {
       await origStart();
@@ -299,8 +298,8 @@ test("escalation order idle→cancel→kill with child dead afterward", async ()
 
 test("resumed filesReportedByEditTools excludes diff replayed during session/load (Bug B)", async () => {
   function replayTouchedFactory() {
-    return ({ onElicit, mode, onCreatePlan }) => {
-      const client = stubFactory("fake-acp.js")({ onElicit, mode, onCreatePlan });
+    return ({ mode, onCreatePlan }) => {
+      const client = stubFactory("fake-acp.js")({ mode, onCreatePlan });
       const origLoad = client.loadSession.bind(client);
       client.loadSession = async (sessionId, cwd) => {
         const res = await origLoad(sessionId, cwd);
@@ -338,8 +337,8 @@ test("inline spec equal to an existing filename is sent literally (Bug C)", asyn
       spec: inlineSpec,
       mode: "agent",
       workspace: process.cwd(),
-      clientFactory: ({ onElicit, mode, onCreatePlan }) => {
-        const client = stubFactory("fake-acp.js")({ onElicit, mode, onCreatePlan });
+      clientFactory: ({ mode, onCreatePlan }) => {
+        const client = stubFactory("fake-acp.js")({ mode, onCreatePlan });
         const origPrompt = client.prompt.bind(client);
         client.prompt = async (sessionId, blocks) => {
           promptText = blocks.find((b) => b.type === "text")?.text;

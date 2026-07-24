@@ -58,7 +58,7 @@ const delegateOutputSchema = z.object({
   ),
   cancelRequested: z.boolean().optional(),
   protocolWarnings: z.array(z.string()).optional().describe(
-    "Non-fatal diagnostics that did not justify failing the call — dropped or sanitized ACP fields, a failed resume, ignored model options, skipped contextFiles, a mid-session mode switch. Read whenever present."
+    "Non-fatal diagnostics that did not justify failing the call — dropped or sanitized ACP fields, a failed resume, ignored model options, skipped contextFiles. Read whenever present."
   ),
   plan: z.object({
     entries: z.array(planEntrySchema),

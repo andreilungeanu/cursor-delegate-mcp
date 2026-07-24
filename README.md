@@ -43,7 +43,7 @@ You  →  your agent (plans & reviews)
 ## Features
 
 - 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
-- 💬 **No stalled runs** — if Cursor asks a question mid-task, it pops up as a normal prompt in your client. In clients without that support, the recommended option is picked automatically and reported back, so nothing hangs.
+- 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
 - 📦 **Clean, typed results** — final answer, changed files, session id, and the plan, returned as validated structured output. Nothing to parse, nothing to guess.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
 - 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase, zero file changes.

@@ -10,13 +10,12 @@ import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server
 
 // Real AcpClient over a stub subprocess, so force-kill exercises the actual treeKill path.
 function stubClientFactory(stubFile) {
-  return ({ onElicit, mode, onCreatePlan }) => new AcpClient({
+  return ({ mode, onCreatePlan }) => new AcpClient({
     spawnSpec: {
       command: process.execPath,
       args: [fileURLToPath(new URL(`./fixtures/${stubFile}`, import.meta.url))],
       options: { shell: false },
     },
-    onElicit,
     mode,
     onCreatePlan,
   });
@@ -24,7 +23,7 @@ function stubClientFactory(stubFile) {
 
 test("runDelegateTool cleans up inFlight and returns isError when runDelegate throws", async () => {
   const inFlight = new Map();
-  const server = { server: { elicitInput: async () => ({ action: "reject" }) } };
+  const server = { server: {} };
   const runDelegate = async ({ onSessionReady }) => {
     onSessionReady("sess-x", { cancel: async () => {} });
     throw new Error("boom");
@@ -60,7 +59,7 @@ test("runDelegateTool tags a failure with its reason so callers need not parse p
 
 test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-default value)', async () => {
   const inFlight = new Map();
-  const server = { server: { elicitInput: async () => ({ action: "reject" }) } };
+  const server = { server: {} };
   let capturedArgs;
   const runDelegate = async (args) => {
     capturedArgs = args;
@@ -197,7 +196,7 @@ test("server advertises instructions, output schemas, and conservative tool anno
 
 test("runDelegateTool sends progress notifications when progressToken is set", async () => {
   const inFlight = new Map();
-  const server = { server: { elicitInput: async () => ({ action: "reject" }) } };
+  const server = { server: {} };
   const notifications = [];
   const extra = {
     _meta: { progressToken: "tok-1" },
@@ -230,7 +229,7 @@ test("runDelegateTool sends progress notifications when progressToken is set", a
 
 test("runDelegateTool skips progress notifications when progressToken is absent", async () => {
   const inFlight = new Map();
-  const server = { server: { elicitInput: async () => ({ action: "reject" }) } };
+  const server = { server: {} };
   let notifyCalls = 0;
   const extra = { sendNotification: () => { notifyCalls++; } };
   const runDelegate = async ({ onProgress, onSessionReady }) => {
@@ -254,7 +253,7 @@ test("runDelegateTool skips progress notifications when progressToken is absent"
 
 test("runDelegateTool survives sendNotification failures", async () => {
   const inFlight = new Map();
-  const server = { server: { elicitInput: async () => ({ action: "reject" }) } };
+  const server = { server: {} };
   const extra = {
     _meta: { progressToken: "tok-1" },
     sendNotification: () => { throw new Error("notify failed"); },

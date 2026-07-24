@@ -31,14 +31,13 @@ function thinkingFactory() {
   };
 }
 
-function fakeFactory({ onElicit, mode, onCreatePlan }) {
+function fakeFactory({ mode, onCreatePlan }) {
   return new AcpClient({
     spawnSpec: {
       command: process.execPath,
       args: [fileURLToPath(new URL("./fixtures/fake-acp.js", import.meta.url))],
       options: { shell: false },
     },
-    onElicit,
     mode,
     onCreatePlan,
   });
@@ -769,8 +768,8 @@ test("runDelegate survives a throwing onProgress callback", async () => {
 });
 
 function trackingFactory(track) {
-  return ({ onElicit, mode, onCreatePlan }) => {
-    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+  return ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
     const origPrompt = client.prompt.bind(client);
     client.prompt = async (sessionId, text) => {
       track.promptSessionId = sessionId;
@@ -812,8 +811,8 @@ test("runDelegate falls back to a fresh session when session/load fails", async 
 });
 
 function replayHistoryFactory() {
-  return ({ onElicit, mode, onCreatePlan }) => {
-    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+  return ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
     const origLoad = client.loadSession.bind(client);
     client.loadSession = async (sessionId, cwd) => {
       const res = await origLoad(sessionId, cwd);
@@ -853,8 +852,8 @@ test("runDelegate resumed result excludes replayed session history", async () =>
 });
 
 function promptTextFactory(track) {
-  return ({ onElicit, mode, onCreatePlan }) => {
-    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+  return ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
     const origPrompt = client.prompt.bind(client);
     client.prompt = async (sessionId, blocks) => {
       track.blocks = blocks;
@@ -941,8 +940,8 @@ const TINY_PNG = Buffer.from(
 );
 
 function imageCapableFactory(track, { image = true } = {}) {
-  return ({ onElicit, mode, onCreatePlan }) => {
-    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+  return ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
     const origInit = client.initialize.bind(client);
     client.initialize = async () => {
       const res = await origInit();
@@ -1090,8 +1089,8 @@ test("runDelegate still sends prose that merely names a missing path", async () 
 });
 
 function exitDuringPromptFactory() {
-  return ({ onElicit, mode, onCreatePlan }) => {
-    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+  return ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
     client.prompt = () => new Promise(() => {
       client.emit("exit", { code: 1, signal: null, stderr: "boom-trace" });
     });
@@ -1147,8 +1146,8 @@ test("runDelegate cuts the 10MB output at a code-point boundary", async () => {
 });
 
 function failingPromptFactory() {
-  return ({ onElicit, mode, onCreatePlan }) => {
-    const client = fakeFactory({ onElicit, mode, onCreatePlan });
+  return ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
     client.prompt = async () => { throw new Error("prompt failed"); };
     return client;
   };
