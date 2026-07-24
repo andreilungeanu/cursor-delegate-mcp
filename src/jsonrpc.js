@@ -26,19 +26,26 @@ export class JsonRpcPeer {
     this.rl.on("line", (line) => this._onLine(line));
   }
 
+  // Trimming to the cap on every frame meant shifting a 2000-entry array per frame, which on a
+  // chatty turn cost more than parsing the frames. Let the array overshoot by a quarter and trim
+  // in one batch; readers below take the last _logSize, so what the log reports is unchanged.
   _record(dir, line) {
     if (this._logSize <= 0) return;
     const truncated = line.length > FRAME_CAP ? line.slice(0, FRAME_CAP) : line;
     this._log.push({ t: Date.now(), dir, line: truncated });
-    if (this._log.length > this._logSize) {
-      this._log.splice(0, this._log.length - this._logSize);
+    if (this._log.length > this._logSize + (this._logSize >> 2)) {
+      this._log = this._log.slice(-this._logSize);
     }
   }
 
-  getLog() { return [...this._log]; }
+  _entries() {
+    return this._log.length > this._logSize ? this._log.slice(-this._logSize) : this._log;
+  }
+
+  getLog() { return [...this._entries()]; }
 
   formatLog(n) {
-    const entries = n !== undefined ? this._log.slice(-n) : this._log;
+    const entries = n !== undefined ? this._entries().slice(-n) : this._entries();
     return entries.map((e) => `${new Date(e.t).toISOString()} ${e.dir} ${e.line}`).join("\n");
   }
 
