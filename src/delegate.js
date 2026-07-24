@@ -696,9 +696,8 @@ export async function runDelegate({
     }
     if (writeCapableActivity.length) {
       out.writeCapableActivity = writeCapableActivity;
-      // "the diff for what changed" overclaims when every entry is a pathless execute — live
-      // runs drew the same warning for read-only commands (git log, git show, ls -la) as for
-      // a real write. Hedge when nothing reported a path.
+      // A pathless execute may be read-only (git log) or a shell write with no edit-tool
+      // path, so infer nothing from paths: name what ran and let the diff decide.
       const anyPath = writeCapableActivity.some((a) => a.path);
       protocolWarnings.push(
         `mode ${mode} asked the agent not to change anything, but it ran ${writeCapableActivity.length}`
@@ -706,7 +705,7 @@ export async function runDelegate({
         + " for what ran"
         + (anyPath
           ? ", and the diff for what changed."
-          : "; none reported touching a file, so this may be read-only activity — check the git diff to confirm nothing changed.")
+          : "; none reported a file through edit tools — the diff is authoritative, review it.")
       );
     }
     if (modeChanged) {
