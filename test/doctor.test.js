@@ -35,7 +35,7 @@ test("runDoctor reports agent.version null when the command fails", async () => 
   assert.equal(out.agent.version, null);
 });
 
-test("runDoctor derives supportsElicitation from injected getClientInfo", async () => {
+test("runDoctor reports raw client capabilities and identity from injected getClientInfo", async () => {
   const withElicit = await runDoctor({
     spawnSpec: stubSpawnSpec(),
     getClientInfo: () => ({
@@ -43,7 +43,7 @@ test("runDoctor derives supportsElicitation from injected getClientInfo", async 
       version: { name: "test-client", version: "1.0" },
     }),
   });
-  assert.equal(withElicit.client.supportsElicitation, true);
+  assert.deepEqual(withElicit.client.capabilities, { elicitation: {} });
   assert.equal(withElicit.client.name, "test-client");
   assert.equal(withElicit.client.version, "1.0");
 
@@ -51,7 +51,7 @@ test("runDoctor derives supportsElicitation from injected getClientInfo", async 
     spawnSpec: stubSpawnSpec(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.equal(withoutElicit.client.supportsElicitation, false);
+  assert.deepEqual(withoutElicit.client.capabilities, {});
 });
 
 test("runDoctor deep:false does not run handshake", async () => {
@@ -180,7 +180,7 @@ test("runDoctor reports portable runtime diagnostics", async () => {
   assert.equal(out.runtime.transport, "stdio");
   assert.equal(out.runtime.node, process.versions.node);
   assert.equal(out.runtime.platform, process.platform);
-  assert.equal(out.client.supportsElicitation, true);
+  assert.deepEqual(out.client.capabilities, { elicitation: {} });
 });
 
 test("runDoctor deep:true reports the negotiated capability matrix", async () => {

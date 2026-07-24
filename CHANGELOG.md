@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Removed
 
+- **Breaking**: the `cursor/ask_question` elicitation path is removed, along with the
+  `questionsAsked`, `autoAnswered`, and `fallbackAnswers` output fields. cursor-agent never
+  exposes its AskQuestion tool over ACP — measured 0 firings across 100+ turns and 6 model
+  families (`docs/research/2026-07-23-elicitation-final-verdict.md`) — so the structured
+  question path and its option-matching machinery were answering a request that never arrives.
+  Clarifying questions come as prose in `result`; answer by resuming the session with free text
+  in `spec`. An `ask_question` frame (if one ever arrived) now returns JSON-RPC `-32601`.
 - **Breaking**: the `maxResultChars` delegate input is removed. Modern context windows make a
   caller-set character cap redundant, and its blunt mid-text cut was never a summarizer; the
   always-on 10MB streaming ceiling still guards against a runaway reply. Control reply length

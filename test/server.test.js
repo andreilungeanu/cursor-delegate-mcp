@@ -64,7 +64,7 @@ test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-def
   let capturedArgs;
   const runDelegate = async (args) => {
     capturedArgs = args;
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-y", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-y", filesReportedByEditTools: [] };
   };
 
   await runDelegateTool({
@@ -81,7 +81,7 @@ test('delegate tool rejects empty model before runDelegate is called', async () 
   let called = false;
   const runDelegate = async () => {
     called = true;
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-empty-model", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-empty-model", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -102,7 +102,7 @@ test('delegate tool trims whitespace from model before runDelegate', async () =>
   const captured = [];
   const runDelegate = async (args) => {
     captured.push(args);
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-trim-model", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-trim-model", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -122,7 +122,7 @@ test('delegate tool defaults model to composer-2.5 when omitted', async () => {
   const captured = [];
   const runDelegate = async (args) => {
     captured.push(args);
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-default-model", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-default-model", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -142,7 +142,7 @@ test('delegate tool defaults fast to false end-to-end when the caller omits it',
   const captured = [];
   const runDelegate = async (args) => {
     captured.push(args);
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-z", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-z", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -177,6 +177,10 @@ test("server advertises instructions, output schemas, and conservative tool anno
     // The description is what a host reads immediately before calling, so it must not
     // reassert the workspace confinement the instructions just denied.
     assert.match(tools.delegate.description, /every permission the agent requests, in any mode and anywhere on disk/i);
+    // Elicitation never fires (cursor-agent keeps AskQuestion off ACP), so the description
+    // must teach prose-question → resume, not sell elicitation.
+    assert.match(tools.delegate.description, /Clarifying questions arrive as prose.*resumeSessionId/i);
+    assert.ok(!/uses MCP elicitation/i.test(tools.delegate.description));
     assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
     assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
     assert.ok(tools.delegate.outputSchema);
@@ -202,7 +206,7 @@ test("runDelegateTool sends progress notifications when progressToken is set", a
   const runDelegate = async ({ onProgress, onSessionReady }) => {
     onSessionReady("sess-p", { cancel: async () => {} });
     onProgress("tick");
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-p", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-p", filesReportedByEditTools: [] };
   };
 
   const result = await runDelegateTool({
@@ -232,7 +236,7 @@ test("runDelegateTool skips progress notifications when progressToken is absent"
   const runDelegate = async ({ onProgress, onSessionReady }) => {
     onSessionReady("sess-q", { cancel: async () => {} });
     onProgress("tick");
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-q", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-q", filesReportedByEditTools: [] };
   };
 
   const result = await runDelegateTool({
@@ -258,7 +262,7 @@ test("runDelegateTool survives sendNotification failures", async () => {
   const runDelegate = async ({ onProgress, onSessionReady }) => {
     onSessionReady("sess-r", { cancel: async () => {} });
     onProgress("tick");
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-r", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-r", filesReportedByEditTools: [] };
   };
 
   const result = await runDelegateTool({
@@ -273,154 +277,6 @@ test("runDelegateTool survives sendNotification failures", async () => {
   assert.match(result.content[0].text, /"result": "ok"/);
 });
 
-test("runDelegateTool auto-answers clarifying questions by default when client lacks elicitation", async () => {
-  const inFlight = new Map();
-  const server = { server: { getClientCapabilities: () => ({}) } };
-  let elicitCalls = 0;
-  server.server.elicitInput = async () => { elicitCalls++; return { action: "accept", content: { choice: "x" } }; };
-  let elicitOut;
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({
-      title: "Pick one",
-      questions: [{ id: "q1", prompt: "Which approach?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] }],
-    });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-a", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-
-  const result = await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server,
-    runDelegate,
-    inFlight,
-  });
-
-  assert.equal(elicitCalls, 0);
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
-  assert.equal(result.isError, undefined);
-  assert.deepEqual(result.structuredContent.autoAnswered, [{ prompt: "Which approach?", chosen: "Alpha" }]);
-  assert.match(result.content[0].text, /"autoAnswered"/);
-});
-
-async function autoAnswerOnce(question) {
-  const server = { server: { getClientCapabilities: () => ({}) } };
-  let elicitOut;
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({ questions: [question] });
-    return { result: "ok", stopReason: "end_turn", sessionId: "s", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-  const out = await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server, runDelegate, inFlight: new Map(),
-  });
-  return { elicitOut, out };
-}
-
-test("runDelegateTool auto-answer takes one option even when allowMultiple is set", async () => {
-  // No user to ask, so consenting to every option would over-answer. One, and disclosed.
-  const { elicitOut, out } = await autoAnswerOnce({
-    id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }], allowMultiple: true,
-  });
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
-  assert.deepEqual(out.structuredContent.autoAnswered, [{ prompt: "Which?", chosen: "Alpha" }]);
-});
-
-test("runDelegateTool auto-answer sends no option id when the question carries none", async () => {
-  const { elicitOut } = await autoAnswerOnce({ id: "q1", prompt: "Thoughts?" });
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: [] }] });
-  assert.ok(!JSON.stringify(elicitOut).includes("null"), "selectedOptionIds must stay a string list");
-});
-
-test("runDelegateTool uses elicitInput when client supports elicitation", async () => {
-  const inFlight = new Map();
-  let elicitCalls = 0;
-  const server = {
-    server: {
-      getClientCapabilities: () => ({ elicitation: {} }),
-      elicitInput: async () => {
-        elicitCalls++;
-        return { action: "accept", content: { choice: "Beta" } };
-      },
-    },
-  };
-  let elicitOut;
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({
-      questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] }],
-    });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-b", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-
-  await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server,
-    runDelegate,
-    inFlight,
-  });
-
-  assert.equal(elicitCalls, 1);
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] });
-});
-
-// cursor/ask_question shape per Cursor's ACP docs. The path has never been observed firing
-// over ACP — Composer asks in plain text instead — so these pin the spec, not a capture.
-const MULTI_OPTS = [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }, { id: "c", label: "Gamma" }];
-
-async function elicitOnce({ choice, question }) {
-  const server = {
-    server: {
-      getClientCapabilities: () => ({ elicitation: {} }),
-      elicitInput: async (req) => { server.lastRequest = req; return { action: "accept", content: { choice } }; },
-    },
-  };
-  let elicitOut;
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({ questions: [question] });
-    return { result: "ok", stopReason: "end_turn", sessionId: "s", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-  const out = await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server, runDelegate, inFlight: new Map(),
-  });
-  return { elicitOut, out, request: server.lastRequest };
-}
-
-test("runDelegateTool answers an allowMultiple question with every option named", async () => {
-  const { elicitOut, request } = await elicitOnce({
-    choice: "Alpha, Gamma",
-    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS, allowMultiple: true },
-  });
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a", "c"] }] });
-  assert.match(request.requestedSchema.properties.choice.description, /pick one or more/);
-});
-
-test("runDelegateTool keeps a single-select question single even with a comma in the answer", async () => {
-  const { elicitOut } = await elicitOnce({
-    choice: "Alpha, Gamma",
-    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS },
-  });
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
-});
-
-test("runDelegateTool ignores unmatched and duplicate entries in a multi-select answer", async () => {
-  const { elicitOut, out } = await elicitOnce({
-    choice: " beta ,nonsense, b , ",
-    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS, allowMultiple: true },
-  });
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] });
-  assert.equal(out.structuredContent.fallbackAnswers, undefined);
-});
-
-test("runDelegateTool falls back to the first option when a multi-select answer matches nothing", async () => {
-  const { elicitOut, out } = await elicitOnce({
-    choice: "nonsense, more nonsense",
-    question: { id: "q1", prompt: "Which?", options: MULTI_OPTS, allowMultiple: true },
-  });
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
-  assert.deepEqual(out.structuredContent.fallbackAnswers, [
-    { prompt: "Which?", given: "nonsense, more nonsense", chosen: "Alpha" },
-  ]);
-});
-
 test("cancel tool cancels an in-flight delegation and cleans up", async () => {
   let cancelledWith;
   let release;
@@ -433,7 +289,7 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     });
     sessionReady();
     await gate;
-    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-live", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-live", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -471,7 +327,7 @@ test("cancel tool with force kills the agent when delegation does not settle", a
     });
     sessionReady();
     await gate;
-    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-force-kill", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-force-kill", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate, forceGraceMs: 50 });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -508,7 +364,7 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
     });
     sessionReady();
     await gate;
-    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-escalate", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-escalate", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate, forceGraceMs: 50 });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -546,7 +402,7 @@ test("cancel tool with force returns cancelled when delegation settles during gr
     });
     sessionReady();
     await gate;
-    return { result: "done", stopReason: "end_turn", sessionId: "sess-force-settle", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "done", stopReason: "end_turn", sessionId: "sess-force-settle", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate, forceGraceMs: 50 });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -615,7 +471,6 @@ test("delegate output omits cancelRequested when no cancel was requested", async
     stopReason: "end_turn",
     sessionId: "sess-clean",
     filesReportedByEditTools: [],
-    questionsAsked: [],
   });
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -632,7 +487,7 @@ test("delegate output omits cancelRequested when no cancel was requested", async
 });
 
 test("cancel tool reports unknown sessions without erroring", async () => {
-  const server = buildServer({ runDelegate: async () => ({ result: "", stopReason: "end_turn", sessionId: "s", filesReportedByEditTools: [], questionsAsked: [] }) });
+  const server = buildServer({ runDelegate: async () => ({ result: "", stopReason: "end_turn", sessionId: "s", filesReportedByEditTools: [] }) });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0" });
 
@@ -651,7 +506,7 @@ test("cancel distinguishes a finished session (not-running) from an unknown id (
   // A delegation that runs to completion, so its id is remembered but no longer in flight.
   const runDelegate = async ({ onSessionReady }) => {
     onSessionReady("sess-finished", { cancel: async () => {}, stop: () => {} });
-    return { result: "done", stopReason: "end_turn", sessionId: "sess-finished", filesReportedByEditTools: [], questionsAsked: [] };
+    return { result: "done", stopReason: "end_turn", sessionId: "sess-finished", filesReportedByEditTools: [] };
   };
   const server = buildServer({ runDelegate });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
@@ -682,7 +537,6 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
         name: "doctor-test-client",
         version: "9.9",
         capabilities: {},
-        supportsElicitation: false,
       },
       agent: { found: true },
       runtime: { node: "22.0.0", platform: "test", arch: "test", cwd: "/test", transport: "stdio" },
@@ -706,103 +560,6 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
   } finally {
     await client.close();
   }
-});
-
-test("runDelegateTool onElicit returns null when the user declines elicitation", async () => {
-  const inFlight = new Map();
-  const server = {
-    server: {
-      getClientCapabilities: () => ({ elicitation: {} }),
-      elicitInput: async () => ({ action: "decline" }),
-    },
-  };
-  let elicitOut = "unset";
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({
-      questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }] }],
-    });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-d", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-
-  const result = await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server,
-    runDelegate,
-    inFlight,
-  });
-
-  assert.equal(elicitOut, null);
-  assert.equal(result.structuredContent.autoAnswered, undefined);
-  assert.equal(result.structuredContent.fallbackAnswers, undefined);
-});
-
-test("runDelegateTool answers multi-question elicitations, reporting only unmatched ones", async () => {
-  const inFlight = new Map();
-  const choices = ["Beta", "nothing like the options"];
-  let elicitCalls = 0;
-  const server = {
-    server: {
-      getClientCapabilities: () => ({ elicitation: {} }),
-      elicitInput: async () => ({ action: "accept", content: { choice: choices[elicitCalls++] } }),
-    },
-  };
-  let elicitOut;
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({
-      questions: [
-        { id: "q1", prompt: "First?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] },
-        { id: "q2", prompt: "Second?", options: [{ id: "x", label: "X-ray" }, { id: "y", label: "Yankee" }] },
-      ],
-    });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-m", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-
-  const result = await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server,
-    runDelegate,
-    inFlight,
-  });
-
-  assert.equal(elicitCalls, 2);
-  assert.deepEqual(elicitOut, {
-    answers: [
-      { questionId: "q1", selectedOptionIds: ["b"] },
-      { questionId: "q2", selectedOptionIds: ["x"] },
-    ],
-  });
-  assert.deepEqual(result.structuredContent.fallbackAnswers, [
-    { prompt: "Second?", given: "nothing like the options", chosen: "X-ray" },
-  ]);
-});
-
-test("runDelegateTool reports fallbackAnswers when a free-text answer matches no option", async () => {
-  const inFlight = new Map();
-  const server = {
-    server: {
-      getClientCapabilities: () => ({ elicitation: {} }),
-      elicitInput: async () => ({ action: "accept", content: { choice: "something else entirely" } }),
-    },
-  };
-  let elicitOut;
-  const runDelegate = async ({ onElicit }) => {
-    elicitOut = await onElicit({
-      questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }] }],
-    });
-    return { result: "ok", stopReason: "end_turn", sessionId: "sess-c", filesReportedByEditTools: [], questionsAsked: [] };
-  };
-
-  const result = await runDelegateTool({
-    args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server,
-    runDelegate,
-    inFlight,
-  });
-
-  assert.deepEqual(elicitOut, { answers: [{ questionId: "q1", selectedOptionIds: ["a"] }] });
-  assert.deepEqual(result.structuredContent.fallbackAnswers, [
-    { prompt: "Which?", given: "something else entirely", chosen: "Alpha" },
-  ]);
 });
 
 test("delegate tool call survives malformed ACP plan frames end-to-end", async () => {

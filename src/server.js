@@ -53,14 +53,9 @@ const delegateOutputSchema = z.object({
   filesReportedByEditTools: z.array(z.string()).optional().describe(
     "Files the agent's edit tools reported changing, via native ACP diff events. Absent when they reported none — which is not proof nothing changed: shell-driven edits leave no diff event; the git diff is authoritative."
   ),
-  questionsAsked: z.array(z.string()).optional().describe(
-    "Clarifying questions the agent raised through elicitation. Absent on most turns — the agent usually asks in prose and ends the turn, which this does not capture; read result for that."
-  ),
   resumed: z.boolean().optional().describe(
     "Present and true only when a requested resume took (the returned session id matched resumeSessionId). Absent for a fresh session, or when a resume failed — a failed resume is reported in protocolWarnings."
   ),
-  autoAnswered: z.array(z.object({ prompt: z.string(), chosen: z.string() })).optional(),
-  fallbackAnswers: z.array(z.object({ prompt: z.string(), given: z.string(), chosen: z.string() })).optional(),
   cancelRequested: z.boolean().optional(),
   protocolWarnings: z.array(z.string()).optional().describe(
     "Non-fatal diagnostics that did not justify failing the call — dropped or sanitized ACP fields, a failed resume, ignored model options, skipped contextFiles, a mid-session mode switch. Read whenever present."
@@ -99,7 +94,6 @@ const doctorOutputSchema = z.object({
     name: z.string().nullable(),
     version: z.string().nullable(),
     capabilities: z.record(z.unknown()),
-    supportsElicitation: z.boolean(),
   }).passthrough(),
   agent: z.object({ found: z.boolean() }).passthrough(),
   runtime: z.object({
@@ -126,21 +120,6 @@ export const delegateInputSchema = z.object({
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace, and paths outside it are allowed — attach only files the agent should read. Anything skipped is reported in protocolWarnings, never fatal."),
 });
 
-// A cursor/ask_question question is multi-select when it sets allowMultiple, and the answer
-// field (selectedOptionIds) is a list either way. Only split on commas for those, so a
-// single-select label that itself contains a comma still matches whole.
-function matchOptions(choice, opts = [], allowMultiple = false) {
-  const norm = (s) => String(s ?? "").trim().toLowerCase();
-  const ids = [];
-  for (const part of allowMultiple ? String(choice).split(",") : [String(choice)]) {
-    const want = norm(part);
-    if (!want) continue;
-    const hit = opts.find((o) => norm(o.id) === want || norm(o.label) === want);
-    if (hit && !ids.includes(hit.id)) ids.push(hit.id);
-  }
-  return ids;
-}
-
 export async function runDelegateTool({ args, extra, server, runDelegate, inFlight, seenSessions = new Set() }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles } = args;
 
@@ -158,57 +137,6 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
     };
   }
 
-  const supportsElicitation = !!server.server.getClientCapabilities?.()?.elicitation;
-  const autoAnswered = [];
-  const fallbackAnswers = [];
-
-  const onElicit = async ({ title, questions }) => {
-    const answers = [];
-    for (const q of questions || []) {
-      const opts = q.options || [];
-      if (!supportsElicitation) {
-        // There is no user to ask, so allowMultiple changes nothing here: selecting every
-        // option would consent to more than the caller asked for. Take the first and
-        // disclose it. An option-less question answers empty rather than [null].
-        const first = opts[0];
-        autoAnswered.push({ prompt: String(q.prompt ?? ""), chosen: String(first?.label || first?.id || "") });
-        answers.push({ questionId: q.id, selectedOptionIds: first?.id ? [first.id] : [] });
-        continue;
-      }
-      const listing = opts.map((o) => o.label || o.id).join(", ");
-      const result = await server.server.elicitInput({
-        message: title ? `${title}: ${q.prompt}` : `cursor-agent asks: ${q.prompt}`,
-        requestedSchema: {
-          type: "object",
-          properties: {
-            choice: {
-              type: "string",
-              description: !opts.length
-                ? "your answer"
-                : q.allowMultiple
-                  ? `Options (pick one or more, comma-separated): ${listing}`
-                  : `Options: ${listing}`,
-            },
-          },
-          required: ["choice"],
-        },
-      });
-      if (result.action !== "accept") return null;
-      const choice = result.content?.choice || "";
-      const selectedOptionIds = matchOptions(choice, opts, q.allowMultiple);
-      if (!selectedOptionIds.length && opts.length) {
-        selectedOptionIds.push(opts[0].id);
-        fallbackAnswers.push({
-          prompt: String(q.prompt ?? ""),
-          given: String(choice),
-          chosen: String(opts[0].label || opts[0].id || ""),
-        });
-      }
-      answers.push({ questionId: q.id, selectedOptionIds });
-    }
-    return { answers };
-  };
-
   let capturedSessionId;
   let handle;
   try {
@@ -222,7 +150,6 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       reasoning,
       context,
       contextFiles,
-      onElicit,
       onProgress,
       signal: extra?.signal,
       onSessionReady: (sessionId, client) => {
@@ -237,8 +164,6 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
         onProgress(`session ready: ${sessionId}`);
       },
     });
-    if (autoAnswered.length) out.autoAnswered = autoAnswered;
-    if (fallbackAnswers.length) out.fallbackAnswers = fallbackAnswers;
     if (handle?.cancelRequested) out.cancelRequested = true;
     return {
       content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
@@ -268,7 +193,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves every permission the agent requests, in any mode and anywhere on disk; uses MCP elicitation for clarifying questions and selects the first option when the client lacks elicitation. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
+        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
       inputSchema: delegateInputSchema,
       outputSchema: delegateOutputSchema,
       annotations: {
@@ -345,7 +270,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "doctor",
     {
       description:
-        "Report setup and health diagnostics: plugin version, MCP client capabilities (including elicitation support), cursor-agent launcher resolution, and optional deep ACP handshake. Use when delegation fails or agent.found is false.",
+        "Report setup and health diagnostics: plugin version, MCP client capabilities, cursor-agent launcher resolution, and optional deep ACP handshake. Use when delegation fails or agent.found is false.",
       inputSchema: {
         deep: z
           .boolean()

@@ -159,7 +159,6 @@ test("runDelegate returns assembled result for a fresh session", async () => {
   assert.equal(out.result, "done");
   assert.equal(out.resultSource, undefined);
   assert.equal(out.finalMessageAvailable, undefined);
-  assert.equal(out.questionsAsked, undefined);
   assert.equal(out.resumed, undefined);
   assert.equal(out.plan, undefined);
 });
@@ -1098,42 +1097,6 @@ test("runDelegate still sends prose that merely names a missing path", async () 
     clientFactory: promptTextFactory(track),
   });
   assert.equal(track.promptText, "fix the bug in missing/brief.md");
-});
-
-function askingFactory() {
-  return ({ onElicit }) => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-ask" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
-    client.prompt = async () => {
-      await onElicit({
-        kind: "ask_question",
-        questions: [
-          { id: "q1", prompt: "Which database?", options: [{ id: "a", label: "Postgres" }] },
-          { id: "q2", prompt: "Which region?", options: [{ id: "b", label: "eu-west" }] },
-        ],
-      });
-      return { stopReason: "end_turn" };
-    };
-    client.getTranscript = () => "";
-    client.stop = () => {};
-    return client;
-  };
-}
-
-test("runDelegate records clarifying-question prompts in questionsAsked", async () => {
-  const out = await runDelegate({
-    spec: "task",
-    mode: "agent",
-    workspace: process.cwd(),
-    clientFactory: askingFactory(),
-    onElicit: async () => null,
-  });
-  assert.deepEqual(out.questionsAsked, ["Which database?", "Which region?"]);
 });
 
 function exitDuringPromptFactory() {

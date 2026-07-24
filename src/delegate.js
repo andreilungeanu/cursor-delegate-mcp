@@ -203,7 +203,7 @@ function servedModelFrom(res) {
 
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
-  model = DEFAULT_MODEL, fast = false, reasoning, context, contextFiles, clientFactory, onElicit,
+  model = DEFAULT_MODEL, fast = false, reasoning, context, contextFiles, clientFactory,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
@@ -223,17 +223,6 @@ export async function runDelegate({
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
   const MAX_OUTPUT = 10 * 1024 * 1024;
   const TRUNCATION_MARKER = "\n\n[output truncated at 10MB]";
-  const questionsAsked = [];
-  const recordQuestions = (q) => {
-    if (q.kind !== "ask_question") return;
-    for (const question of q.questions || []) {
-      if (typeof question?.prompt === "string" && question.prompt) questionsAsked.push(question.prompt);
-    }
-  };
-  const wrappedElicit = onElicit
-    ? async (q) => { recordQuestions(q); return onElicit(q); }
-    : async (q) => { recordQuestions(q); return null; };
-
   // merge:false replaces the list, merge:true upserts by id. Entries always arrive complete,
   // so a keyed set is enough — no field-level merging.
   let todos = new Map();
@@ -330,7 +319,7 @@ export async function runDelegate({
   };
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
-  const client = make({ onElicit: wrappedElicit, mode, onCreatePlan: recordCreatePlan, onTodos: recordTodos });
+  const client = make({ mode, onCreatePlan: recordCreatePlan, onTodos: recordTodos });
   const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -670,9 +659,6 @@ export async function runDelegate({
     // concrete id, or a cross-model resume. Silence means the request was honored.
     if (servedModel !== undefined && servedModel !== model) out.effectiveModel = servedModel;
     if (stopReason !== undefined) out.stopReason = stopReason;
-    // Elicitation almost never fires (the agent tends to ask in prose and end the turn), so an
-    // always-empty array is steady noise. Report it only when a question actually came through.
-    if (questionsAsked.length) out.questionsAsked = questionsAsked;
     // sessionTitle stays out of the result: it is a live label (progress) and a forensic one
     // (timeout errors), not a fact about the finished turn.
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);

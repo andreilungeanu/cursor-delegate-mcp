@@ -86,7 +86,6 @@ export async function runDoctor({
       name: version?.name ?? null,
       version: version?.version ?? null,
       capabilities: capabilities ?? {},
-      supportsElicitation: !!capabilities?.elicitation,
     },
     agent: {
       found: agentProbe.found,

@@ -2,12 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequestRouter } from "../src/request-router.js";
 
-function harness({ onElicit, onCreatePlan, onTodos, mode } = {}) {
+function harness({ onCreatePlan, onTodos, mode } = {}) {
   const responses = []; const logs = [];
   const router = createRequestRouter({
     respond: (id, result) => responses.push({ id, result }),
     respondError: (id, code, message) => responses.push({ id, error: { code, message } }),
-    onElicit,
     onCreatePlan,
     onTodos,
     mode,
@@ -28,26 +27,17 @@ test("request_permission auto-selects allow_always", async () => {
   assert.deepEqual(responses[0], { id: 5, result: { outcome: { outcome: "selected", optionId: "allow-always" } } });
 });
 
-test("ask_question forwards to elicitation and returns the chosen option", async () => {
-  let elicited;
-  const { router, responses } = harness({
-    onElicit: async (q) => {
-      elicited = q;
-      return { answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] };
-    },
-  });
+test("ask_question is an unhandled method (elicitation removed) and fails safe with -32601", async () => {
+  // cursor-agent never exposes AskQuestion over ACP; the bridge no longer implements a
+  // structured answer path, so a frame (if one ever arrived) falls through to the default.
+  const { router, responses } = harness();
   await router(6, "cursor/ask_question", {
     title: "Pick one",
-    questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] }],
+    questions: [{ id: "q1", prompt: "Which?", options: [{ id: "a", label: "A" }] }],
   });
   assert.equal(responses[0].id, 6);
-  assert.deepEqual(responses[0].result, {
-    outcome: { outcome: "answered", answers: [{ questionId: "q1", selectedOptionIds: ["b"] }] },
-  });
-  assert.equal(elicited.kind, "ask_question");
-  assert.equal(elicited.title, "Pick one");
-  assert.equal(elicited.questions.length, 1);
-  assert.equal(elicited.questions[0].prompt, "Which?");
+  assert.ok(responses[0].error, "response must contain error");
+  assert.equal(responses[0].error.code, -32601);
 });
 
 test("update_todos is acked with empty result", async () => {
@@ -86,18 +76,6 @@ test("unknown method fails safe with an error, never hangs", async () => {
   assert.equal(responses[0].error.code, -32601, "error code must be -32601 for unknown method");
 });
 
-test("ask_question fail-safe when onElicit returns null", async () => {
-  const { router, responses } = harness();
-  await router(9, "cursor/ask_question", { questions: [{ id: "q1", prompt: "Q", options: [{ id: "a", label: "A" }] }] });
-  assert.deepEqual(responses[0], { id: 9, result: { outcome: { outcome: "cancelled" } } });
-});
-
-test("ask_question fail-safe when onElicit returns object without answers", async () => {
-  const { router, responses } = harness({ onElicit: async () => ({}) });
-  await router(10, "cursor/ask_question", { questions: [{ id: "q1", prompt: "Q", options: [{ id: "a", label: "A" }] }] });
-  assert.deepEqual(responses[0], { id: 10, result: { outcome: { outcome: "cancelled" } } });
-});
-
 test("create_plan rejects in plan mode and captures body", async () => {
   let captured;
   const { router, responses } = harness({
@@ -123,11 +101,11 @@ test("create_plan accepts in agent mode", async () => {
   assert.deepEqual(responses[0], { id: 13, result: { outcome: { outcome: "accepted" } } });
 });
 
-test("catch path: thrown onElicit error returns error response", async () => {
+test("catch path: a thrown handler error returns a -32000 error response", async () => {
   const { router, responses } = harness({
-    onElicit: async () => { throw new Error("boom"); },
+    onCreatePlan: () => { throw new Error("boom"); },
   });
-  await router(13, "cursor/ask_question", { questions: [{ id: "q1", prompt: "Q", options: [{ id: "a", label: "A" }] }] });
+  await router(13, "cursor/create_plan", { overview: "plan" });
   assert.ok(responses[0].error, "response must contain error");
   assert.equal(responses[0].error.code, -32000, "error code must be -32000 for internal error");
 });
