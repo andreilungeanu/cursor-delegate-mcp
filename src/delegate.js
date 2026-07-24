@@ -425,19 +425,6 @@ export async function runDelegate({
   // The bridge cannot see inside a running shell command, so a long silence is reported
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
   let lastToolLabel = null;
-  // A shell write arrives as execute, a file write as edit; delete and move round out ACP's
-  // write-capable kinds. read, search, think and fetch stay out — a plan turn is expected
-  // to do those.
-  const WRITE_CAPABLE_KINDS = new Set(["edit", "delete", "move", "execute"]);
-  // Scoped to plan/ask deliberately. In agent mode this is every turn and carries nothing;
-  // in plan/ask a disk-touching turn is abnormal — the plan itself travels over ACP as a
-  // string via cursor/create_plan, not as a file — so the base rate makes it worth reading.
-  // It records what the agent *ran*, never what changed: a command is not a change list.
-  const WRITE_ACTIVITY_CAP = 20;
-  const watchingWrites = mode === "plan" || mode === "ask";
-  let writeCapableActivity = [];
-  let writeActivityById = new Map();
-  let modeChanged;
   let sessionTitle;
   let promptInFlight = false;
   let heartbeat = null;
@@ -467,12 +454,6 @@ export async function runDelegate({
     if (up.sessionUpdate === "plan") {
       planEntries = up.entries || [];
     }
-    // A plan-mode run that switches itself to agent mode becomes write-capable while the
-    // caller still believes nothing can change. No drift has been observed; report it so
-    // we find out rather than assume.
-    if (up.sessionUpdate === "current_mode_update" && up.currentModeId && up.currentModeId !== mode) {
-      modeChanged = { from: mode, to: up.currentModeId };
-    }
     // The agent names the turn a beat after the prompt lands ("File Creator"). Useful as an
     // ephemeral label while several delegations run, and in timeout forensics — but not in
     // the result, where it arrives after there is nothing left to tell apart and has been
@@ -489,15 +470,6 @@ export async function runDelegate({
       const label = up.title || up.kind || "tool";
       const path = up.locations?.[0]?.path;
       lastToolLabel = String(label) + (path ? " — " + path : "");
-      if (watchingWrites && WRITE_CAPABLE_KINDS.has(up.kind) && writeCapableActivity.length < WRITE_ACTIVITY_CAP) {
-        const entry = { kind: up.kind, detail: lastToolLabel.slice(0, 300) };
-        writeCapableActivity.push(entry);
-        // An execute call names itself — its title is the shell command. An edit call does
-        // not: the title is a bare "Edit File" and locations is empty, so the only thing
-        // separating docs/plan.md from src/api.js is the diff frame that follows. Keep the
-        // id so that frame can fill the path in.
-        if (up.toolCallId != null) writeActivityById.set(up.toolCallId, entry);
-      }
       try { onProgress?.(("running: " + lastToolLabel).slice(0, 200)); } catch {}
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
@@ -510,17 +482,7 @@ export async function runDelegate({
       for (const c of up.content || []) {
         if (c.type === "diff" && c.path) {
           touched.add(c.path);
-          const pending = writeActivityById.get(up.toolCallId);
-          if (pending && !pending.path) {
-            pending.path = normalizeAgentReportedFiles([c.path], workspace)[0];
-          }
           try { onProgress?.("editing " + c.path); } catch {}
-        }
-        // cursor-agent has never been observed emitting these; ACP allows an agent to
-        // stream tool output this way, so treat it like message text rather than drop it.
-        if (c.type === "content" && typeof c.content?.text === "string") {
-          if (!sawToolCall || (collectingPostToolResult && activeToolCalls.size === 0)) appendResult(c.content.text);
-          messageProgress.push(c.content.text);
         }
       }
     }
@@ -567,11 +529,8 @@ export async function runDelegate({
       todos = new Map();
       sawTodoFrame = false;
       discardedResult = "";
-      writeCapableActivity = [];
-      writeActivityById = new Map();
       touched.clear();
       lastToolLabel = null;
-      modeChanged = undefined;
       sessionTitle = undefined;
       supervisor.promptStarted();
       startHeartbeat();
@@ -591,41 +550,21 @@ export async function runDelegate({
       : "none";
     const protocolWarnings = [];
     // plan.detail is the model restating — into chat's sibling channel — a plan it also filed via
-    // create_plan; cursor-agent narrates across the IDE's two surfaces and here they flatten into
-    // one ACP payload. The detail is never load-bearing: the plan lives in the agent's own session
+    // create_plan. The detail is never load-bearing: the plan lives in the agent's own session
     // (which is what a resume-to-implement reads, not this field) and the orchestrator approves
-    // from result + plan.entries. So in plan/ask keep the plan in one prose channel — drop the
-    // detail as a duplicate when result already is a real plan message, fold it into result when
-    // the message is too terse (or a fallback preamble) to be the plan itself. In agent mode the
-    // plan was accepted and result is the implementation report, a separate artifact — both stay.
-    const PLAN_TERSE_FLOOR = 200;
-    let dropPlanDetail = false;
-    if (typeof planDetail === "string" && (mode === "plan" || mode === "ask")) {
-      dropPlanDetail = true;
-      if (!(finalMessageAvailable && result.length >= PLAN_TERSE_FLOOR)) {
-        // The terse floor cannot tell a trivial "FILED." from a real question — a question is
-        // always short. Promotion overwrites result with the plan, so never let it silently
-        // eat the agent's own words: carry a real final message under the plan. A pre-tool
-        // preamble (no final message) stays dropped — it is not the agent's closing reply.
-        const suppressed = finalMessageAvailable ? result : "";
-        result = planDetail;
-        if (suppressed.trim() && suppressed !== planDetail) {
-          result += "\n\n--- agent chat reply:\n" + suppressed;
-        }
-        resultSource = "plan-detail";
-      }
-    }
-    if (resultSource !== "plan-detail") {
-      if (!finalMessageAvailable && discardedResult) {
-        result = discardedResult;
-        resultSource = "pre-tool-fallback";
-        protocolWarnings.push(
-          "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
-          + " result carries the last message before that tool call — it may be a preamble rather than the answer."
-        );
-      } else if (!finalMessageAvailable) {
-        protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
-      }
+    // from result + plan.entries. So in plan/ask drop the detail and let result be the agent's own
+    // message verbatim — no bridge-side guess at whether that message "is really the plan". In
+    // agent mode the plan was accepted and result is the implementation report — both stay.
+    const dropPlanDetail = typeof planDetail === "string" && (mode === "plan" || mode === "ask");
+    if (!finalMessageAvailable && discardedResult) {
+      result = discardedResult;
+      resultSource = "pre-tool-fallback";
+      protocolWarnings.push(
+        "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
+        + " result carries the last message before that tool call — it may be a preamble rather than the answer."
+      );
+    } else if (!finalMessageAvailable) {
+      protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
     }
     let stopReason;
     if (res?.stopReason !== undefined) {
@@ -649,10 +588,9 @@ export async function runDelegate({
     if (filesReported.length) out.filesReportedByEditTools = filesReported;
     // resultSource is a caveat, not a fact worth stating on every turn: on the happy path
     // (post-tool / tool-free-stream) result is simply the answer, so say nothing. Surface it only
-    // when it warns — pre-tool-fallback, plan-detail, none. finalMessageAvailable is dropped
-    // outright: it stated the same thing in a second boolean. resumed is emitted only when a
-    // resume actually took; a fresh session or a failed resume (which carries its own warning)
-    // leaves it absent.
+    // when it warns — pre-tool-fallback, none. finalMessageAvailable is dropped outright: it
+    // stated the same thing in a second boolean. resumed is emitted only when a resume actually
+    // took; a fresh session or a failed resume (which carries its own warning) leaves it absent.
     if (resultSource !== "post-tool" && resultSource !== "tool-free-stream") out.resultSource = resultSource;
     if (!!resumeSessionId && sessionId === resumeSessionId) out.resumed = true;
     // Only when the agent served a different model than asked — e.g. "default" routing to a
@@ -666,9 +604,8 @@ export async function runDelegate({
     protocolWarnings.push(...contextWarnings);
     if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
-      // In plan/ask the plan is already carried by result (a real message, or folded in per the
-      // one-plan contract above), so the detail here is a duplicate — drop it. entries and
-      // overview are structured and unique, and always stay.
+      // In plan/ask result already carries the agent's own plan message, so the detail here is a
+      // duplicate — drop it. entries and overview are structured and unique, and always stay.
       if (dropPlanDetail) delete out.plan.detail;
     }
     // Most successful turns emit no todos at all, so an empty list would read as "nothing
@@ -679,24 +616,6 @@ export async function runDelegate({
       const { todos: todoList, todoProgress } = sanitizeTodos(protocolWarnings);
       out.todoProgress = todoProgress;
       if (todoProgress.completed < todoProgress.total) out.todos = todoList;
-    }
-    if (writeCapableActivity.length) {
-      out.writeCapableActivity = writeCapableActivity;
-      // A pathless execute may be read-only (git log) or a shell write with no edit-tool
-      // path, so infer nothing from paths: name what ran and let the diff decide.
-      const anyPath = writeCapableActivity.some((a) => a.path);
-      protocolWarnings.push(
-        `mode ${mode} asked the agent not to change anything, but it ran ${writeCapableActivity.length}`
-        + ` write-capable tool call${writeCapableActivity.length === 1 ? "" : "s"} — see writeCapableActivity`
-        + " for what ran"
-        + (anyPath
-          ? ", and the diff for what changed."
-          : "; none reported a file through edit tools — the diff is authoritative, review it.")
-      );
-    }
-    if (modeChanged) {
-      out.modeChanged = modeChanged;
-      protocolWarnings.push(`agent switched mode from ${modeChanged.from} to ${modeChanged.to} mid-session`);
     }
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;

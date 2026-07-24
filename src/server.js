@@ -40,8 +40,8 @@ const planEntrySchema = z.object({
 
 const delegateOutputSchema = z.object({
   result: z.string(),
-  resultSource: z.enum(["pre-tool-fallback", "plan-detail", "none"]).optional().describe(
-    "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. plan-detail (plan/ask only): the agent's chat message was too terse to be the plan, so result carries the plan it filed via create_plan, with any non-empty chat message appended under a '--- agent chat reply:' separator (this is where a short clarifying question survives). none: the turn produced no message and result is empty."
+  resultSource: z.enum(["pre-tool-fallback", "none"]).optional().describe(
+    "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. none: the turn produced no message and result is empty."
   ),
   effectiveModel: z.string().optional().describe(
     "The model id the agent reported serving, present only when it differs from the model you requested — e.g. \"default\" resolving to a concrete id, or a cross-model resume. Read from the agent's post-set_model config report; absent when the agent confirmed the requested id or reported no model (some models report none)."
@@ -65,7 +65,7 @@ const delegateOutputSchema = z.object({
     overview: z.string().optional(),
     detail: z.string().optional(),
   }).optional().describe(
-    "The agent's plan. entries and overview are the structured plan and always present when a plan exists. detail (a prose rendition the agent also filed) is kept only in agent mode; in plan/ask it is dropped because result already carries the plan — as the agent's own message, or folded in (resultSource plan-detail) when that message was too terse. To act on a plan, resume the sessionId rather than forwarding detail: the plan lives in the agent's session."
+    "The agent's plan. entries and overview are the structured plan and always present when a plan exists. detail (a prose rendition the agent also filed) is kept only in agent mode; in plan/ask it is dropped because result already carries the agent's own plan message. To act on a plan, resume the sessionId rather than forwarding detail: the plan lives in the agent's session."
   ),
   todos: z.array(z.object({
     id: z.string(),
@@ -73,12 +73,6 @@ const delegateOutputSchema = z.object({
     status: z.enum(["pending", "in_progress", "completed"]).optional(),
   })).optional().describe(
     "Todo items the agent left unfinished, present only when todoProgress shows completed < total — read it to see what remains before resuming. Absent both when the agent tracked no todos (common on short tasks) and when everything tracked was completed; todoProgress tells those apart."
-  ),
-  modeChanged: z.object({ from: z.string(), to: z.string() }).optional().describe(
-    "Set when the agent switched itself out of the requested mode mid-session. Absence does not mean the mode was honored — an agent can write while staying in plan."
-  ),
-  writeCapableActivity: z.array(z.object({ kind: z.string(), detail: z.string(), path: z.string().optional() })).optional().describe(
-    "Write-capable tool calls (edit/delete/move/execute) the agent ran during a plan or ask turn, which are expected to change nothing. Records what ran, not what changed — kind is what the tool could do, not proof it wrote: an execute entry may be a read-only command like `ls -la`. Read detail for the evidence and the git diff for the truth. Only populated for mode plan and ask."
   ),
   todoProgress: z.object({
     total: z.number(),
@@ -108,7 +102,7 @@ const doctorOutputSchema = z.object({
 
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
-  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them; modeChanged reports it if it switched. ask held on every model tested while plan compliance varies by model, so prefer ask when you need the stricter read-only instruction."),
+  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them, so review the git diff after every run. ask held on every model tested while plan compliance varies by model, so prefer ask when you need the stricter read-only instruction."),
   resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
   workspace: z.string().optional().describe("Working directory for the agent (defaults to cwd). Must be an existing directory; the call fails rather than creating it."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL),
