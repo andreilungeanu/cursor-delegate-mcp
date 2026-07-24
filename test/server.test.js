@@ -21,6 +21,27 @@ function stubClientFactory(stubFile) {
   });
 }
 
+test("a finished delegation does not evict a concurrent one holding the same session id", async () => {
+  // A resume can race the turn it resumes, so two live delegations can share a session id.
+  // The one that finishes first must not deregister the other — cancel then reported a
+  // running session as already ended.
+  const inFlight = new Map();
+  const seenSessions = new Set();
+  const mkDelegate = (delayMs) => async ({ onSessionReady }) => {
+    onSessionReady("sess-shared", { cancel: async () => {}, stop: () => {} });
+    await new Promise((r) => setTimeout(r, delayMs));
+    return { result: "ok", sessionId: "sess-shared" };
+  };
+  const args = { spec: "task", mode: "agent", model: DEFAULT_MODEL, fast: false };
+  const slow = runDelegateTool({ args, extra: {}, runDelegate: mkDelegate(300), inFlight, seenSessions });
+  const quick = runDelegateTool({ args, extra: {}, runDelegate: mkDelegate(25), inFlight, seenSessions });
+
+  await quick;
+  assert.equal(inFlight.has("sess-shared"), true, "the still-running delegation must stay registered");
+  await slow;
+  assert.equal(inFlight.has("sess-shared"), false, "the last one out clears the entry");
+});
+
 test("runDelegateTool cleans up inFlight and returns isError when runDelegate throws", async () => {
   const inFlight = new Map();
   const server = { server: {} };

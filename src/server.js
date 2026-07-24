@@ -15,7 +15,22 @@ if (nodeMajor < 22) {
   process.exit(1);
 }
 
+// sessionId -> the set of delegations currently running on it. A set, not a single handle,
+// because a resume can race the turn it resumes: both are live, both are cancellable, and
+// keying one handle per id let whichever finished first deregister the other — after which
+// cancel reported a running session as already ended.
 const inFlight = new Map();
+function registerInFlight(map, sessionId, handle) {
+  const handles = map.get(sessionId);
+  if (handles) handles.add(handle);
+  else map.set(sessionId, new Set([handle]));
+}
+function unregisterInFlight(map, sessionId, handle) {
+  const handles = map.get(sessionId);
+  if (!handles) return;
+  handles.delete(handle);
+  if (handles.size === 0) map.delete(sessionId);
+}
 // Session ids seen this process, kept after the turn ends so cancel can tell a finished
 // session (resumable, only the turn is over) from an id that never existed. Bounded so a
 // long-lived server does not grow without limit.
@@ -149,7 +164,7 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       onSessionReady: (sessionId, client) => {
         capturedSessionId = sessionId;
         handle = { client, cancelRequested: false };
-        inFlight.set(sessionId, handle);
+        registerInFlight(inFlight, sessionId, handle);
         rememberSession(seenSessions, sessionId);
         // Emit the id the moment the session opens, before the turn finishes, so a host that
         // can call tools concurrently has something to pass to cancel mid-run — otherwise the
@@ -171,7 +186,9 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
       isError: true,
     };
   } finally {
-    if (capturedSessionId) inFlight.delete(capturedSessionId);
+    // Drops only this delegation's own handle; the id stays registered while another turn
+    // is still running on it.
+    if (capturedSessionId) unregisterInFlight(inFlight, capturedSessionId, handle);
   }
 }
 
@@ -220,8 +237,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       },
     },
     async ({ sessionId, force }) => {
-      const handle = inFlight.get(sessionId);
-      if (!handle) {
+      const handles = inFlight.get(sessionId);
+      if (!handles || handles.size === 0) {
         // A finished session and a garbage id used to look identical (both not-found), which
         // read as "bad id" for a session that in fact ran and is still resumable. Split them.
         const known = seenSessions.has(sessionId);
@@ -232,26 +249,29 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
           structuredContent: { status: known ? "not-running" : "not-found", sessionId },
         };
       }
-      handle.cancelRequested = true;
-      await handle.client.cancel(sessionId).catch(() => {});
+      // Cancel every turn running on the id: the caller named a session, not one of the
+      // turns that happen to share it.
+      for (const handle of handles) handle.cancelRequested = true;
+      await Promise.all([...handles].map((handle) => handle.client.cancel(sessionId).catch(() => {})));
       if (!force) {
-        // The handle stays registered: session/cancel is best-effort, so the turn may still
-        // be running. Dropping it here made the natural escalation — cancel, wait, cancel
-        // with force — report not-found while the agent was alive. The delegation's own
-        // finally removes the entry when the turn actually settles.
+        // The handles stay registered: session/cancel is best-effort, so the turn may still
+        // be running. Dropping them here made the natural escalation — cancel, wait, cancel
+        // with force — report not-found while the agent was alive. Each delegation's own
+        // finally removes its handle when the turn actually settles.
         return {
           content: [{ type: "text", text: `cancelled ${sessionId}` }],
           structuredContent: { status: "cancelled", sessionId },
         };
       }
       await new Promise((r) => setTimeout(r, forceGraceMs));
-      if (!inFlight.has(sessionId)) {
+      const stillRunning = inFlight.get(sessionId);
+      if (!stillRunning || stillRunning.size === 0) {
         return {
           content: [{ type: "text", text: `cancelled ${sessionId}` }],
           structuredContent: { status: "cancelled", sessionId },
         };
       }
-      handle.client.stop();
+      for (const handle of stillRunning) handle.client.stop();
       inFlight.delete(sessionId);
       return {
         content: [{ type: "text", text: `killed ${sessionId}` }],
