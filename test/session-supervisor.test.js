@@ -10,7 +10,11 @@ import { SessionSupervisor } from "../src/session-supervisor.js";
 import { runDelegate } from "../src/delegate.js";
 
 // Mid-turn idle detection is opt-in, so tests that exercise it pass idleMs explicitly.
-const TIMING = { idleMs: 200, handshakeMs: 400, hardCapMs: 1500 };
+// handshakeMs is deliberately generous: these tests exercise idle/hard-cap, not the handshake
+// deadline, so it only needs to outlast a cold subprocess spawn (a Windows CI runner can take
+// well over 400ms just to start node). Tests that actually assert a handshake timeout set their
+// own short handshakeMs.
+const TIMING = { idleMs: 200, handshakeMs: 5000, hardCapMs: 1500 };
 
 function stubFactory(stubFile) {
   return ({ mode, onCreatePlan }) => new AcpClient({
@@ -40,7 +44,9 @@ test("idle timeout rejects promptly without waiting for escalation grace periods
       return true;
     }
   );
-  assert.ok(Date.now() - start < 500, "expected prompt rejection, not blocked by escalation sleeps");
+  // Generous bound: this only rules out multi-second escalation sleeps, and the elapsed time
+  // includes a cold subprocess spawn that a slow CI runner can stretch to hundreds of ms.
+  assert.ok(Date.now() - start < 2000, "expected prompt rejection, not blocked by escalation sleeps");
 });
 
 test("idle timeout fires on a silent stub", async () => {
@@ -166,7 +172,9 @@ test("a handshake timeout after session/new hands back the resumable session", a
       mode: "agent",
       workspace: process.cwd(),
       clientFactory: stubFactory("session-then-hang-stub.js"),
-      handshakeMs: 400,
+      // Long enough that session/new reliably completes (capturing the resumable id) on a slow
+      // CI runner before the stub hangs on set_model; the deadline still fires, just later.
+      handshakeMs: 1500,
       hardCapMs: 10000,
     }),
     (err) => {
@@ -202,16 +210,36 @@ test("timeout errors name the last tool call and frame age", async () => {
   );
 });
 
-test("the handshake deadline does not fire once the prompt is in flight", async () => {
+// End-to-end streaming smoke test: a real subprocess handshake completes and a streaming turn
+// finishes cleanly with no spurious timeout. handshakeMs is generous so a cold CI spawn cannot
+// trip the deadline before the prompt is in flight; the precise "promptStarted clears the
+// deadline" semantics are pinned by the spawn-free unit test below.
+test("a streaming turn completes without a spurious handshake timeout", async () => {
   const out = await runDelegate({
     spec: "stream",
     mode: "agent",
     workspace: process.cwd(),
     clientFactory: stubFactory("streaming-stub.js"),
-    handshakeMs: 250,
+    handshakeMs: 3000,
     hardCapMs: 10000,
   });
   assert.equal(out.stopReason, undefined);
+});
+
+// Deterministic, no subprocess: promptStarted() must clear the handshake deadline, so work that
+// outlasts a tiny handshakeMs after the prompt is in flight does not trip a handshake timeout.
+test("promptStarted clears the handshake deadline for a later-settling turn", async () => {
+  const client = new EventEmitter();
+  client.on = (...a) => EventEmitter.prototype.on.call(client, ...a);
+  client.off = (...a) => EventEmitter.prototype.off.call(client, ...a);
+  client.cancel = async () => {};
+  const sup = new SessionSupervisor(client, { handshakeMs: 50, hardCapMs: 10000, idleMs: 0 });
+  const res = await sup.supervise(async () => {
+    sup.promptStarted();
+    await new Promise((r) => setTimeout(r, 200)); // well past the 50ms handshake deadline
+    return { stopReason: "end_turn" };
+  });
+  assert.deepEqual(res, { stopReason: "end_turn" });
 });
 
 test("opt-in idle guard trips on mid-turn silence when configured", async () => {
