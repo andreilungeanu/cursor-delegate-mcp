@@ -10,12 +10,16 @@ export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
 export const DEFAULT_HEARTBEAT_MS = 30000;
 
-// Malformed values fall back to the default rather than failing the call.
+// Malformed values fall back to the default rather than failing the call. Only a positive
+// value counts: zero used to be taken literally, so CURSOR_DELEGATE_HARD_CAP_MS=0 — or an
+// accidentally blank one, since Number("") is 0 — armed a zero-length deadline that failed
+// every call instantly. Falling back keeps the one documented meaning of 0, the idle guard's,
+// which gets it from its own fallback being 0.
 function envMs(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
   const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function fmtDuration(ms) {

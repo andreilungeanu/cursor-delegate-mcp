@@ -135,8 +135,9 @@ rather than acting on it.
 | Mid-turn idle guard | off | Opt-in; silence during a turn does not settle the session. |
 
 Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
-`CURSOR_DELEGATE_IDLE_MS` (unset or `0` = disabled). Agent process exit is detected directly and
-fails fast regardless of these.
+`CURSOR_DELEGATE_IDLE_MS` (unset or `0` = disabled). On the other two, a non-positive or
+malformed value falls back to the default. Agent process exit is detected directly and fails
+fast regardless of these.
 
 A delegation is still cancellable at any time via the `cancel` tool or a host interrupt.
 

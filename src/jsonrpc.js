@@ -1,6 +1,14 @@
 import readline from "node:readline";
 
 const FRAME_CAP = 2048;
+const DEFAULT_LOG_SIZE = 2000;
+
+function readLogSize(raw) {
+  if (raw === undefined) return DEFAULT_LOG_SIZE;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_LOG_SIZE;
+  return Math.floor(n);
+}
 
 export class JsonRpcPeer {
   constructor(input, output, { onNotification, onRequest, onActivity } = {}) {
@@ -10,8 +18,9 @@ export class JsonRpcPeer {
     this.onActivity = onActivity || (() => {});
     this.nextId = 1;
     this.pending = new Map();
-    const rawSize = process.env.ACP_LOG_SIZE !== undefined ? Number(process.env.ACP_LOG_SIZE) : 2000;
-    this._logSize = rawSize > 0 && !Number.isNaN(rawSize) ? rawSize : 0;
+    // 0 disables recording and is documented; anything unparseable is a typo, and silently
+    // disabling the transcript on a typo is the opposite of what the setter wanted.
+    this._logSize = readLogSize(process.env.ACP_LOG_SIZE);
     this._log = [];
     this.rl = readline.createInterface({ input });
     this.rl.on("line", (line) => this._onLine(line));

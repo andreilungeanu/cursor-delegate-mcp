@@ -152,6 +152,22 @@ test("ACP_LOG_SIZE=0 disables recording", () => {
   }
 });
 
+test("a malformed ACP_LOG_SIZE keeps the default instead of disabling recording", () => {
+  const prev = process.env.ACP_LOG_SIZE;
+  process.env.ACP_LOG_SIZE = "not-a-number";
+  try {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const peer = new JsonRpcPeer(input, output, {});
+    peer.notify("ping", {});
+    assert.equal(peer.getLog().length, 1, "a typo must not silently turn the transcript off");
+    peer.close();
+  } finally {
+    if (prev === undefined) delete process.env.ACP_LOG_SIZE;
+    else process.env.ACP_LOG_SIZE = prev;
+  }
+});
+
 test("per-frame size is capped at FRAME_CAP", () => {
   const input = new PassThrough();
   const output = new PassThrough();

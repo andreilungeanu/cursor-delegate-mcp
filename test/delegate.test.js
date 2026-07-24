@@ -1796,3 +1796,17 @@ test("replayed session/load frames do not leak into the result or touched files"
   assert.equal(out.filesReportedByEditTools, undefined, "replayed diff frames must not surface as this turn's edits");
   assert.equal(out.resumed, true);
 });
+
+test("a non-positive hard cap falls back to the default instead of firing instantly", async () => {
+  // Number("") is 0, so a blank env var used to arm a zero-length deadline that failed every
+  // call before the agent could answer. Only the idle guard gives 0 a meaning of its own.
+  const prev = process.env.CURSOR_DELEGATE_HARD_CAP_MS;
+  process.env.CURSOR_DELEGATE_HARD_CAP_MS = "0";
+  try {
+    const out = await runDelegate({ spec: "hi", clientFactory: thinkingFactory(), heartbeatMs: 0 });
+    assert.equal(out.result, "done");
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_HARD_CAP_MS;
+    else process.env.CURSOR_DELEGATE_HARD_CAP_MS = prev;
+  }
+});
