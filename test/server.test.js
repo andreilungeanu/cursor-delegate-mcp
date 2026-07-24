@@ -44,7 +44,6 @@ test("a finished delegation does not evict a concurrent one holding the same ses
 
 test("runDelegateTool cleans up inFlight and returns isError when runDelegate throws", async () => {
   const inFlight = new Map();
-  const server = { server: {} };
   const runDelegate = async ({ onSessionReady }) => {
     onSessionReady("sess-x", { cancel: async () => {} });
     throw new Error("boom");
@@ -52,7 +51,6 @@ test("runDelegateTool cleans up inFlight and returns isError when runDelegate th
 
   const result = await runDelegateTool({
     args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server,
     runDelegate,
     inFlight,
   });
@@ -70,7 +68,6 @@ test("runDelegateTool tags a failure with its reason so callers need not parse p
   };
   const result = await runDelegateTool({
     args: { spec: "test", mode: "agent", model: "composer-2.5" },
-    server: { server: {} },
     runDelegate,
     inFlight: new Map(),
   });
@@ -80,7 +77,6 @@ test("runDelegateTool tags a failure with its reason so callers need not parse p
 
 test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-default value)', async () => {
   const inFlight = new Map();
-  const server = { server: {} };
   let capturedArgs;
   const runDelegate = async (args) => {
     capturedArgs = args;
@@ -89,7 +85,6 @@ test('runDelegateTool passes fast through to runDelegate unchanged (post-zod-def
 
   await runDelegateTool({
     args: { spec: "test", mode: "agent", model: "composer-2.5", fast: false },
-    server,
     runDelegate,
     inFlight,
   });
@@ -217,7 +212,6 @@ test("server advertises instructions, output schemas, and conservative tool anno
 
 test("runDelegateTool sends progress notifications when progressToken is set", async () => {
   const inFlight = new Map();
-  const server = { server: {} };
   const notifications = [];
   const extra = {
     _meta: { progressToken: "tok-1" },
@@ -232,7 +226,6 @@ test("runDelegateTool sends progress notifications when progressToken is set", a
   const result = await runDelegateTool({
     args: { spec: "test", mode: "agent", model: "composer-2.5" },
     extra,
-    server,
     runDelegate,
     inFlight,
   });
@@ -250,7 +243,6 @@ test("runDelegateTool sends progress notifications when progressToken is set", a
 
 test("runDelegateTool skips progress notifications when progressToken is absent", async () => {
   const inFlight = new Map();
-  const server = { server: {} };
   let notifyCalls = 0;
   const extra = { sendNotification: () => { notifyCalls++; } };
   const runDelegate = async ({ onProgress, onSessionReady }) => {
@@ -262,7 +254,6 @@ test("runDelegateTool skips progress notifications when progressToken is absent"
   const result = await runDelegateTool({
     args: { spec: "test", mode: "agent", model: "composer-2.5" },
     extra,
-    server,
     runDelegate,
     inFlight,
   });
@@ -274,7 +265,6 @@ test("runDelegateTool skips progress notifications when progressToken is absent"
 
 test("runDelegateTool survives sendNotification failures", async () => {
   const inFlight = new Map();
-  const server = { server: {} };
   const extra = {
     _meta: { progressToken: "tok-1" },
     sendNotification: () => { throw new Error("notify failed"); },
@@ -288,7 +278,6 @@ test("runDelegateTool survives sendNotification failures", async () => {
   const result = await runDelegateTool({
     args: { spec: "test", mode: "agent", model: "composer-2.5" },
     extra,
-    server,
     runDelegate,
     inFlight,
   });

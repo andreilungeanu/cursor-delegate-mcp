@@ -190,6 +190,17 @@ function servedModelFrom(res) {
   return typeof m?.currentValue === "string" ? m.currentValue : undefined;
 }
 
+/**
+ * @param {{
+ *   spec?: string, mode?: string, resumeSessionId?: string, workspace?: string,
+ *   model?: string, fast?: boolean, reasoning?: string, context?: string,
+ *   contextFiles?: string[], clientFactory?: (opts: any) => any,
+ *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
+ *   onSessionReady?: (sessionId: string, client: any) => void,
+ *   onProgress?: (message: string) => void,
+ *   progressThrottleMs?: number, heartbeatMs?: number, signal?: AbortSignal,
+ * }} [opts]
+ */
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, reasoning, context, contextFiles, clientFactory,

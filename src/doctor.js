@@ -85,6 +85,18 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
   }
 }
 
+/**
+ * @param {{
+ *   getClientInfo?: () => { capabilities?: any, version?: any },
+ *   deep?: boolean,
+ *   spawnSpec?: { command: string, args: string[], options?: object },
+ *   clientFactory?: (opts: any) => any,
+ *   workspace?: string,
+ *   handshakeTimeoutMs?: number,
+ *   versionTimeoutMs?: number,
+ *   readVersion?: () => string,
+ * }} [opts]
+ */
 export async function runDoctor({
   getClientInfo = () => ({ capabilities: {}, version: {} }),
   deep = false,
@@ -98,6 +110,7 @@ export async function runDoctor({
   const { capabilities, version } = getClientInfo();
   const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs);
 
+  /** @type {{ plugin: any, client: any, agent: any & { handshake?: any }, runtime: any, env: any }} */
   const out = {
     plugin: { version: readVersion() },
     client: {

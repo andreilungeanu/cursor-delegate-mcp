@@ -11,6 +11,14 @@ import { makeError } from "./errors.js";
 const STDERR_CAP = 64 * 1024;
 
 export class AcpClient extends EventEmitter {
+  /**
+   * @param {{
+   *   spawnSpec?: { command: string, args: string[], options?: object },
+   *   mode?: string,
+   *   onCreatePlan?: (body: any) => void,
+   *   onTodos?: (body: any) => void,
+   * }} [opts]
+   */
   constructor({ spawnSpec, mode, onCreatePlan, onTodos } = {}) {
     super();
     this.spawnSpec = spawnSpec || resolveAcpSpawn();
@@ -72,7 +80,7 @@ export class AcpClient extends EventEmitter {
     this.router = null; // set before first stdout line
     this.peer = new JsonRpcPeer(this.child.stdout, this.child.stdin, {
       onNotification: (method, params) => { if (method === "session/update") this.emit("update", params); },
-      onRequest: (id, method, params) => this.router && this.router(id, method, params),
+      onRequest: (id, method, params) => { if (this.router) this.router(id, method, params); },
       onActivity: () => this.emit("activity"),
     });
     this.router = createRequestRouter({
@@ -83,7 +91,7 @@ export class AcpClient extends EventEmitter {
       mode: this.mode,
       log: (e) => this.emit("ack", e),
     });
-    return new Promise((resolve, reject) => {
+    return /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       this.child.once("error", (e) => {
         // Tagged like every other failure class so the caller gets
         // "delegate failed [spawn-failed]: ..." instead of the one untagged prose error.
@@ -91,7 +99,7 @@ export class AcpClient extends EventEmitter {
         reject(err);
       });
       this.child.once("spawn", () => resolve());
-    });
+    }));
   }
 
   // Stashed so the unknown-model pre-flight and doctor --deep can read the agent's real

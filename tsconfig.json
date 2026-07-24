@@ -1,0 +1,24 @@
+{
+  "// ": [
+    "Type checking only: no build step, no emit. The package ships the .js in src as-is.",
+    "strict is off for now: the high-value findings here are misspelled properties, wrong arity",
+    "and impossible comparisons, none of which need parameter annotations. Tighten once clean."
+  ],
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "strict": false,
+    "noImplicitAny": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

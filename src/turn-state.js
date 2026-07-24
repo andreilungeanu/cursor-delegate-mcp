@@ -24,6 +24,11 @@ const isTerminalToolStatus = (status) =>
 // Capital-letter boundary: cursor-agent thoughts arrive as sentences with no separator.
 const SENTENCE_END = /[.!?](?=\s|[A-Z])|\n/;
 const MARKDOWN_LINE = /^(?:[|#>`~*_=+-]|\d+[.)]\s)/;
+/**
+ * @param {string} prefix
+ * @param {((message: string) => void) | undefined} onProgress
+ * @param {number} throttleMs
+ */
 function progressStream(prefix, onProgress, throttleMs) {
   let buf = "", pending = null, lastEmit = 0;
   const flush = (force) => {
@@ -79,6 +84,9 @@ function freshFields() {
   };
 }
 
+/**
+ * @param {{ onProgress?: (message: string) => void, progressThrottleMs?: number }} [opts]
+ */
 export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
   const state = {
     ...freshFields(),

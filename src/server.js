@@ -129,10 +129,20 @@ export const delegateInputSchema = z.object({
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace, and paths outside it are allowed — attach only files the agent should read. Anything skipped is reported in protocolWarnings, never fatal."),
 });
 
-export async function runDelegateTool({ args, extra, server, runDelegate, inFlight, seenSessions = new Set() }) {
+/**
+ * @param {{
+ *   args: any, extra?: any,
+ *   runDelegate: (opts: any) => Promise<any>,
+ *   inFlight: Map<string, Set<any>>,
+ *   seenSessions?: Set<string>,
+ * }} deps
+ * @returns {Promise<import("@modelcontextprotocol/sdk/types.js").CallToolResult>}
+ */
+export async function runDelegateTool({ args, extra, runDelegate, inFlight, seenSessions = new Set() }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles } = args;
 
   const progressToken = extra?._meta?.progressToken;
+  /** @type {(message: string) => void} */
   let onProgress = () => {};
   if (progressToken != null) {
     let progress = 0;
@@ -192,6 +202,13 @@ export async function runDelegateTool({ args, extra, server, runDelegate, inFlig
   }
 }
 
+/**
+ * @param {{
+ *   runDelegate?: (opts: any) => Promise<any>,
+ *   runDoctor?: (opts: any) => Promise<any>,
+ *   forceGraceMs?: number,
+ * }} [opts]
+ */
 export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000 } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
@@ -215,7 +232,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: true,
       },
     },
-    async (args, extra) => runDelegateTool({ args, extra, server, runDelegate, inFlight, seenSessions })
+    async (args, extra) => runDelegateTool({ args, extra, runDelegate, inFlight, seenSessions })
   );
 
   server.registerTool(

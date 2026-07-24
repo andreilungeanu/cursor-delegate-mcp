@@ -11,6 +11,15 @@ function readLogSize(raw) {
 }
 
 export class JsonRpcPeer {
+  /**
+   * @param {import("node:stream").Readable} input
+   * @param {import("node:stream").Writable} output
+   * @param {{
+   *   onNotification?: (method: string, params: any) => void,
+   *   onRequest?: (id: any, method: string, params: any) => void,
+   *   onActivity?: () => void,
+   * }} handlers
+   */
   constructor(input, output, { onNotification, onRequest, onActivity } = {}) {
     this.output = output;
     this.onNotification = onNotification || (() => {});
@@ -66,6 +75,7 @@ export class JsonRpcPeer {
         // cursor-agent puts the actual reason in error.data.message; error.message alone
         // is a bare "Invalid params".
         if (msg.error) {
+          /** @type {import("./errors.js").DelegateError} */
           const err = new Error([msg.error.message || "rpc error", msg.error.data?.message].filter(Boolean).join(": "));
           err.code = msg.error.code;
           p.reject(err);

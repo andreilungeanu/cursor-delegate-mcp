@@ -1,5 +1,15 @@
 const ACK_METHODS = new Set(["cursor/task", "cursor/generate_image"]);
 
+/**
+ * @param {{
+ *   respond: (id: any, result: any) => void,
+ *   respondError: (id: any, code: number, message: string) => void,
+ *   onCreatePlan?: (body: any) => void,
+ *   onTodos?: (body: any) => void,
+ *   mode?: string,
+ *   log?: (entry: any) => void,
+ * }} deps
+ */
 export function createRequestRouter({ respond, respondError, onCreatePlan, onTodos, mode = "agent", log = () => {} }) {
   return async function handle(id, method, params) {
     try {

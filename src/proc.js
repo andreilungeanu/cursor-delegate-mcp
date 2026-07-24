@@ -9,9 +9,9 @@ export function isChildAlive(child) {
 // taskkill /T takes the whole tree so the agent itself dies too.
 export async function treeKill(pid) {
   if (process.platform === "win32") {
-    await new Promise((resolve) => {
+    await /** @type {Promise<void>} */ (new Promise((resolve) => {
       execFile("taskkill", ["/PID", String(pid), "/T", "/F"], () => resolve());
-    });
+    }));
     return;
   }
   try { process.kill(pid, "SIGKILL"); } catch {}
