@@ -1,7 +1,11 @@
 import process from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
+// Reads happen on the server's only thread, where a synchronous one stalls every other
+// delegation in flight and the progress notifications they are streaming. The stats stay
+// synchronous: they are argument validation, and they run before the spawn.
+import { readFile } from "node:fs/promises";
 import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
@@ -47,7 +51,7 @@ function looksLikeSpecPath(spec) {
 }
 const isBareSpecPath = (spec) => !/\s/.test(spec.trim());
 
-function resolveSpec(spec) {
+async function resolveSpec(spec) {
   if (typeof spec !== "string") return spec;
   // A blank spec spins up a live session that only replies "No prompt content provided" —
   // a billed turn for nothing. Reject it here, before the spawn, like the other bad specs.
@@ -68,7 +72,7 @@ function resolveSpec(spec) {
     err.reason = "invalid-spec";
     throw err;
   }
-  if (stat.isFile()) return readFileSync(spec, "utf8");
+  if (stat.isFile()) return readFile(spec, "utf8");
   if (isBareSpecPath(spec)) {
     const err = new Error(`spec looks like a file path but ${spec} is not a file. Pass the brief inline, or point at a file.`);
     err.reason = "invalid-spec";
@@ -112,7 +116,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 //     not support without any error (embeddedContext:false raises nothing), so an ungated
 //     image would silently vanish;
 //   - report anything skipped, since a dropped attachment is otherwise invisible.
-function buildContextBlocks(contextFiles, workspace, client, warnings) {
+async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   const blocks = [];
   // A glob plus an explicit path (or the same file named a few ways) resolves to one file;
   // sending it several times just wastes prompt space. Collapse by resolved absolute path.
@@ -143,7 +147,7 @@ function buildContextBlocks(contextFiles, workspace, client, warnings) {
         warnings.push(`contextFile ${entry} skipped: ${Math.round(stat.size / 1024)}KB exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024}MB image limit`);
         continue;
       }
-      blocks.push({ type: "image", mimeType, data: readFileSync(abs).toString("base64") });
+      blocks.push({ type: "image", mimeType, data: (await readFile(abs)).toString("base64") });
       continue;
     }
     blocks.push({ type: "resource_link", uri: pathToFileURL(abs).href, name: path.basename(abs) });
@@ -221,7 +225,7 @@ export async function runDelegate({
   // Before the spawn: a bad path is the caller's to fix, and finding out costs a process,
   // a handshake and a billed turn if it waits until the prompt is assembled.
   assertWorkspace(workspace);
-  const promptText = resolveSpec(spec);
+  const promptText = await resolveSpec(spec);
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
