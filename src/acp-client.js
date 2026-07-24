@@ -6,6 +6,7 @@ import { createRequestRouter } from "./request-router.js";
 import { resolveAcpSpawn } from "./spawn.js";
 import { isChildAlive, treeKill } from "./proc.js";
 import { VERSION } from "./version.js";
+import { makeError } from "./errors.js";
 
 const STDERR_CAP = 64 * 1024;
 
@@ -58,10 +59,10 @@ export class AcpClient extends EventEmitter {
       if (this._exitEmitted) return;
       this._exitEmitted = true;
       const stderr = this.stderrBuffer;
-      const err = new Error(
+      const err = makeError(
+        "agent-exit",
         `agent exited (code=${code}${signal ? ", signal=" + signal : ""})${stderr ? ": " + String(stderr).slice(-2000) : ""}`
       );
-      err.reason = "agent-exit";
       // exit + rejectAllPending both settle the same Promise.race; second rejection is intentional.
       this.peer?.rejectAllPending(err);
       this.emit("exit", { code, signal, stderr });
@@ -86,8 +87,7 @@ export class AcpClient extends EventEmitter {
       this.child.once("error", (e) => {
         // Tagged like every other failure class so the caller gets
         // "delegate failed [spawn-failed]: ..." instead of the one untagged prose error.
-        const err = new Error(`Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'cursor-agent login'.`);
-        err.reason = "spawn-failed";
+        const err = makeError("spawn-failed", `Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'cursor-agent login'.`);
         reject(err);
       });
       this.child.once("spawn", () => resolve());

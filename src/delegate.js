@@ -10,6 +10,7 @@ import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 import { makeTurnState } from "./turn-state.js";
+import { makeError } from "./errors.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
@@ -48,9 +49,7 @@ async function resolveSpec(spec) {
   // A blank spec spins up a live session that only replies "No prompt content provided" —
   // a billed turn for nothing. Reject it here, before the spawn, like the other bad specs.
   if (spec.trim() === "") {
-    const err = new Error("spec is empty. Provide a task brief inline, or a path to one.");
-    err.reason = "invalid-spec";
-    throw err;
+    throw makeError("invalid-spec", "spec is empty. Provide a task brief inline, or a path to one.");
   }
   if (!looksLikeSpecPath(spec)) return spec;
   let stat;
@@ -60,15 +59,11 @@ async function resolveSpec(spec) {
     // Only a bare path was unambiguously meant as one. Anything else is prose that happens
     // to name a file, and prose is the common case.
     if (!isBareSpecPath(spec)) return spec;
-    const err = new Error(`spec looks like a file path but nothing exists at ${spec}. Pass the brief inline, or fix the path.`);
-    err.reason = "invalid-spec";
-    throw err;
+    throw makeError("invalid-spec", `spec looks like a file path but nothing exists at ${spec}. Pass the brief inline, or fix the path.`);
   }
   if (stat.isFile()) return readFile(spec, "utf8");
   if (isBareSpecPath(spec)) {
-    const err = new Error(`spec looks like a file path but ${spec} is not a file. Pass the brief inline, or point at a file.`);
-    err.reason = "invalid-spec";
-    throw err;
+    throw makeError("invalid-spec", `spec looks like a file path but ${spec} is not a file. Pass the brief inline, or point at a file.`);
   }
   return spec;
 }
@@ -82,14 +77,10 @@ function assertWorkspace(workspace) {
   try {
     stat = statSync(workspace);
   } catch {
-    const err = new Error(`workspace ${workspace} does not exist. Create it first, or point at an existing directory.`);
-    err.reason = "invalid-workspace";
-    throw err;
+    throw makeError("invalid-workspace", `workspace ${workspace} does not exist. Create it first, or point at an existing directory.`);
   }
   if (!stat.isDirectory()) {
-    const err = new Error(`workspace ${workspace} is not a directory.`);
-    err.reason = "invalid-workspace";
-    throw err;
+    throw makeError("invalid-workspace", `workspace ${workspace} is not a directory.`);
   }
 }
 
@@ -168,9 +159,7 @@ function assertKnownModel(client, model) {
   if (!Array.isArray(available) || available.length === 0) return;
   const ids = available.map((m) => m?.modelId).filter((id) => typeof id === "string");
   if (ids.length === 0 || ids.includes(model)) return;
-  const err = new Error(`Unknown model ${JSON.stringify(model)}. This agent offers: ${ids.join(", ")}.`);
-  err.reason = "unknown-model";
-  throw err;
+  throw makeError("unknown-model", `Unknown model ${JSON.stringify(model)}. This agent offers: ${ids.join(", ")}.`);
 }
 
 // Which config options a model carries is not discoverable up front: session/new reports
@@ -210,9 +199,7 @@ export async function runDelegate({
   signal,
 } = {}) {
   if (signal?.aborted) {
-    const err = new Error("delegation aborted by MCP host");
-    err.reason = "aborted";
-    throw err;
+    throw makeError("aborted", "delegation aborted by MCP host");
   }
   // Before the spawn: a bad path is the caller's to fix, and finding out costs a process,
   // a handshake and a billed turn if it waits until the prompt is assembled.

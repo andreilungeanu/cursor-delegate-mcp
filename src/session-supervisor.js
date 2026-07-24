@@ -1,8 +1,4 @@
-function makeError(reason, message) {
-  const err = new Error(message);
-  err.reason = reason;
-  return err;
-}
+import { makeError } from "./errors.js";
 
 export class SessionSupervisor {
   constructor(client, {
