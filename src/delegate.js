@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
+import { makeTurnState } from "./turn-state.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
@@ -29,15 +30,6 @@ function envMs(name, fallback) {
 function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
-}
-
-// Cutting a UTF-16 string at an arbitrary index can split a surrogate pair and leave a lone
-// half-character — ill-formed Unicode that strict JSON consumers reject or mangle. Step back
-// one unit when the boundary would land inside a pair.
-function cutAtCodePoint(s, n) {
-  if (n >= s.length) return s;
-  const cu = s.charCodeAt(n - 1);
-  return s.slice(0, cu >= 0xd800 && cu <= 0xdbff ? n - 1 : n);
 }
 
 // Two different questions, and conflating them is what made a typo'd brief cost a live turn.
@@ -229,39 +221,7 @@ export async function runDelegate({
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
-  const MAX_OUTPUT = 10 * 1024 * 1024;
-  const TRUNCATION_MARKER = "\n\n[output truncated at 10MB]";
-  // merge:false replaces the list, merge:true upserts by id. Entries always arrive complete,
-  // so a keyed set is enough — no field-level merging.
-  let todos = new Map();
-  let sawTodoFrame = false;
-  const todoLabel = () => {
-    const entries = [...todos.values()].filter((t) => typeof t?.content === "string");
-    if (!entries.length) return null;
-    const i = entries.findIndex((t) => t.status === "in_progress");
-    if (i !== -1) return `todo ${i + 1}/${entries.length}: ${entries[i].content}`;
-    const done = entries.filter((t) => t.status === "completed").length;
-    return `todos ${done}/${entries.length} complete`;
-  };
-  const recordTodos = ({ todos: incoming, merge }) => {
-    if (!Array.isArray(incoming)) return;
-    sawTodoFrame = true;
-    if (merge === false) todos = new Map();
-    for (const t of incoming) {
-      if (t?.id === undefined || t?.id === null) continue;
-      todos.set(String(t.id), t);
-    }
-    const label = todoLabel();
-    if (label) { try { onProgress?.(label.slice(0, 200)); } catch {} }
-  };
-
-  let planEntries = [];
-  let planOverview;
-  let planDetail;
-  const recordCreatePlan = (body) => {
-    if (body?.overview !== undefined) planOverview = body.overview;
-    if (body?.plan !== undefined) planDetail = body.plan;
-  };
+  const state = makeTurnState({ onProgress, progressThrottleMs });
 
   // ACP requires plan entry content to be a string and bounds priority/status to
   // known values. Frames that violate that must not fail the MCP call after the
@@ -270,7 +230,7 @@ export async function runDelegate({
   const PLAN_STATUSES = ["pending", "in_progress", "completed"];
   const sanitizePlan = (warnings) => {
     const entries = [];
-    planEntries.forEach((raw, i) => {
+    state.planEntries.forEach((raw, i) => {
       if (typeof raw?.content !== "string") {
         warnings.push(`plan entry ${i} dropped: ACP requires string content, got ${raw === null ? "null" : typeof raw?.content}`);
         return;
@@ -287,12 +247,12 @@ export async function runDelegate({
       entries.push(entry);
     });
     const plan = { entries };
-    if (planOverview !== undefined) {
-      if (typeof planOverview === "string") plan.overview = planOverview;
+    if (state.planOverview !== undefined) {
+      if (typeof state.planOverview === "string") plan.overview = state.planOverview;
       else warnings.push("plan overview dropped: expected string");
     }
-    if (planDetail !== undefined) {
-      if (typeof planDetail === "string") plan.detail = planDetail;
+    if (state.planDetail !== undefined) {
+      if (typeof state.planDetail === "string") plan.detail = state.planDetail;
       else warnings.push("plan detail dropped: expected string");
     }
     return plan;
@@ -302,7 +262,7 @@ export async function runDelegate({
   const sanitizeTodos = (warnings) => {
     const entries = [];
     let i = -1;
-    for (const raw of todos.values()) {
+    for (const raw of state.todos.values()) {
       i++;
       if (typeof raw?.content !== "string") {
         warnings.push(`todo ${i} dropped: expected string content, got ${raw === null ? "null" : typeof raw?.content}`);
@@ -327,113 +287,13 @@ export async function runDelegate({
   };
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
-  const client = make({ mode, onCreatePlan: recordCreatePlan, onTodos: recordTodos });
+  const client = make({ mode, onCreatePlan: state.recordCreatePlan, onTodos: state.recordTodos });
   const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
 
-  const resultChunks = [];
-  let resultLength = 0;
-  let truncated = false;
-  let sawToolCall = false;
-  let collectingPostToolResult = false;
-  const activeToolCalls = new Set();
-  const touched = new Set();
-
-  // Text superseded by a later tool call is normally a preamble ("Inspecting the
-  // implementation.") and returning it would be inventing a summary. But the rule cannot
-  // tell a preamble from the whole answer: an agent that replies and then runs one more
-  // command has its entire reply discarded, and the caller gets "" with stopReason end_turn
-  // and no error. So keep the last discarded segment and hand it back only when nothing
-  // survived — labelled, never blended with a real final message.
-  let discardedResult = "";
-  const resetResult = () => {
-    if (resultLength > 0) discardedResult = resultChunks.join("");
-    resultChunks.length = 0;
-    resultLength = 0;
-    truncated = false;
-  };
-  const appendResult = (text) => {
-    if (truncated) return;
-    const remaining = MAX_OUTPUT - resultLength;
-    if (text.length <= remaining) {
-      resultChunks.push(text);
-      resultLength += text.length;
-    } else if (remaining > 0) {
-      const cut = cutAtCodePoint(text, remaining);
-      resultChunks.push(cut);
-      resultLength += cut.length;
-      truncated = true;
-    } else {
-      truncated = true;
-    }
-  };
-  const isTerminalToolStatus = (status) =>
-    status === "completed" || status === "failed" || status === "cancelled";
-  const startTool = (toolCallId, status) => {
-    sawToolCall = true;
-    collectingPostToolResult = false;
-    resetResult();
-    if (toolCallId != null && !isTerminalToolStatus(status)) activeToolCalls.add(toolCallId);
-    if (isTerminalToolStatus(status) && activeToolCalls.size === 0) collectingPostToolResult = true;
-  };
-  const updateToolStatus = (toolCallId, status) => {
-    if (!status) return;
-    if (!sawToolCall) {
-      sawToolCall = true;
-      resetResult();
-    }
-    if (isTerminalToolStatus(status)) {
-      if (toolCallId != null) activeToolCalls.delete(toolCallId);
-      if (activeToolCalls.size === 0 && !collectingPostToolResult) {
-        // Discard any message text emitted while tools were still running.
-        // A duplicate or late terminal update must not wipe an already-collected final message.
-        resetResult();
-        collectingPostToolResult = true;
-      }
-    } else {
-      collectingPostToolResult = false;
-      resetResult();
-      if (toolCallId != null) activeToolCalls.add(toolCallId);
-    }
-  };
-
-  // Each stream reports its newest complete sentence, at most one per throttle window.
-  // Capital-letter boundary: cursor-agent thoughts arrive as sentences with no separator.
-  const SENTENCE_END = /[.!?](?=\s|[A-Z])|\n/;
-  const MARKDOWN_LINE = /^(?:[|#>`~*_=+-]|\d+[.)]\s)/;
-  const progressStream = (prefix) => {
-    let buf = "", pending = null, lastEmit = 0;
-    const flush = (force) => {
-      if (pending === null || (!force && Date.now() - lastEmit < progressThrottleMs)) return;
-      lastEmit = Date.now();
-      try { onProgress?.(prefix + pending); } catch {}
-      pending = null;
-    };
-    const take = (s) => {
-      const line = s.replace(/\s+/g, " ").trim().slice(0, 200);
-      if (line.length > 3 && !MARKDOWN_LINE.test(line)) pending = line;
-      flush(false);
-    };
-    return {
-      push(text) {
-        buf += text;
-        for (let m; (m = SENTENCE_END.exec(buf)); buf = buf.slice(m.index + 1)) {
-          take(buf.slice(0, m.index + 1));
-        }
-        if (buf.length > 300) { take(buf); buf = ""; }
-      },
-      end() { take(buf); buf = ""; flush(true); },
-      reset() { buf = ""; pending = null; },
-    };
-  };
-  const thoughtProgress = progressStream("thinking: ");
-  const messageProgress = progressStream("Cursor: ");
-
   // The bridge cannot see inside a running shell command, so a long silence is reported
   // rather than acted on: the caller gets elapsed time and frame age and can decide.
-  let lastToolLabel = null;
-  let sessionTitle;
   let promptInFlight = false;
   let heartbeat = null;
   const startHeartbeat = () => {
@@ -444,9 +304,9 @@ export async function runDelegate({
         `still working — ${fmtDuration(Date.now() - startedAt)} elapsed`,
         `last agent frame ${fmtDuration(supervisor.msSinceActivity())} ago`,
       ];
-      const todo = todoLabel();
+      const todo = state.todoLabel();
       if (todo) parts.push(todo);
-      if (lastToolLabel) parts.push(`running: ${lastToolLabel}`);
+      if (state.lastToolLabel) parts.push(`running: ${state.lastToolLabel}`);
       try { onProgress?.(parts.join(", ").slice(0, 200)); } catch {}
     }, heartbeatMs);
     heartbeat.unref?.();
@@ -460,36 +320,36 @@ export async function runDelegate({
     if (!promptInFlight) return;
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
-      planEntries = up.entries || [];
+      state.planEntries = up.entries || [];
     }
     // The agent names the turn a beat after the prompt lands ("File Creator"). Useful as an
     // ephemeral label while several delegations run, and in timeout forensics — but not in
     // the result, where it arrives after there is nothing left to tell apart and has been
     // measured contradicting the answer ("No Image Detected" on a turn describing an image).
     if (up.sessionUpdate === "session_info_update" && typeof up.title === "string" && up.title) {
-      if (up.title !== sessionTitle) { try { onProgress?.(`turn titled: ${up.title}`.slice(0, 200)); } catch {} }
-      sessionTitle = up.title;
+      if (up.title !== state.sessionTitle) { try { onProgress?.(`turn titled: ${up.title}`.slice(0, 200)); } catch {} }
+      state.sessionTitle = up.title;
     }
     if (up.sessionUpdate === "agent_thought_chunk" && up.content?.text) {
-      thoughtProgress.push(up.content.text);
+      state.thoughts.push(up.content.text);
     }
     if (up.sessionUpdate === "tool_call") {
-      startTool(up.toolCallId, up.status);
+      state.startTool(up.toolCallId, up.status);
       const label = up.title || up.kind || "tool";
       const path = up.locations?.[0]?.path;
-      lastToolLabel = String(label) + (path ? " — " + path : "");
-      try { onProgress?.(("running: " + lastToolLabel).slice(0, 200)); } catch {}
+      state.lastToolLabel = String(label) + (path ? " — " + path : "");
+      try { onProgress?.(("running: " + state.lastToolLabel).slice(0, 200)); } catch {}
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
       const text = up.content.text;
-      if (!sawToolCall || (collectingPostToolResult && activeToolCalls.size === 0)) appendResult(text);
-      messageProgress.push(text);
+      if (state.collectingResult()) state.appendResult(text);
+      state.messages.push(text);
     }
     if (up.sessionUpdate === "tool_call_update") {
-      updateToolStatus(up.toolCallId, up.status);
+      state.updateToolStatus(up.toolCallId, up.status);
       for (const c of up.content || []) {
         if (c.type === "diff" && c.path) {
-          touched.add(c.path);
+          state.touched.add(c.path);
           try { onProgress?.("editing " + c.path); } catch {}
         }
       }
@@ -525,21 +385,8 @@ export async function runDelegate({
         else servedModel = servedModelFrom(r.res) ?? servedModel;
       }
       await client.setMode(sessionId, mode);
-      resetResult();
-      sawToolCall = false;
-      collectingPostToolResult = false;
-      activeToolCalls.clear();
-      thoughtProgress.reset();
-      messageProgress.reset();
-      planEntries = [];
-      planOverview = undefined;
-      planDetail = undefined;
-      todos = new Map();
-      sawTodoFrame = false;
-      discardedResult = "";
-      touched.clear();
-      lastToolLabel = null;
-      sessionTitle = undefined;
+      // Everything a session/load replay may have written belongs to the previous turn.
+      state.reset();
       supervisor.promptStarted();
       startHeartbeat();
       promptInFlight = true;
@@ -553,13 +400,12 @@ export async function runDelegate({
         promptInFlight = false;
       }
     });
-    thoughtProgress.end();
-    messageProgress.end();
-    let result = resultChunks.join("");
-    if (truncated) result += TRUNCATION_MARKER;
+    state.thoughts.end();
+    state.messages.end();
+    let result = state.text();
     const finalMessageAvailable = result.length > 0;
     let resultSource = finalMessageAvailable
-      ? (sawToolCall ? "post-tool" : "tool-free-stream")
+      ? (state.sawToolCall ? "post-tool" : "tool-free-stream")
       : "none";
     const protocolWarnings = [];
     // plan.detail is the model restating — into chat's sibling channel — a plan it also filed via
@@ -568,9 +414,9 @@ export async function runDelegate({
     // from result + plan.entries. So in plan/ask drop the detail and let result be the agent's own
     // message verbatim — no bridge-side guess at whether that message "is really the plan". In
     // agent mode the plan was accepted and result is the implementation report — both stay.
-    const dropPlanDetail = typeof planDetail === "string" && (mode === "plan" || mode === "ask");
-    if (!finalMessageAvailable && discardedResult) {
-      result = discardedResult;
+    const dropPlanDetail = typeof state.planDetail === "string" && (mode === "plan" || mode === "ask");
+    if (!finalMessageAvailable && state.discardedResult) {
+      result = state.discardedResult;
       resultSource = "pre-tool-fallback";
       protocolWarnings.push(
         "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
@@ -597,7 +443,7 @@ export async function runDelegate({
     // Like every other collection here, absence means "nothing reported": an empty list on
     // every read-only turn read as a claim that nothing changed, which this field cannot make
     // (shell-driven edits leave no diff event).
-    const filesReported = normalizeAgentReportedFiles([...touched], workspace);
+    const filesReported = normalizeAgentReportedFiles([...state.touched], workspace);
     if (filesReported.length) out.filesReportedByEditTools = filesReported;
     // resultSource is a caveat, not a fact worth stating on every turn: on the happy path
     // (post-tool / tool-free-stream) result is simply the answer, so say nothing. Surface it only
@@ -615,7 +461,7 @@ export async function runDelegate({
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
     protocolWarnings.push(...contextWarnings);
-    if (planEntries.length > 0 || planOverview !== undefined || planDetail !== undefined) {
+    if (state.planEntries.length > 0 || state.planOverview !== undefined || state.planDetail !== undefined) {
       out.plan = sanitizePlan(protocolWarnings);
       // In plan/ask result already carries the agent's own plan message, so the detail here is a
       // duplicate — drop it. entries and overview are structured and unique, and always stay.
@@ -625,7 +471,7 @@ export async function runDelegate({
     // done" rather than "not tracked". Report only what the agent actually sent — and of
     // that, the full list only when it says something todoProgress cannot: which items
     // remain. On a fully-completed turn the list restates the counts entry by entry.
-    if (sawTodoFrame) {
+    if (state.sawTodoFrame) {
       const { todos: todoList, todoProgress } = sanitizeTodos(protocolWarnings);
       out.todoProgress = todoProgress;
       if (todoProgress.completed < todoProgress.total) out.todos = todoList;
@@ -647,15 +493,15 @@ export async function runDelegate({
     const isStall = isTimeout || err?.reason === "handshake-timeout";
     if (isStall || err?.reason === "aborted" || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
-      err.message += `\n\nLast ACP frame ${age} ago${lastToolLabel ? `; last tool call: ${lastToolLabel}` : ""}.`;
-      if (sessionTitle) err.message += ` The agent titled this turn ${JSON.stringify(sessionTitle)}.`;
-      if (sawTodoFrame) {
+      err.message += `\n\nLast ACP frame ${age} ago${state.lastToolLabel ? `; last tool call: ${state.lastToolLabel}` : ""}.`;
+      if (state.sessionTitle) err.message += ` The agent titled this turn ${JSON.stringify(state.sessionTitle)}.`;
+      if (state.sawTodoFrame) {
         const { todoProgress } = sanitizeTodos([]);
-        const current = todoLabel();
+        const current = state.todoLabel();
         err.message += ` ${todoProgress.completed} of ${todoProgress.total} todos completed`
           + `${current ? `; ${current}` : ""}.`;
       }
-      const files = normalizeAgentReportedFiles([...touched], workspace);
+      const files = normalizeAgentReportedFiles([...state.touched], workspace);
       if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
       // Without this the resume hint below reads as "carry on from where you were", when the
       // requested session was never loaded and this turn started from nothing.
