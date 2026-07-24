@@ -27,6 +27,10 @@ export class AcpClient extends EventEmitter {
       this.emit("activity");
     });
     this.child.stderr.on("error", () => {});
+    // A supervisor trip writes session/cancel, which can land after the agent is already gone.
+    // Without a handler that surfaces as an unhandled 'error' event on some platforms, taking
+    // the whole MCP server down with it.
+    this.child.stdin.on("error", () => {});
     const emitExit = (code, signal) => {
       if (this._exitEmitted) return;
       this._exitEmitted = true;
