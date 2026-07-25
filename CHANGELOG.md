@@ -4,7 +4,59 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.14.0] - 2026-07-25
+
+A correctness, performance and tooling pass. `delegate`'s contract is unchanged. `doctor` gains
+`agent.error` and now advertises `agent.command`, `agent.version` and the deep `handshake`, which
+previously reached hosts undeclared.
+
+### Fixed
+
+- `doctor` no longer hangs forever on a launcher that accepts `--version` and never answers.
+  The probe is time-boxed (10s) and reports `agent.error` instead — the deep handshake was
+  already guarded; the shallow probe that runs on every call was not.
+- `cancel` no longer reports a running turn as already ended. Two delegations can share a
+  session id (a resume racing the turn it resumes), and whichever finished first used to
+  deregister the other.
+- A non-positive or malformed `CURSOR_DELEGATE_HARD_CAP_MS` / `CURSOR_DELEGATE_HANDSHAKE_MS`
+  falls back to its default instead of arming a zero-length deadline that failed every call
+  instantly. `0` still disables the idle guard, the one knob where it is documented to.
+- A malformed `ACP_LOG_SIZE` keeps the 2000-frame default rather than silently disabling the
+  transcript. Explicit `0` still disables it.
+- A permission request carrying no options is answered `cancelled` rather than with a
+  selection that names no option.
+- ACP frames arriving after the prompt settles no longer fold into a result that is still
+  being assembled.
+- A JSON-RPC reply whose `id` echoes back as a string now resolves its request instead of
+  leaving it pending until a timeout.
+- Agent stderr is decoded incrementally, so a multi-byte character split across pipe reads no
+  longer reaches the error message as a replacement character.
+- Writes to the agent's stdin after the process is gone can no longer surface as an unhandled
+  error event.
+
+### Performance
+
+- The ACP frame log is trimmed in batches instead of shifting a 2000-entry array on every
+  frame: 100k inbound frames went from 588ms to 84ms, against a 71ms no-logging floor.
+- Agent stderr is accumulated in chunks rather than rebuilding a 64KB string per write.
+- The spec and context files are read asynchronously, so a large brief or an inline image no
+  longer blocks concurrent delegations and their progress notifications.
+
+### Internal
+
+- Turn state moved into `src/turn-state.js` behind a single `reset()`, replacing a
+  hand-maintained block that cleared thirteen variables before each prompt — a field added
+  without a matching line there leaked the previous turn's data into a resumed result.
+- Every tagged failure is raised through one shared `makeError`.
+- Plan and todo enums have a single source (`src/acp-enums.js`) instead of four hand-synced
+  copies across the sanitizers and the zod schemas.
+- The advertised output schemas are exported as shapes so tests parse every `delegate` and
+  `doctor` result against a `.strict()` copy: the production schemas are passthrough, so a
+  field added to a result but not to its schema would otherwise never reach hosts and no test
+  would fail. `doctor` had drifted that way — it declared only `agent.found`, leaving
+  `command`, `version`, `error` and the deep `handshake` undeclared.
+- Type checking with `tsc --checkJs`, plus CI gates for types, a coverage floor and
+  `npm audit`. The lockfile moved to clear a high-severity `fast-uri` advisory.
 
 ## [1.13.0] - 2026-07-24
 
