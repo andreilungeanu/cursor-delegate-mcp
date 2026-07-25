@@ -28,6 +28,24 @@ jobs:
       - run: npm pack --dry-run
       - run: npm run test:pack
 
+  # Platform-independent gates, so once is enough rather than once per matrix leg.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Coverage floor
+        run: >
+          node --test --experimental-test-coverage --test-coverage-include='src/**'
+          --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=90
+          test/*.test.js
+      - run: npm audit --omit=dev --audit-level=high
+
   # The lockfile resolves a newer SDK; make sure the declared minimum keeps working.
   min-deps:
     runs-on: ubuntu-latest
