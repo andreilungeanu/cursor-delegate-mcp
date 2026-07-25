@@ -104,14 +104,43 @@ export const delegateOutputShape = {
 
 const delegateOutputSchema = z.object(delegateOutputShape).passthrough();
 
-const doctorOutputSchema = z.object({
+// What doctor reports about the launcher. Only `found` was advertised before, so `command`,
+// `version`, `error` and the whole deep handshake reached hosts undeclared — the same drift
+// delegateOutputShape exists to prevent, one level further down.
+//
+// Fields this bridge computes are typed; fields relayed verbatim from the agent are left
+// unknown on purpose. The SDK validates structuredContent against this schema and throws when
+// it does not fit, and doctor is what you run when the agent is already misbehaving: a schema
+// tight enough to reject a weird protocolVersion would turn the diagnostic into a crash.
+export const doctorAgentShape = {
+  found: z.boolean().describe("Whether the launcher command could be spawned at all."),
+  command: z.string().describe("The resolved launcher command line, with ACP_AGENT_COMMAND/ACP_AGENT_ARGS applied."),
+  version: z.string().nullable().describe(
+    "The launcher's --version output, or null when it could not be read. found:false means it is not installed; found:true with a null version means it exists but did not answer — error says why."
+  ),
+  error: z.string().optional().describe("Why version is null on a launcher that does exist, e.g. the probe timed out."),
+  handshake: z.object({
+    ok: z.boolean(),
+    error: z.string().optional().describe("Present when ok is false: what the handshake failed on, e.g. not logged in, or a timeout."),
+    protocolVersion: z.unknown().optional().describe("As reported by the agent; null when it reported none."),
+    agentCapabilities: z.unknown().optional(),
+    models: z.array(z.unknown()).optional().describe("Model ids the agent offers for a new session."),
+    currentModel: z.unknown().optional(),
+    modes: z.array(z.unknown()).optional().describe("Session mode ids the agent offers."),
+  }).passthrough().optional().describe("Present only when deep is true. Everything past ok and error is absent when ok is false."),
+};
+
+// Exported as a shape for the same reason as delegateOutputShape, and with agent split out
+// because a top-level .strict() does not look inside a nested object — which is exactly where
+// this schema drifted.
+export const doctorOutputShape = {
   plugin: z.object({ version: z.string() }).passthrough(),
   client: z.object({
     name: z.string().nullable(),
     version: z.string().nullable(),
     capabilities: z.record(z.unknown()),
   }).passthrough(),
-  agent: z.object({ found: z.boolean() }).passthrough(),
+  agent: z.object(doctorAgentShape).passthrough(),
   runtime: z.object({
     node: z.string(),
     platform: z.string(),
@@ -120,7 +149,9 @@ const doctorOutputSchema = z.object({
     transport: z.literal("stdio"),
   }),
   env: z.record(z.unknown()),
-}).passthrough();
+};
+
+const doctorOutputSchema = z.object(doctorOutputShape).passthrough();
 
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),

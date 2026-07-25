@@ -547,7 +547,7 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
         version: "9.9",
         capabilities: {},
       },
-      agent: { found: true },
+      agent: { found: true, command: "cursor-agent acp", version: "fake-agent 2.0.0" },
       runtime: { node: "22.0.0", platform: "test", arch: "test", cwd: "/test", transport: "stdio" },
       env: {},
     };
