@@ -54,15 +54,14 @@ const planEntrySchema = z.object({
   status: z.enum(PLAN_STATUSES).optional(),
 }).passthrough();
 
-// The result is deliberately not declared to hosts as an outputSchema. Declaring one obliges
-// the server to also return structuredContent, and a host that reads both it and the text
-// block — Codex does — puts the entire payload into the model's context twice. So this shape
-// is an in-repo contract instead: what delegate promises to return, kept beside the tool that
-// returns it and enforced by the .strict() copy in delegate.test.js, which is what fails when
-// a field added in delegate.js is forgotten here.
+// Deliberately not declared to hosts as an outputSchema: declaring one obliges the server to
+// also return structuredContent, and a host that reads both it and the text block — Codex does —
+// puts the whole payload in the model's context twice. So this is an in-repo contract instead,
+// enforced by the .strict() copy in delegate.test.js, which fails when a field added in
+// delegate.js is forgotten here.
 //
-// Types only. What each field means — and what its absence means, which is where every one of
-// these is easy to misread — is documented once, in skills/delegate/reference.md.
+// Types only. What each field means, and what its absence means, is documented once in
+// skills/delegate/reference.md.
 export const delegateOutputShape = {
   result: z.string(),
   resultSource: z.enum(["pre-tool-fallback", "none"]).optional(),
@@ -91,14 +90,12 @@ export const delegateOutputShape = {
   }).optional(),
 };
 
-// What doctor reports about the launcher — the same in-repo contract as delegateOutputShape,
-// one level down, and the level where it actually drifted: `command`, `version`, `error` and
-// the whole deep handshake went undocumented while only `found` was written here.
+// What doctor reports about the launcher — the same in-repo contract as delegateOutputShape.
 //
-// Fields this bridge computes are typed; fields relayed verbatim from the agent are left
-// unknown on purpose. doctor.test.js parses every result against a strict copy of this shape,
-// and doctor is what you run when the agent is already misbehaving: a schema tight enough to
+// Fields this bridge computes are typed; fields relayed verbatim from the agent are left unknown
+// on purpose. doctor runs when the agent is already misbehaving, so a schema tight enough to
 // reject a weird protocolVersion would fail on the agent's output rather than on ours.
+// doctor.test.js parses every result against a strict copy of this shape.
 //
 // Types only; what the fields mean is documented once, in TECHNICAL.md.
 export const doctorAgentShape = {
@@ -277,8 +274,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     async ({ sessionId, force }) => {
       const handles = inFlight.get(sessionId);
       if (!handles || handles.size === 0) {
-        // A finished session and a garbage id used to look identical (both not-found), which
-        // read as "bad id" for a session that in fact ran and is still resumable. Split them.
+        // A finished session and a garbage id are both "not in flight". Reporting them alike
+        // would read as "bad id" for a session that ran and is still resumable.
         const known = seenSessions.has(sessionId);
         return {
           content: [{ type: "text", text: known

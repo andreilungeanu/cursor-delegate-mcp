@@ -1,9 +1,8 @@
-// Everything that describes the turn in progress, in one object because it has to be wiped as
-// one: session/load replays the previous turn as ordinary update frames, so anything left
-// behind leaks into the next result. This used to be a dozen loose variables cleared by a
-// hand-written block before each prompt, where forgetting a line was a silent stale-data bug
-// on resume — and the list grew every time a field was added. Fields are declared in exactly
-// one place now, freshFields(), which is also what reset() applies.
+// Everything describing the turn in progress, in one object because it has to be wiped as one:
+// session/load replays the previous turn as ordinary update frames, so anything left behind
+// leaks into the next result. Fields are declared in exactly one place, freshFields(), which is
+// also what reset() applies — a field added there is reset for free, and one that is missed is a
+// silent stale-data bug on resume.
 
 const MAX_OUTPUT = 10 * 1024 * 1024;
 const TRUNCATION_MARKER = "\n\n[output truncated at 10MB]";
@@ -55,18 +54,17 @@ function progressStream(prefix, onProgress, throttleMs) {
   };
 }
 
-// The single declaration of what a turn accumulates. Anything added here is reset for free.
+// The single declaration of what a turn accumulates.
 function freshFields() {
   return {
     resultChunks: [],
     resultLength: 0,
     truncated: false,
     // Text superseded by a later tool call is normally a preamble ("Inspecting the
-    // implementation.") and returning it would be inventing a summary. But the rule cannot
-    // tell a preamble from the whole answer: an agent that replies and then runs one more
-    // command has its entire reply discarded, and the caller gets "" with stopReason end_turn
-    // and no error. So keep the last discarded segment and hand it back only when nothing
-    // survived — labelled, never blended with a real final message.
+    // implementation."), but the rule cannot tell a preamble from the whole answer: an agent
+    // that replies and then runs one more command has its entire reply discarded, leaving the
+    // caller "" with stopReason end_turn and no error. Kept so it can be handed back when
+    // nothing survived — labelled, never blended with a real final message.
     discardedResult: "",
     sawToolCall: false,
     collectingPostToolResult: false,

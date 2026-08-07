@@ -13,10 +13,9 @@ function formatCommand({ command, args }) {
   return args?.length ? `${command} ${args.join(" ")}` : command;
 }
 
-// A launcher that accepts --version and then never answers used to hang doctor forever — and
-// doctor is the tool you run when delegation is already broken, so a wedged agent is exactly
-// the case it has to survive. Deep handshakes have always been time-boxed; this is that guard
-// applied to the shallow probe that runs on every call.
+// Time-boxed because a launcher that accepts --version and then never answers would hang doctor
+// forever — and doctor is what you run when delegation is already broken, so a wedged agent is
+// exactly the case it must survive. Same guard the deep handshake has.
 export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
   const { command, options } = spawnSpec;
   const isJsScript = /\.js$/i.test(command);

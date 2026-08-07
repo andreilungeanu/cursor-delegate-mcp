@@ -2,9 +2,9 @@ import process from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { statSync } from "node:fs";
-// Reads happen on the server's only thread, where a synchronous one stalls every other
-// delegation in flight and the progress notifications they are streaming. The stats stay
-// synchronous: they are argument validation, and they run before the spawn.
+// Async: a sync read on the server's only thread stalls every other in-flight delegation and
+// its progress stream. The statSync calls below stay sync — they are argument validation and
+// run before the spawn.
 import { readFile } from "node:fs/promises";
 import { AcpClient } from "./acp-client.js";
 import { SessionSupervisor } from "./session-supervisor.js";
@@ -17,11 +17,9 @@ export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
 export const DEFAULT_HEARTBEAT_MS = 30000;
 
-// Malformed values fall back to the default rather than failing the call. Only a positive
-// value counts: zero used to be taken literally, so CURSOR_DELEGATE_HARD_CAP_MS=0 — or an
-// accidentally blank one, since Number("") is 0 — armed a zero-length deadline that failed
-// every call instantly. Falling back keeps the one documented meaning of 0, the idle guard's,
-// which gets it from its own fallback being 0.
+// Malformed values fall back to the default rather than failing the call. Only a positive value
+// counts, so a blank var (Number("") is 0) cannot arm a zero-length deadline. The idle guard's
+// documented 0 comes from its own fallback being 0, not from an env value.
 function envMs(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -34,11 +32,9 @@ function fmtDuration(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
-// Two different questions, and conflating them is what made a typo'd brief cost a live turn.
-// "Could this be a path?" is deliberately loose — a one-line brief ending in .md is worth a
-// stat. "Was a path clearly intended?" has to be strict, because an ordinary inline spec
-// mentions files ("fix the bug in src/api.js") and must never be rejected for it. Whitespace
-// is the discriminator: a path argument has none, a sentence about a path does.
+// Two separate questions. "Could this be a path?" is loose — worth a stat. "Was a path clearly
+// intended?" must be strict, since ordinary prose names files ("fix the bug in src/api.js") and
+// must never be rejected for it. Whitespace discriminates: a path argument has none.
 function looksLikeSpecPath(spec) {
   return !spec.includes("\n")
     && (spec.includes("/") || spec.includes("\\") || spec.endsWith(".md") || spec.endsWith(".txt"));
@@ -69,9 +65,8 @@ async function resolveSpec(spec) {
   return spec;
 }
 
-// A nonexistent workspace was accepted, then created by the agent's first write — a typo
-// silently spawned a parallel empty tree and every layer reported success. contextFiles has
-// always rejected the same mistakes; this is that check, applied to its sibling.
+// Without this, the agent's first write creates the directory: a typo'd workspace spawns a
+// parallel empty tree and every layer reports success. Same check contextFiles applies.
 function assertWorkspace(workspace) {
   if (workspace === undefined || workspace === null) return;
   let stat;
@@ -92,18 +87,15 @@ const IMAGE_MIME = {
 // Base64 inflates by a third and every byte lands in the prompt, unlike a link.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-// A resource_link hands the agent a path instead of the file's bytes, so a large brief costs
-// prompt space only for what the agent decides to open. Images cannot work that way — they
-// are sent inline. Both are measured working, including links to files outside the
-// workspace. Two rules follow from the probe:
-//   - gate images on the advertised capability, because cursor-agent accepts blocks it does
-//     not support without any error (embeddedContext:false raises nothing), so an ungated
-//     image would silently vanish;
-//   - report anything skipped, since a dropped attachment is otherwise invisible.
+// A resource_link hands the agent a path, not the file's bytes, so a large brief costs prompt
+// space only for what the agent opens. Images have no such form — they go inline. Both are
+// measured working, including links outside the workspace. Two rules from that probe:
+//   - gate images on the advertised capability: cursor-agent accepts unsupported blocks without
+//     error (embeddedContext:false raises nothing), so an ungated image vanishes silently;
+//   - report anything skipped — a dropped attachment is otherwise invisible.
 async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   const blocks = [];
-  // A glob plus an explicit path (or the same file named a few ways) resolves to one file;
-  // sending it several times just wastes prompt space. Collapse by resolved absolute path.
+  // A glob plus an explicit path can resolve to one file; sending it twice wastes prompt space.
   const seen = new Set();
   for (const entry of contextFiles || []) {
     if (typeof entry !== "string" || !entry.trim()) continue;
@@ -163,14 +155,11 @@ function assertKnownModel(client, model) {
   throw makeError("unknown-model", `Unknown model ${JSON.stringify(model)}. This agent offers: ${ids.join(", ")}.`);
 }
 
-// Which config options a model carries is not discoverable up front: session/new reports
-// configOptions for the default model and set_model returns nothing. So ask, and read the
-// rejection as the answer. Two distinct -32602s, both measured: "Unknown model config
-// option: X" means this model has no such knob — report it and carry on. "Invalid value
-// for X: Y" means the caller named a value the model rejects, which must not be swallowed.
-// Returns { unsupported, res }: unsupported is true when the model has no such knob; res is the
-// set_config_option reply, which echoes the now-current model's configOptions (incl. the served
-// model id) — the only place the agent reports what model actually took after set_model.
+// A model's config options are not discoverable up front (session/new reports only the default
+// model's; set_model returns nothing), so probe by asking and read the rejection. Both -32602s
+// are measured: "Unknown model config option: X" means no such knob — report and carry on;
+// "Invalid value for X: Y" is a caller error and must propagate.
+// res echoes the now-current model's configOptions — the only place the served model id appears.
 async function applyConfig(client, sessionId, configId, value) {
   try {
     const res = await client.setConfigOption(sessionId, configId, value);
@@ -181,9 +170,8 @@ async function applyConfig(client, sessionId, configId, value) {
   }
 }
 
-// The agent reports the resolved model only inside a set_config_option reply's configOptions
-// (set_model itself returns nothing). Read it there when present; absent for models that reject
-// every option we send, which is fine — the field then stays off.
+// The resolved model appears only in a set_config_option reply's configOptions (set_model
+// returns nothing). Absent for models that reject every option sent — the field then stays off.
 function servedModelFrom(res) {
   const opts = res?.configOptions;
   if (!Array.isArray(opts)) return undefined;
@@ -213,8 +201,7 @@ export async function runDelegate({
   if (signal?.aborted) {
     throw makeError("aborted", "delegation aborted by MCP host");
   }
-  // Before the spawn: a bad path is the caller's to fix, and finding out costs a process,
-  // a handshake and a billed turn if it waits until the prompt is assembled.
+  // Before the spawn: validating later costs a process, a handshake and a billed turn.
   assertWorkspace(workspace);
   const promptText = await resolveSpec(spec);
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
@@ -222,9 +209,8 @@ export async function runDelegate({
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
   const state = makeTurnState({ onProgress, progressThrottleMs });
 
-  // ACP requires plan entry content to be a string and bounds priority/status to
-  // known values. Frames that violate that must not fail the MCP call after the
-  // work is done — drop the bad data and report it as a protocol diagnostic.
+  // ACP requires string plan content and bounds priority/status. A frame that violates that must
+  // not fail the MCP call after the work is done — drop the bad data, report it as a diagnostic.
   const sanitizePlan = (warnings) => {
     const entries = [];
     state.planEntries.forEach((raw, i) => {
@@ -308,20 +294,19 @@ export async function runDelegate({
     heartbeat.unref?.();
   };
 
-  // session/load replays the previous turn as ordinary session/update frames, including
-  // tool_call and diff blocks. The reset before the prompt clears the state they touch,
-  // but it cannot unsend the progress notifications they already emitted — a resume
-  // otherwise reports the previous turn's tool calls and edits as if they were happening.
+  // session/load replays the previous turn as ordinary update frames, tool_call and diff blocks
+  // included. state.reset() clears what they touch but cannot unsend a progress notification, so
+  // the guard below is what stops a resume reporting last turn's edits as if they were happening.
   client.on("update", (u) => {
     if (!promptInFlight) return;
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
       state.planEntries = up.entries || [];
     }
-    // The agent names the turn a beat after the prompt lands ("File Creator"). Useful as an
-    // ephemeral label while several delegations run, and in timeout forensics — but not in
-    // the result, where it arrives after there is nothing left to tell apart and has been
-    // measured contradicting the answer ("No Image Detected" on a turn describing an image).
+    // The agent titles the turn a beat after the prompt lands ("File Creator") — useful live,
+    // when several delegations run, and in timeout forensics. Kept out of the result: there it
+    // arrives too late to tell anything apart, and was measured contradicting the answer
+    // ("No Image Detected" on a turn describing an image).
     if (up.sessionUpdate === "session_info_update" && typeof up.title === "string" && up.title) {
       if (up.title !== state.sessionTitle) { try { onProgress?.(`turn titled: ${up.title}`.slice(0, 200)); } catch {} }
       state.sessionTitle = up.title;
@@ -368,9 +353,9 @@ export async function runDelegate({
       onSessionReady?.(sessionId, client);
       assertKnownModel(client, model);
       await client.setModel(sessionId, model);
-      // fast is always sent: a resumed session may already have it on, so false is a real
-      // instruction. reasoning and context are only sent when the caller named one. Each reply
-      // reports the now-current model; keep the last one seen as the served model.
+      // fast is always sent — a resumed session may already have it on, so false is a real
+      // instruction. reasoning and context go only when the caller named one. Each reply reports
+      // the now-current model; the last one seen wins.
       const fastResult = await applyConfig(client, sessionId, "fast", fast);
       if (fastResult.unsupported && fast) unsupportedOptions.push("fast");
       else servedModel = servedModelFrom(fastResult.res) ?? servedModel;
@@ -390,9 +375,8 @@ export async function runDelegate({
         const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
         return await client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
       } finally {
-        // The result is assembled across awaits below, so frames that trail the settled turn
-        // would otherwise still be folded into it — the same reason the flag exists for the
-        // frames session/load replays before it.
+        // The result is assembled across awaits below, so without this a frame trailing the
+        // settled turn is still folded into it.
         promptInFlight = false;
       }
     });
@@ -404,12 +388,11 @@ export async function runDelegate({
       ? (state.sawToolCall ? "post-tool" : "tool-free-stream")
       : "none";
     const protocolWarnings = [];
-    // plan.detail is the model restating — into chat's sibling channel — a plan it also filed via
-    // create_plan. The detail is never load-bearing: the plan lives in the agent's own session
-    // (which is what a resume-to-implement reads, not this field) and the orchestrator approves
-    // from result + plan.entries. So in plan/ask drop the detail and let result be the agent's own
-    // message verbatim — no bridge-side guess at whether that message "is really the plan". In
-    // agent mode the plan was accepted and result is the implementation report — both stay.
+    // plan.detail restates, in chat's sibling channel, a plan also filed via create_plan. It is
+    // never load-bearing: a resume-to-implement reads the agent's own session, and the
+    // orchestrator approves from result + plan.entries. So plan/ask drops it and leaves result as
+    // the agent's message verbatim. In agent mode result is the implementation report, a separate
+    // artifact from the plan — both stay.
     const dropPlanDetail = typeof state.planDetail === "string" && (mode === "plan" || mode === "ask");
     if (!finalMessageAvailable && state.discardedResult) {
       result = state.discardedResult;
@@ -426,9 +409,8 @@ export async function runDelegate({
       if (typeof res.stopReason !== "string") {
         protocolWarnings.push("stopReason dropped: ACP requires a string stop reason");
       } else if (res.stopReason !== "end_turn") {
-        // end_turn is the near-universal default and carries no signal — it was end_turn on
-        // every call across the stress test. Surface a stop reason only when it says something
-        // happened: a refusal, a cancel, an output cap. Absence means the ordinary end_turn.
+        // end_turn carries no signal (it was end_turn on every stress-test call). Surface a stop
+        // reason only when something happened: a refusal, a cancel, an output cap.
         stopReason = res.stopReason;
       }
     }
@@ -436,16 +418,13 @@ export async function runDelegate({
       result,
       sessionId,
     };
-    // Like every other collection here, absence means "nothing reported": an empty list on
-    // every read-only turn read as a claim that nothing changed, which this field cannot make
-    // (shell-driven edits leave no diff event).
+    // Absence means "nothing reported", not "nothing changed" — a claim this field cannot make,
+    // since shell-driven edits leave no diff event.
     const filesReported = normalizeAgentReportedFiles([...state.touched], workspace);
     if (filesReported.length) out.filesReportedByEditTools = filesReported;
-    // resultSource is a caveat, not a fact worth stating on every turn: on the happy path
-    // (post-tool / tool-free-stream) result is simply the answer, so say nothing. Surface it only
-    // when it warns — pre-tool-fallback, none. finalMessageAvailable is dropped outright: it
-    // stated the same thing in a second boolean. resumed is emitted only when a resume actually
-    // took; a fresh session or a failed resume (which carries its own warning) leaves it absent.
+    // resultSource is a caveat, not a fact: on the happy path (post-tool / tool-free-stream)
+    // result is just the answer. Emit it only when it warns. resumed likewise appears only when a
+    // resume took — a fresh session or a failed one (which carries its own warning) leaves it off.
     if (resultSource !== "post-tool" && resultSource !== "tool-free-stream") out.resultSource = resultSource;
     if (!!resumeSessionId && sessionId === resumeSessionId) out.resumed = true;
     // Only when the agent served a different model than asked — e.g. "default" routing to a
@@ -463,10 +442,9 @@ export async function runDelegate({
       // duplicate — drop it. entries and overview are structured and unique, and always stay.
       if (dropPlanDetail) delete out.plan.detail;
     }
-    // Most successful turns emit no todos at all, so an empty list would read as "nothing
-    // done" rather than "not tracked". Report only what the agent actually sent — and of
-    // that, the full list only when it says something todoProgress cannot: which items
-    // remain. On a fully-completed turn the list restates the counts entry by entry.
+    // Most turns emit no todos, so an empty list would read as "nothing done" rather than "not
+    // tracked". The full list is carried only when it says what todoProgress cannot — which items
+    // remain; on a fully-completed turn it just restates the counts.
     if (state.sawTodoFrame) {
       const { todos: todoList, todoProgress } = sanitizeTodos(protocolWarnings);
       out.todoProgress = todoProgress;
@@ -475,17 +453,15 @@ export async function runDelegate({
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {
-    // A JSON-RPC code means the agent rejected something rather than the bridge breaking.
-    // Classifying it here is what lets the caller tell "fix your arguments" from "retry".
+    // A JSON-RPC code means the agent rejected something rather than the bridge breaking — the
+    // distinction a caller needs to tell "fix your arguments" from "retry".
     if (!err?.reason && typeof err?.code === "number") err.reason = "agent-error";
-    // A bare duration says nothing about whether the agent wedged or a command was just
-    // slow. Name what was outstanding so the caller can tell the two apart, and so a
-    // retry can resume from the work already done instead of restarting blind.
+    // A bare duration cannot distinguish a wedged agent from a slow command, so name what was
+    // outstanding — it also lets a retry resume the work already done.
     const isTimeout = err?.reason === "hard-cap" || err?.reason === "idle-timeout";
-    // A handshake timeout gets the forensics but not the long-command advice below: the
-    // session exists by then — it is set before set_model, set_config_option and set_mode,
-    // any of which can hang — so the resume hint is what the caller needs. No prompt was
-    // ever sent, so no shell command can be the reason for the silence.
+    // A handshake timeout gets the forensics but not the long-command advice: no prompt was sent,
+    // so no shell command explains the silence. The session may still exist (it is set before
+    // set_model/set_config_option/set_mode, any of which can hang), so the resume hint applies.
     const isStall = isTimeout || err?.reason === "handshake-timeout";
     if (isStall || err?.reason === "aborted" || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
@@ -500,7 +476,7 @@ export async function runDelegate({
       const files = normalizeAgentReportedFiles([...state.touched], workspace);
       if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
       // Without this the resume hint below reads as "carry on from where you were", when the
-      // requested session was never loaded and this turn started from nothing.
+      // requested session was never loaded.
       if (resumeError) {
         err.message += ` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
           + ` so this ran as a fresh session and none of that earlier work was in context.`;
@@ -514,10 +490,8 @@ export async function runDelegate({
           + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`;
       }
     }
-    // Opt-in, because the frames land in the caller's context and nothing there is
-    // actionable: the forensics above already carry everything a caller can act on. Raw
-    // frames only help someone debugging the bridge, and that has always been done with a
-    // protocol probe, never with an error dump.
+    // Opt-in: the frames land in the caller's context and nothing there is actionable — the
+    // forensics above already carry that. Raw frames only help someone debugging the bridge.
     const frames = Number(process.env.CURSOR_DELEGATE_TRANSCRIPT);
     if (frames > 0) {
       try {
