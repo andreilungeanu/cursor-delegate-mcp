@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.andreilungeanu/cursor-delegate-mcp",
+  "title": "Cursor Delegate",
+  "description": "Bridge AI coding hosts to cursor-agent over the Agent Client Protocol.",
+  "version": "1.17.0",
+  "websiteUrl": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "repository": {
+    "url": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "cursor-delegate-mcp",
+      "version": "1.17.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
