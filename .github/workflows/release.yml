@@ -10,12 +10,11 @@ on:
         required: false
         default: ""
 
-permissions:
-  contents: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,3 +49,33 @@ jobs:
             gh release create "$tag" --verify-tag --title "$tag" --notes-file notes.md "$latest"
             echo "$tag: release created"
           done
+
+  # Trusted publishing (OIDC): no NPM_TOKEN, provenance is attested automatically.
+  # npmjs.com registers this by filename, so renaming release.yml breaks publishing.
+  # Only tag pushes publish; the workflow_dispatch backfill exists to fill in
+  # missing GitHub releases and must never republish an already-shipped version.
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Trusted publishing needs npm >= 11.5.1
+        run: npm install -g npm@latest
+      - name: Tag must match the version being published
+        run: |
+          version=$(npm pkg get version | tr -d '"')
+          [ "v$version" = "$GITHUB_REF_NAME" ] || {
+            echo "tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          }
+      - run: npm ci
+      - run: npm test
+      - run: npm publish
