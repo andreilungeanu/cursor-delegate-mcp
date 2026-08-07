@@ -146,8 +146,8 @@ test("handshake hang rejects via the handshake deadline, with idle detection off
 
 // The reported bug: cursor-agent emits nothing while a shell command runs, so a healthy
 // long command was indistinguishable from a hang and got killed at 90s.
-// docs/acp-probes/2026-07-21-client-terminal-capability measured 26.9s of dead wire for a
-// 20s command. Post-handshake silence must no longer settle the session by default.
+// A client-terminal-capability probe (2026-07-21) measured 26.9s of dead wire for a 20s
+// command. Post-handshake silence must no longer settle the session by default.
 test("post-handshake silence does not trip by default", async () => {
   await assert.rejects(
     () => runDelegate({
