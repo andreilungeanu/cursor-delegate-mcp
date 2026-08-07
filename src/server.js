@@ -209,8 +209,6 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
       },
     });
     if (handle?.cancelRequested) out.cancelRequested = true;
-    // One copy, compact. The result also went out as structuredContent while an outputSchema
-    // was declared, which cost every host that reads both fields the whole payload twice.
     return { content: [{ type: "text", text: JSON.stringify(out) }] };
   } catch (err) {
     return {
@@ -330,7 +328,6 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
           version: server.server.getClientVersion(),
         }),
       });
-      // Single compact copy, for the reason runDelegateTool returns one.
       return { content: [{ type: "text", text: JSON.stringify(out) }] };
     }
   );
