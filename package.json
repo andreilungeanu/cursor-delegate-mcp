@@ -42,7 +42,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node scripts/run-tests.mjs",
     "test:pack": "node test/npm-package-smoke.mjs",
     "start": "node src/server.js",
     "typecheck": "tsc -p tsconfig.json"

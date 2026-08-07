@@ -43,9 +43,8 @@ jobs:
       - run: npm run typecheck
       - name: Coverage floor
         run: >
-          node --test --experimental-test-coverage --test-coverage-include='src/**'
+          node scripts/run-tests.mjs --experimental-test-coverage --test-coverage-include='src/**'
           --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=90
-          test/*.test.js
       - run: npm audit --omit=dev --audit-level=high
 
   # The lockfile resolves a newer SDK; make sure the declared minimum keeps working.
