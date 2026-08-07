@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import process from "node:process";
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
 import { AcpClient } from "../src/acp-client.js";
 import { SessionSupervisor } from "../src/session-supervisor.js";
 import { runDelegate } from "../src/delegate.js";
@@ -322,63 +320,6 @@ test("escalation order idle→cancel→kill with child dead afterward", async ()
     childRef.exitCode !== null || childRef.signalCode !== null,
     "expected child to be dead after escalation"
   );
-});
-
-test("resumed filesReportedByEditTools excludes diff replayed during session/load (Bug B)", async () => {
-  function replayTouchedFactory() {
-    return ({ mode, onCreatePlan }) => {
-      const client = stubFactory("fake-acp.js")({ mode, onCreatePlan });
-      const origLoad = client.loadSession.bind(client);
-      client.loadSession = async (sessionId, cwd) => {
-        const res = await origLoad(sessionId, cwd);
-        client.emit("update", {
-          update: {
-            sessionUpdate: "tool_call_update",
-            content: [{ type: "diff", path: "stale-replay.txt" }],
-          },
-        });
-        return res;
-      };
-      return client;
-    };
-  }
-
-  const out = await runDelegate({
-    spec: "continue",
-    mode: "agent",
-    resumeSessionId: "sess-resumed",
-    workspace: process.cwd(),
-    clientFactory: replayTouchedFactory(),
-  });
-  assert.equal(out.resumed, true);
-  assert.deepEqual(out.filesReportedByEditTools, ["hello.txt"]);
-  assert.ok(!out.filesReportedByEditTools.includes("stale-replay.txt"));
-});
-
-test("inline spec equal to an existing filename is sent literally (Bug C)", async () => {
-  const inlineSpec = "inline-spec-bug-c-footgun";
-  const path = join(process.cwd(), inlineSpec);
-  writeFileSync(path, "file contents should not be used\n");
-  let promptText;
-  try {
-    await runDelegate({
-      spec: inlineSpec,
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: ({ mode, onCreatePlan }) => {
-        const client = stubFactory("fake-acp.js")({ mode, onCreatePlan });
-        const origPrompt = client.prompt.bind(client);
-        client.prompt = async (sessionId, blocks) => {
-          promptText = blocks.find((b) => b.type === "text")?.text;
-          return origPrompt(sessionId, blocks);
-        };
-        return client;
-      },
-    });
-    assert.equal(promptText, inlineSpec);
-  } finally {
-    try { unlinkSync(path); } catch {}
-  }
 });
 
 test("abort() rejects supervised work and sends a courtesy cancel", async () => {

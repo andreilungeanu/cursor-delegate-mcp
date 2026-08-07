@@ -1013,6 +1013,26 @@ test("runDelegate still sends prose that merely names a missing path", async () 
   assert.equal(track.promptText, "fix the bug in missing/brief.md");
 });
 
+// A bare word with no separator and no .md/.txt is never a path candidate, so a file that
+// happens to share the name must not be read in place of the brief.
+test("runDelegate sends a bare inline spec literally even when a file of that name exists", async () => {
+  const inlineSpec = "inline-spec-name-collision";
+  const specPath = path.join(process.cwd(), inlineSpec);
+  writeFileSync(specPath, "file contents should not be used\n");
+  const track = {};
+  try {
+    await runDelegate({
+      spec: inlineSpec,
+      mode: "agent",
+      workspace: process.cwd(),
+      clientFactory: promptTextFactory(track),
+    });
+    assert.equal(track.promptText, inlineSpec);
+  } finally {
+    try { unlinkSync(specPath); } catch {}
+  }
+});
+
 function exitDuringPromptFactory() {
   return ({ mode, onCreatePlan }) => {
     const client = fakeFactory({ mode, onCreatePlan });
@@ -1664,6 +1684,36 @@ test("replayed session/load frames do not leak into the result or touched files"
   assert.equal(out.resultSource, undefined);
   assert.equal(out.filesReportedByEditTools, undefined, "replayed diff frames must not surface as this turn's edits");
   assert.equal(out.resumed, true);
+});
+
+// The same rule as above, over the real fake-acp subprocess rather than a hand stub: the replay
+// arrives through an actual ACP transport, so this also covers the client's own framing.
+test("a diff replayed during session/load stays out of the resumed turn's reported files", async () => {
+  const replayTouchedFactory = () => ({ mode, onCreatePlan }) => {
+    const client = fakeFactory({ mode, onCreatePlan });
+    const origLoad = client.loadSession.bind(client);
+    client.loadSession = async (sessionId, cwd) => {
+      const res = await origLoad(sessionId, cwd);
+      client.emit("update", {
+        update: {
+          sessionUpdate: "tool_call_update",
+          content: [{ type: "diff", path: "stale-replay.txt" }],
+        },
+      });
+      return res;
+    };
+    return client;
+  };
+  const out = await runDelegate({
+    spec: "continue",
+    mode: "agent",
+    resumeSessionId: "sess-resumed",
+    workspace: process.cwd(),
+    clientFactory: replayTouchedFactory(),
+  });
+  assert.equal(out.resumed, true);
+  assert.deepEqual(out.filesReportedByEditTools, ["hello.txt"]);
+  assert.ok(!out.filesReportedByEditTools.includes("stale-replay.txt"));
 });
 
 test("a non-positive hard cap falls back to the default instead of firing instantly", async () => {
