@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.17.0] - 2026-08-07
+
+Every answer, once. 1.16.0 stopped `delegate` and `doctor` sending their payload twice; this
+release clears the three places a response still said the same thing twice. Nothing the
+orchestrator has to read is lost — only the second copy.
+
+### Changed
+
+- **`cancel` returns one compact JSON text block**, `{"status":…,"sessionId":…}`, and declares
+  no `outputSchema` — matching `delegate` and `doctor`. The prose text block is gone and the
+  status vocabulary lives in the tool description. Callers reading `structuredContent` must read
+  `content[0].text` and parse it.
+- **`plan` is no longer returned in `plan`/`ask` mode**, where `result` is already the agent's
+  own plan message and the plan itself lives in the agent's session — which is what a
+  resume-to-implement reads. Agent mode is unchanged: there the implementation report and the
+  plan are separate artifacts and both stay.
+- **Skipped `contextFiles` collapse into one warning** naming the workspace root once instead of
+  repeating it per file. Twenty missing attachments: 1,961 bytes of warnings down to ~455.
+
 ## [1.16.0] - 2026-08-07
 
 `delegate` and `doctor` now answer once instead of twice. The fields they report are unchanged.
