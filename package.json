@@ -3,7 +3,7 @@
   "version": "1.17.0",
   "mcpName": "io.github.andreilungeanu/cursor-delegate-mcp",
   "type": "module",
-  "description": "MCP server bridging AI coding hosts to cursor-agent over the Agent Client Protocol (ACP).",
+  "description": "Delegate multi-file coding work from Claude Code, Codex, or Copilot to Cursor's CLI agent — structured results, plan mode, and changed files.",
   "license": "MIT",
   "author": "Andrei Lungeanu <andrei@lungeanu.ro>",
   "repository": {
@@ -25,7 +25,11 @@
     "chatgpt",
     "github-copilot",
     "vscode",
-    "composer"
+    "composer",
+    "composer-2.5",
+    "delegation",
+    "coding-agent",
+    "ai-agents"
   ],
   "main": "src/server.js",
   "bin": {
