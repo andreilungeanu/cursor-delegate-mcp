@@ -56,13 +56,16 @@ counts entry by entry. So:
 
 `todoProgress` is `{total, completed, inProgress, pending}`.
 
-### `plan` object (when present)
+### `plan` object (agent mode only)
 
 | Field | Description |
 | ----- | ----------- |
 | `plan.entries` | Structured steps from `session/update:plan`. |
 | `plan.overview` | One-line summary from `cursor/create_plan` (may be absent). |
-| `plan.detail` | Markdown plan body from `cursor/create_plan`. Kept only in `agent` mode; in `plan`/`ask` it is dropped because `result` already carries the agent's own plan message. The plan also lives in the agent's session — resume to act on it. |
+| `plan.detail` | Markdown plan body from `cursor/create_plan` (may be absent). |
+
+In `plan`/`ask` the whole object is dropped: `result` is the agent's own plan message, and the
+plan lives in the agent's session — resume to act on it.
 
 ## Mode behavior
 
