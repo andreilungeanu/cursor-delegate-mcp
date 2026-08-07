@@ -1,0 +1,52 @@
+name: Installation problem
+description: The server will not install, start, or connect from your host.
+labels: ["install"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run the `doctor` tool first if your host can reach the server — it reports most
+        setup problems directly, and its output is the single most useful thing to paste here.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor output
+      description: Output of the `doctor` tool, if the server starts at all.
+      render: text
+  - type: input
+    id: host
+    attributes:
+      label: Host and version
+      placeholder: "Claude Code 2.1.4 / Codex CLI 0.146.1 / Copilot CLI / VS Code 1.99"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Windows 11 / macOS 15.3 / Ubuntu 24.04"
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: "Output of `node --version`. The server requires Node 20+."
+      placeholder: "v22.11.0"
+    validations:
+      required: true
+  - type: input
+    id: cursor
+    attributes:
+      label: Cursor CLI version
+      description: "Output of `cursor-agent --version`, and whether `cursor-agent login` succeeded."
+      placeholder: "2026.08.01 , logged in"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got instead.
+    validations:
+      required: true

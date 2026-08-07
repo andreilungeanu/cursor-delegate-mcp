@@ -1,0 +1,45 @@
+name: Host compatibility report
+description: Report whether a host works, so the compatibility table can cite real evidence.
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The compatibility table distinguishes **clean-profile verified**, **contract-tested**,
+        and **configuration documented**. A host is only marked verified on the strength of a
+        report like this one, so exact versions matter more than prose.
+  - type: input
+    id: host
+    attributes:
+      label: Host and version
+      placeholder: "Windsurf 1.12 / JetBrains AI Assistant 2026.2 / Visual Studio 17.14"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+    validations:
+      required: true
+  - type: input
+    id: product-version
+    attributes:
+      label: cursor-delegate-mcp version
+      placeholder: "1.18.0"
+    validations:
+      required: true
+  - type: checkboxes
+    id: results
+    attributes:
+      label: What worked
+      options:
+        - label: "`doctor` reported client identity and detected the Cursor agent"
+        - label: "`ask` mode answered without changing files"
+        - label: "`plan` mode returned a plan and changed no files"
+        - label: "Resuming the plan session in `agent` mode produced the expected edit"
+        - label: "A clarifying question came back as a result instead of stalling"
+        - label: "`cancel` stopped a running delegation"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything that broke or surprised you

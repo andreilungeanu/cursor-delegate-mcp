@@ -1,0 +1,56 @@
+name: Successful delegation report
+description: Tell us a real delegated run worked. This is the project's only adoption signal.
+labels: ["report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The project ships no telemetry, so voluntary reports are the only way to know whether
+        it works outside the maintainer's machine. Every field is optional except the first —
+        a one-line report is still worth filing.
+  - type: textarea
+    id: task
+    attributes:
+      label: What you delegated
+      description: The task, roughly. No need to share code or repository details.
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host and version
+  - type: input
+    id: os
+    attributes:
+      label: OS
+  - type: input
+    id: cursor
+    attributes:
+      label: Cursor CLI version
+  - type: dropdown
+    id: install-time
+    attributes:
+      label: How long from install to first working result?
+      options:
+        - "Under 5 minutes"
+        - "5-15 minutes"
+        - "15-60 minutes"
+        - "Over an hour"
+        - "I gave up and came back later"
+  - type: dropdown
+    id: real-work
+    attributes:
+      label: Was this real work or a trial run?
+      options:
+        - "Real work on my own project"
+        - "A trial run or the sample fixture"
+  - type: input
+    id: found
+    attributes:
+      label: Where did you find this project?
+      placeholder: "MCP Registry, Hacker News, Reddit, a search, a colleague..."
+  - type: textarea
+    id: friction
+    attributes:
+      label: What was worse than expected?
+      description: More useful than praise. Anything confusing, slow, or surprising.
