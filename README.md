@@ -44,7 +44,7 @@ You  →  your agent (plans & reviews)
 
 - 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
 - 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
-- 📦 **Clean, typed results** — final answer, changed files, session id, and the plan, returned as validated structured output. Nothing to parse, nothing to guess.
+- 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape, nothing to guess.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
 - 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase, zero file changes.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
@@ -164,4 +164,4 @@ Add the following server to the client's MCP config:
 
 MIT © [Andrei Lungeanu](https://github.com/andreilungeanu)
 
-<sub>[Security](SECURITY.md) · [Privacy](PRIVACY.md) · [Terms](TERMS.md) · [Changelog](CHANGELOG.md)</sub>
+<sub>[Technical reference](TECHNICAL.md) · [Security](SECURITY.md) · [Privacy](PRIVACY.md) · [Terms](TERMS.md) · [Changelog](CHANGELOG.md)</sub>
