@@ -33,13 +33,13 @@ have fails the call. Do not pass `reasoning`/`context` speculatively.
 | `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it) or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
 | `stopReason` | Present only when it is not the ordinary `end_turn` — a refusal, a cancel, or an output cap. Absence means the turn ended normally. |
 | `sessionId` | Session id for resume. |
-| `effectiveModel` | The model id the agent served, present **only when it differs** from the requested `model` (e.g. `default` resolving to a concrete id, or a cross-model resume). |
+| `effectiveModel` | The model id the agent served, present **only when it differs** from the requested `model` (e.g. `default` resolving to a concrete id, or a cross-model resume). Also absent when the agent reported no model; some models report none. |
 | `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Omitted when empty — absence means no edit tool reported a change, **not** that nothing changed: shell-driven edits leave no diff event; the git diff is authoritative. |
 | `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
 | `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
 | `plan` | Present when a plan was emitted (plan mode). |
-| `protocolWarnings` | Non-fatal diagnostics that did not justify failing the call. Read it whenever it is present. |
+| `protocolWarnings` | Non-fatal diagnostics that did not justify failing the call: dropped or sanitized ACP fields, a failed resume, ignored model options, skipped `contextFiles`. Read it whenever it is present. |
 
 ### `todos` / `todoProgress` — absence means nothing
 
@@ -153,5 +153,10 @@ process.
 **`doctor`** — `{deep?}`. Always reports plugin version, MCP client `capabilities`,
 launcher resolution and `agent.found`, plus runtime info. With
 `deep: true` it adds `agent.handshake`: `{ok, protocolVersion, agentCapabilities, models,
-currentModel, modes}`, or `{ok: false, error}`. `agent.handshake.models` is the authoritative
-list to check after an `unknown-model` failure.
+currentModel, modes}`, or `{ok: false, error}` — not logged in, or a timeout.
+`agent.handshake.models` is the authoritative list to check after an `unknown-model` failure;
+`protocolVersion` and `currentModel` are `null` when the agent reported none.
+
+`agent.version` is the launcher's `--version` output, or `null`. `found: false` means it is not
+installed; `found: true` with a `null` version means it exists but did not answer, and
+`agent.error` says why (e.g. the probe timed out).
