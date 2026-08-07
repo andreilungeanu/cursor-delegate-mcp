@@ -38,7 +38,7 @@ have fails the call. Do not pass `reasoning`/`context` speculatively.
 | `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
 | `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
-| `plan` | Present when a plan was emitted (plan mode). |
+| `plan` | Agent mode only, when the agent filed a plan. Absent in `plan`/`ask`, where `result` is the plan. |
 | `protocolWarnings` | Non-fatal diagnostics that did not justify failing the call: dropped or sanitized ACP fields, a failed resume, ignored model options, skipped `contextFiles`. Read it whenever it is present. |
 
 ### `todos` / `todoProgress` — absence means nothing

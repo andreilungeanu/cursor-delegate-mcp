@@ -348,15 +348,11 @@ test("runDelegate captures session/update:plan with latest update winning", asyn
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, undefined);
   // In plan/ask result is the agent's own message verbatim — no bridge-side promotion of the
-  // filed plan into it. The plan travels as plan.entries and lives in the agent's session.
+  // filed plan into it. The plan itself stays out: it lives in the agent's session, and entries
+  // here would only restate result in the orchestrator's context.
   assert.equal(out.result, "plan ready");
   assert.equal(out.resultSource, undefined);
-  assert.ok(out.plan);
-  assert.deepEqual(out.plan.entries, [
-    { content: "Create CHANGELOG.md", priority: "medium", status: "pending" },
-  ]);
-  assert.equal(out.plan.overview, "Add a changelog file");
-  assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
+  assert.equal(out.plan, undefined, "the plan is dropped in plan/ask; result is the plan");
   assert.equal(out.filesReportedByEditTools, undefined);
 });
 
@@ -378,25 +374,23 @@ function planDetailFactory({ message, overview, plan, trailingTool = false }) {
   };
 }
 
-// In plan/ask result is the agent's own message verbatim and plan.detail is dropped (the plan
-// lives in plan.entries and in the agent's session). The rule is the mode alone — no bridge-side
-// promotion — so these three replies, which a former length heuristic told apart, must now all
-// come back untouched.
+// In plan/ask result is the agent's own message verbatim and the whole plan is dropped (it lives
+// in the agent's session, which is what a resume-to-implement reads). The rule is the mode alone
+// — no bridge-side promotion — so these three replies, which a former length heuristic told
+// apart, must now all come back untouched.
 for (const [shape, message] of [
   ["a full plan message", "Here is the plan in full. " + "Ship the change step by step with rationale. ".repeat(5)],
   ["a terse message", "plan ready"],
   ["a clarifying question", "Should the config format be TOML or JSON?"],
 ]) {
-  test(`runDelegate returns ${shape} verbatim and drops plan.detail`, async () => {
+  test(`runDelegate returns ${shape} verbatim and drops the plan`, async () => {
     const out = await runDelegate({
       spec: "plan it", mode: "plan", workspace: process.cwd(),
       clientFactory: planDetailFactory({ message, overview: "ov", plan: "# Plan\n\n1. The filed plan document." }),
     });
     assert.equal(out.result, message, "result is the agent's own message");
     assert.equal(out.resultSource, undefined);
-    assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
-    assert.equal(out.plan.overview, "ov");
-    assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
+    assert.equal(out.plan, undefined, "plan is dropped in plan/ask; result carries it");
   });
 }
 
@@ -407,10 +401,10 @@ test("runDelegate falls back to the pre-tool preamble when a trailing tool leave
     clientFactory: planDetailFactory({ message: "Reviewing the code.", overview: "ov", plan, trailingTool: true }),
   });
   // No promotion: with no final message, the ordinary pre-tool-fallback applies — result is the
-  // discarded preamble, flagged as such — and the filed plan stays out of result and out of detail.
+  // discarded preamble, flagged as such — and the filed plan stays out of result and out of plan.
   assert.equal(out.result, "Reviewing the code.");
   assert.equal(out.resultSource, "pre-tool-fallback");
-  assert.equal(out.plan.detail, undefined);
+  assert.equal(out.plan, undefined);
   assert.ok(out.protocolWarnings.some((w) => /never spoke again/.test(w)));
 });
 
@@ -1186,10 +1180,9 @@ test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them"
   });
   assert.equal(out.result, "plan ready");
   assert.equal(out.stopReason, undefined);
-  assert.deepEqual(out.plan.entries, [
-    { content: "valid step", priority: "high", status: "pending" },
-    { content: "loose fields" },
-  ]);
+  // The plan itself is dropped in plan mode, but sanitizing still runs: a malformed frame is the
+  // agent misbehaving, and the caller needs to hear about it whatever mode it asked for.
+  assert.equal(out.plan, undefined);
   assert.equal(out.protocolWarnings.length, 3);
   assert.match(out.protocolWarnings[0], /plan entry 1 dropped/);
   assert.match(out.protocolWarnings[1], /priority/);
@@ -1218,10 +1211,12 @@ test("runDelegate drops a non-string stopReason with a protocol warning", async 
   assert.deepEqual(out.protocolWarnings, ["stopReason dropped: ACP requires a string stop reason"]);
 });
 
+// agent mode, so this also covers well-formed entries surviving sanitization intact — the only
+// mode that still returns them.
 test("runDelegate omits protocolWarnings when frames are well-formed", async () => {
   const out = await runDelegate({
-    spec: "plan it",
-    mode: "plan",
+    spec: "do it",
+    mode: "agent",
     workspace: process.cwd(),
     clientFactory: scriptedFactory({ planEntries: [{ content: "ok", priority: "low", status: "completed" }] }),
   });

@@ -399,12 +399,8 @@ export async function runDelegate({
       ? (state.sawToolCall ? "post-tool" : "tool-free-stream")
       : "none";
     const protocolWarnings = [];
-    // plan.detail restates, in chat's sibling channel, a plan also filed via create_plan. It is
-    // never load-bearing: a resume-to-implement reads the agent's own session, and the
-    // orchestrator approves from result + plan.entries. So plan/ask drops it and leaves result as
-    // the agent's message verbatim. In agent mode result is the implementation report, a separate
-    // artifact from the plan — both stay.
-    const dropPlanDetail = typeof state.planDetail === "string" && (mode === "plan" || mode === "ask");
+    // The mode alone decides this — no bridge-side comparison of prose against entries.
+    const dropPlan = mode === "plan" || mode === "ask";
     if (!finalMessageAvailable && state.discardedResult) {
       result = state.discardedResult;
       resultSource = "pre-tool-fallback";
@@ -448,10 +444,15 @@ export async function runDelegate({
     for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
     protocolWarnings.push(...contextWarnings);
     if (state.planEntries.length > 0 || state.planOverview !== undefined || state.planDetail !== undefined) {
-      out.plan = sanitizePlan(protocolWarnings);
-      // In plan/ask result already carries the agent's own plan message, so the detail here is a
-      // duplicate — drop it. entries and overview are structured and unique, and always stay.
-      if (dropPlanDetail) delete out.plan.detail;
+      // Sanitize even when the plan is discarded: the warnings it raises report malformed ACP
+      // frames, which the caller needs whatever mode it asked for.
+      const plan = sanitizePlan(protocolWarnings);
+      // In plan/ask, result IS the plan — the agent's own message, already prose and already
+      // what gets shown to the user for approval. Returning entries alongside it puts the same
+      // steps in the orchestrator's context twice, and nothing consumes them: the resume that
+      // implements reads the agent's own session, not this field. In agent mode result is the
+      // implementation report, a separate artifact from the plan, so the whole object stays.
+      if (!dropPlan) out.plan = plan;
     }
     // Most turns emit no todos, so an empty list would read as "nothing done" rather than "not
     // tracked". The full list is carried only when it says what todoProgress cannot — which items

@@ -107,7 +107,7 @@ strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast`, 
 
 ## Plan mode
 
-1. `delegate(spec, mode="plan")` → save `sessionId` and read `plan` from the response.
+1. `delegate(spec, mode="plan")` → save `sessionId`; `result` is the plan.
 2. Present the plan to the user; wait for approval or change requests.
 3. `delegate("implement the approved plan", mode="agent", resumeSessionId=<sessionId>)`
   — or resume with explicit change requests in the spec.
