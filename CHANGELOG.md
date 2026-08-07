@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.0] - 2026-08-07
+
+Findable, and answerable. The server can now be published to the official MCP Registry — the
+metadata source the VS Code gallery and most aggregators read from — and the repository finally
+carries the contribution and issue surfaces GitHub expects. No runtime behaviour changes.
+
+### Added
+
+- **`server.json`** declaring the registry record, and **`mcpName`** in `package.json`. The
+  registry verifies ownership by matching the two, so both are covered by `version-sync.test.js`
+  along with the version they each pin.
+- **Registry publishing from the release workflow.** A `registry` job runs after `publish`,
+  because ownership is verified against the package that must already be on npm.
+- **`CONTRIBUTING.md` and issue templates** at the repository root: installation problems, host
+  compatibility reports, and successful delegation reports. The project ships no telemetry, so
+  those reports are the only signal that a real run worked somewhere else.
+
+### Changed
+
+- **The npm description leads with the outcome** rather than the protocol, and the keyword list
+  covers Composer, delegation, and coding-agent terms.
+
 ## [1.17.0] - 2026-08-07
 
 Every answer, once. 1.16.0 stopped `delegate` and `doctor` sending their payload twice; this
