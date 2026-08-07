@@ -97,6 +97,11 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   const blocks = [];
   // A glob plus an explicit path can resolve to one file; sending it twice wastes prompt space.
   const seen = new Set();
+  // Grouped, not one warning per file: a wrong workspace misses every attachment at once, and a
+  // line each would repeat the same root N times for one root cause. The other skip reasons stay
+  // per-entry — they are individually distinct and never arrive in bulk.
+  const notFound = [];
+  const root = path.resolve(workspace || process.cwd());
   for (const entry of contextFiles || []) {
     if (typeof entry !== "string" || !entry.trim()) continue;
     const abs = path.resolve(workspace || process.cwd(), entry);
@@ -106,7 +111,7 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
     try {
       stat = statSync(abs);
     } catch {
-      warnings.push(`contextFile ${entry} skipped: not found at ${abs}`);
+      notFound.push(entry);
       continue;
     }
     if (!stat.isFile()) {
@@ -127,6 +132,12 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
       continue;
     }
     blocks.push({ type: "resource_link", uri: pathToFileURL(abs).href, name: path.basename(abs) });
+  }
+  if (notFound.length) {
+    warnings.push(
+      `contextFile${notFound.length > 1 ? "s" : ""} skipped: ${notFound.length} not found under ${root}`
+      + ` — ${notFound.join(", ")}`
+    );
   }
   return blocks;
 }

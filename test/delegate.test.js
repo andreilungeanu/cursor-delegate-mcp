@@ -842,7 +842,28 @@ test("runDelegate reports a missing contextFile instead of linking or failing", 
   });
   assert.equal(out.stopReason, undefined);
   assert.equal(track.blocks.length, 2, "the missing file must not be linked");
-  assert.ok(out.protocolWarnings.some((w) => /contextFile no-such-file-here\.txt skipped: not found/.test(w)));
+  assert.ok(out.protocolWarnings.some((w) => /contextFile skipped: 1 not found under .* — no-such-file-here\.txt/.test(w)));
+});
+
+// One warning for the whole batch, not one each: a wrong workspace misses every attachment at
+// once, and a line apiece would repeat the same root for a single root cause.
+test("runDelegate groups every missing contextFile into one warning", async () => {
+  const track = {};
+  const missing = Array.from({ length: 20 }, (_, i) => `missing-${String(i + 1).padStart(2, "0")}.js`);
+  const out = await runDelegate({
+    spec: "review these",
+    mode: "agent",
+    workspace: process.cwd(),
+    contextFiles: ["package.json", ...missing],
+    clientFactory: promptTextFactory(track),
+  });
+  assert.equal(track.blocks.length, 2, "only the real file is linked");
+  assert.equal(out.protocolWarnings.length, 1, "20 missing files produce one warning, not 20");
+  const [warning] = out.protocolWarnings;
+  assert.match(warning, /^contextFiles skipped: 20 not found under /);
+  for (const name of missing) assert.ok(warning.includes(name), `${name} is named`);
+  // The workspace root is the diagnostic — stated once, not once per file.
+  assert.equal(warning.split(process.cwd()).length - 1, 1, "the root appears exactly once");
 });
 
 test("runDelegate skips a contextFile that is a directory", async () => {
