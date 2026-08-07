@@ -52,7 +52,7 @@ You  →  your agent (plans & reviews)
 
 ## Quick start
 
-You need [Node.js 22+](https://nodejs.org/) and the [Cursor CLI](https://cursor.com/docs/cli/overview), logged in (`cursor-agent login`).
+You need [Node.js 20+](https://nodejs.org/) and the [Cursor CLI](https://cursor.com/docs/cli/overview), logged in (`cursor-agent login`).
 
 ### Claude Code
 

@@ -11,8 +11,8 @@ import { VERSION } from "./version.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 
 const nodeMajor = Number(process.versions.node.split(".")[0]);
-if (nodeMajor < 22) {
-  console.error(`cursor-delegate-mcp requires Node 22+ (found ${process.versions.node})`);
+if (nodeMajor < 20) {
+  console.error(`cursor-delegate-mcp requires Node 20+ (found ${process.versions.node})`);
   process.exit(1);
 }
 
