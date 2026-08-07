@@ -8,6 +8,11 @@ import { AcpClient } from "../src/acp-client.js";
 import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
 import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server.js";
 
+// delegate and doctor return their payload as one compact JSON text block and no
+// structuredContent, so every assertion on their fields goes through here. cancel is the
+// exception and still carries structuredContent — its text block is prose, not a duplicate.
+const payload = (res) => JSON.parse(res.content[0].text);
+
 // Real AcpClient over a stub subprocess, so force-kill exercises the actual treeKill path.
 function stubClientFactory(stubFile) {
   return ({ mode, onCreatePlan }) => new AcpClient({
@@ -198,7 +203,11 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.ok(!/uses MCP elicitation/i.test(tools.delegate.description));
     assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
     assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
-    assert.ok(tools.delegate.outputSchema);
+    // No outputSchema on delegate or doctor: declaring one forces structuredContent alongside
+    // the text block, which duplicates the whole payload into the caller's context.
+    assert.equal(tools.delegate.outputSchema, undefined);
+    assert.equal(tools.doctor.outputSchema, undefined);
+    assert.ok(tools.cancel.outputSchema, "cancel keeps its status enum machine-readable");
     assert.equal(tools.delegate.annotations.readOnlyHint, false);
     assert.equal(tools.delegate.annotations.destructiveHint, true);
     assert.equal(tools.delegate.annotations.idempotentHint, false);
@@ -260,7 +269,7 @@ test("runDelegateTool skips progress notifications when progressToken is absent"
 
   assert.equal(result.isError, undefined);
   assert.equal(notifyCalls, 0);
-  assert.match(result.content[0].text, /"result": "ok"/);
+  assert.equal(payload(result).result, "ok");
 });
 
 test("runDelegateTool survives sendNotification failures", async () => {
@@ -283,7 +292,7 @@ test("runDelegateTool survives sendNotification failures", async () => {
   });
 
   assert.equal(result.isError, undefined);
-  assert.match(result.content[0].text, /"result": "ok"/);
+  assert.equal(payload(result).result, "ok");
 });
 
 test("cancel tool cancels an in-flight delegation and cleans up", async () => {
@@ -313,7 +322,7 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     assert.equal(cancelledWith, "sess-live");
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
-    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+    assert.equal(payload(delegateRes).cancelRequested, true);
     const again = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
     assert.equal(again.structuredContent.status, "not-running");
     assert.match(again.content[0].text, /^session sess-live is not running/);
@@ -353,7 +362,7 @@ test("cancel tool with force kills the agent when delegation does not settle", a
     assert.equal(stopCalled, true);
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
-    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+    assert.equal(payload(delegateRes).cancelRequested, true);
   } finally {
     await client.close();
   }
@@ -392,7 +401,7 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
     assert.equal(escalated.structuredContent.status, "killed");
     assert.equal(stopCalled, true);
     const delegateRes = await delegateP;
-    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+    assert.equal(payload(delegateRes).cancelRequested, true);
   } finally {
     await client.close();
   }
@@ -427,7 +436,7 @@ test("cancel tool with force returns cancelled when delegation settles during gr
     assert.equal(stopCalled, false);
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
-    assert.equal(delegateRes.structuredContent.cancelRequested, true);
+    assert.equal(payload(delegateRes).cancelRequested, true);
   } finally {
     await client.close();
   }
@@ -489,7 +498,7 @@ test("delegate output omits cancelRequested when no cancel was requested", async
   try {
     const res = await client.callTool({ name: "delegate", arguments: { spec: "short task" } });
     assert.notEqual(res.isError, true);
-    assert.equal("cancelRequested" in res.structuredContent, false);
+    assert.equal("cancelRequested" in payload(res), false);
   } finally {
     await client.close();
   }
@@ -564,8 +573,7 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
     assert.equal(info.version.name, "doctor-test-client");
     assert.equal(info.version.version, "9.9");
     assert.ok(info.capabilities, "expected client capabilities to be exposed");
-    const parsed = JSON.parse(res.content[0].text);
-    assert.equal(parsed.runtime.transport, "stdio");
+    assert.equal(payload(res).runtime.transport, "stdio");
   } finally {
     await client.close();
   }
@@ -600,10 +608,11 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
   try {
     const res = await client.callTool({ name: "delegate", arguments: { spec: "do the thing" } });
     assert.equal(res.isError ?? false, false, "completed work must not become an MCP error");
-    assert.equal(res.structuredContent.result, "implemented");
-    assert.equal(res.structuredContent.sessionId, "sess-malformed");
-    assert.deepEqual(res.structuredContent.plan.entries, []);
-    assert.match(res.structuredContent.protocolWarnings[0], /plan entry 0 dropped/);
+    const out = payload(res);
+    assert.equal(out.result, "implemented");
+    assert.equal(out.sessionId, "sess-malformed");
+    assert.deepEqual(out.plan.entries, []);
+    assert.match(out.protocolWarnings[0], /plan entry 0 dropped/);
   } finally {
     await client.close();
   }

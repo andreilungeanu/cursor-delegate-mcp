@@ -11,9 +11,9 @@ import { AcpClient } from "../src/acp-client.js";
 import { runDelegate as rawRunDelegate } from "../src/delegate.js";
 import { delegateOutputShape } from "../src/server.js";
 
-// Every result this suite produces is parsed against a strict copy of the advertised output
-// schema. The production schema is passthrough by design, so without this a field added here
-// but forgotten in the schema would simply never reach hosts, and no test would notice.
+// Every result this suite produces is parsed against a strict copy of delegateOutputShape.
+// Nothing else checks it: the shape is not declared to hosts, so a field added here but
+// forgotten there would drift undocumented and no other test would notice.
 const strictOutput = z.object(delegateOutputShape).strict();
 const runDelegate = async (opts) => {
   const out = await rawRunDelegate(opts);
@@ -1347,8 +1347,8 @@ test("runDelegate rejects immediately when signal is already aborted", async () 
   assert.equal(factoryCalls, 0);
 });
 
-// Frames replayed from docs/acp-probes/2026-07-22-todo-stream/02-raw-multistep.txt:
-// one merge:false full list, then merge:true deltas carrying only the changed entries.
+// Frames replayed from a raw multi-step todo-stream capture (2026-07-22): one merge:false
+// full list, then merge:true deltas carrying only the changed entries.
 function todoFactory(frames) {
   return ({ onTodos }) => {
     const client = new EventEmitter();

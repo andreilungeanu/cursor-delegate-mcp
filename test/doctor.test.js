@@ -7,11 +7,11 @@ import { runDoctor as rawRunDoctor } from "../src/doctor.js";
 import { doctorOutputShape, doctorAgentShape } from "../src/server.js";
 import { VERSION } from "../src/version.js";
 
-// Every result this suite produces is parsed against a strict copy of the advertised output
-// schema, for the reason delegate.test.js does the same: the production schema is passthrough,
-// so a field added to the result but forgotten in the schema would simply never be advertised
-// to hosts, and no test would fail. agent is made strict separately because a top-level
-// .strict() does not look inside a nested object, and agent is where this drifted.
+// Every result this suite produces is parsed against a strict copy of doctorOutputShape, for
+// the reason delegate.test.js does the same: the shape is not declared to hosts, so a field
+// added to the result but forgotten there would drift undocumented and no test would fail.
+// agent is made strict separately because a top-level .strict() does not look inside a nested
+// object, and agent is where this drifted.
 const strictOutput = z.object({
   ...doctorOutputShape,
   agent: z.object(doctorAgentShape).strict(),

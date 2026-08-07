@@ -54,46 +54,35 @@ const planEntrySchema = z.object({
   status: z.enum(PLAN_STATUSES).optional(),
 }).passthrough();
 
-// Exported as a plain shape so tests can build a .strict() copy of it. Production stays
-// passthrough — a field the agent adds must not fail a finished call — but that same
-// tolerance means a field added in delegate.js and forgotten here would never be advertised
-// to hosts, and nothing would complain. The strict copy is what complains.
+// The result is deliberately not declared to hosts as an outputSchema. Declaring one obliges
+// the server to also return structuredContent, and a host that reads both it and the text
+// block — Codex does — puts the entire payload into the model's context twice. So this shape
+// is an in-repo contract instead: what delegate promises to return, kept beside the tool that
+// returns it and enforced by the .strict() copy in delegate.test.js, which is what fails when
+// a field added in delegate.js is forgotten here.
+//
+// Types only. What each field means — and what its absence means, which is where every one of
+// these is easy to misread — is documented once, in skills/delegate/reference.md.
 export const delegateOutputShape = {
   result: z.string(),
-  resultSource: z.enum(["pre-tool-fallback", "none"]).optional().describe(
-    "Present only as a caveat on result; absent on the happy path, where result is simply the agent's answer. pre-tool-fallback: no final message closed the turn and result is the last message before the agent's final tool call — read protocolWarnings before trusting it. none: the turn produced no message and result is empty."
-  ),
-  effectiveModel: z.string().optional().describe(
-    "The model id the agent reported serving, present only when it differs from the model you requested — e.g. \"default\" resolving to a concrete id, or a cross-model resume. Read from the agent's post-set_model config report; absent when the agent confirmed the requested id or reported no model (some models report none)."
-  ),
-  stopReason: z.string().optional().describe(
-    "Present only when it is not the ordinary end_turn — a refusal, a cancel, or an output cap. Absence means the turn ended normally."
-  ),
+  resultSource: z.enum(["pre-tool-fallback", "none"]).optional(),
+  effectiveModel: z.string().optional(),
+  stopReason: z.string().optional(),
   sessionId: z.string(),
-  filesReportedByEditTools: z.array(z.string()).optional().describe(
-    "Files the agent's edit tools reported changing, via native ACP diff events. Absent when they reported none — which is not proof nothing changed: shell-driven edits leave no diff event; the git diff is authoritative."
-  ),
-  resumed: z.boolean().optional().describe(
-    "Present and true only when a requested resume took (the returned session id matched resumeSessionId). Absent for a fresh session, or when a resume failed — a failed resume is reported in protocolWarnings."
-  ),
+  filesReportedByEditTools: z.array(z.string()).optional(),
+  resumed: z.boolean().optional(),
   cancelRequested: z.boolean().optional(),
-  protocolWarnings: z.array(z.string()).optional().describe(
-    "Non-fatal diagnostics that did not justify failing the call — dropped or sanitized ACP fields, a failed resume, ignored model options, skipped contextFiles. Read whenever present."
-  ),
+  protocolWarnings: z.array(z.string()).optional(),
   plan: z.object({
     entries: z.array(planEntrySchema),
     overview: z.string().optional(),
     detail: z.string().optional(),
-  }).optional().describe(
-    "The agent's plan. entries and overview are the structured plan and always present when a plan exists. detail (a prose rendition the agent also filed) is kept only in agent mode; in plan/ask it is dropped because result already carries the agent's own plan message. To act on a plan, resume the sessionId rather than forwarding detail: the plan lives in the agent's session."
-  ),
+  }).optional(),
   todos: z.array(z.object({
     id: z.string(),
     content: z.string(),
     status: z.enum(TODO_STATUSES).optional(),
-  })).optional().describe(
-    "Todo items the agent left unfinished, present only when todoProgress shows completed < total — read it to see what remains before resuming. Absent both when the agent tracked no todos (common on short tasks) and when everything tracked was completed; todoProgress tells those apart."
-  ),
+  })).optional(),
   todoProgress: z.object({
     total: z.number(),
     completed: z.number(),
@@ -102,32 +91,30 @@ export const delegateOutputShape = {
   }).optional(),
 };
 
-const delegateOutputSchema = z.object(delegateOutputShape).passthrough();
-
-// What doctor reports about the launcher. Only `found` was advertised before, so `command`,
-// `version`, `error` and the whole deep handshake reached hosts undeclared — the same drift
-// delegateOutputShape exists to prevent, one level further down.
+// What doctor reports about the launcher — the same in-repo contract as delegateOutputShape,
+// one level down, and the level where it actually drifted: `command`, `version`, `error` and
+// the whole deep handshake went undocumented while only `found` was written here.
 //
 // Fields this bridge computes are typed; fields relayed verbatim from the agent are left
-// unknown on purpose. The SDK validates structuredContent against this schema and throws when
-// it does not fit, and doctor is what you run when the agent is already misbehaving: a schema
-// tight enough to reject a weird protocolVersion would turn the diagnostic into a crash.
+// unknown on purpose. doctor.test.js parses every result against a strict copy of this shape,
+// and doctor is what you run when the agent is already misbehaving: a schema tight enough to
+// reject a weird protocolVersion would fail on the agent's output rather than on ours.
+//
+// Types only; what the fields mean is documented once, in TECHNICAL.md.
 export const doctorAgentShape = {
-  found: z.boolean().describe("Whether the launcher command could be spawned at all."),
-  command: z.string().describe("The resolved launcher command line, with ACP_AGENT_COMMAND/ACP_AGENT_ARGS applied."),
-  version: z.string().nullable().describe(
-    "The launcher's --version output, or null when it could not be read. found:false means it is not installed; found:true with a null version means it exists but did not answer — error says why."
-  ),
-  error: z.string().optional().describe("Why version is null on a launcher that does exist, e.g. the probe timed out."),
+  found: z.boolean(),
+  command: z.string(),
+  version: z.string().nullable(),
+  error: z.string().optional(),
   handshake: z.object({
     ok: z.boolean(),
-    error: z.string().optional().describe("Present when ok is false: what the handshake failed on, e.g. not logged in, or a timeout."),
-    protocolVersion: z.unknown().optional().describe("As reported by the agent; null when it reported none."),
+    error: z.string().optional(),
+    protocolVersion: z.unknown().optional(),
     agentCapabilities: z.unknown().optional(),
-    models: z.array(z.unknown()).optional().describe("Model ids the agent offers for a new session."),
+    models: z.array(z.unknown()).optional(),
     currentModel: z.unknown().optional(),
-    modes: z.array(z.unknown()).optional().describe("Session mode ids the agent offers."),
-  }).passthrough().optional().describe("Present only when deep is true. Everything past ok and error is absent when ok is false."),
+    modes: z.array(z.unknown()).optional(),
+  }).passthrough().optional(),
 };
 
 // Exported as a shape for the same reason as delegateOutputShape, and with agent split out
@@ -150,8 +137,6 @@ export const doctorOutputShape = {
   }),
   env: z.record(z.unknown()),
 };
-
-const doctorOutputSchema = z.object(doctorOutputShape).passthrough();
 
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
@@ -222,10 +207,9 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
       },
     });
     if (handle?.cancelRequested) out.cancelRequested = true;
-    return {
-      content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
-      structuredContent: out,
-    };
+    // One copy, compact. The result also went out as structuredContent while an outputSchema
+    // was declared, which cost every host that reads both fields the whole payload twice.
+    return { content: [{ type: "text", text: JSON.stringify(out) }] };
   } catch (err) {
     return {
       // The reason is already decided upstream; naming it here saves the caller parsing
@@ -261,7 +245,6 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       description:
         `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
       inputSchema: delegateInputSchema,
-      outputSchema: delegateOutputSchema,
       annotations: {
         title: "Delegate coding task to Cursor",
         readOnlyHint: false,
@@ -346,7 +329,6 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
           .default(false)
           .describe("When true, run a lightweight ACP handshake (start → initialize → newSession) to verify the agent is usable"),
       },
-      outputSchema: doctorOutputSchema,
       annotations: {
         title: "Diagnose Cursor delegation setup",
         readOnlyHint: true,
@@ -363,10 +345,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
           version: server.server.getClientVersion(),
         }),
       });
-      return {
-        content: [{ type: "text", text: JSON.stringify(out, null, 2) }],
-        structuredContent: out,
-      };
+      // Single compact copy, for the reason runDelegateTool returns one.
+      return { content: [{ type: "text", text: JSON.stringify(out) }] };
     }
   );
 
