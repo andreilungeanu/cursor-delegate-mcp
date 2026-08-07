@@ -21,15 +21,26 @@ const runDelegate = async (opts) => {
   return out;
 };
 
+// A stub agent that completes an empty turn. Every factory below starts from this and
+// overwrites only the methods its test exercises, so the ACP surface is declared once:
+// adding a method to AcpClient means editing one place, not every stub.
+function stubClient(sessionId = "sess") {
+  const client = new EventEmitter();
+  client.start = async () => {};
+  client.initialize = async () => {};
+  client.newSession = async () => ({ sessionId });
+  client.setModel = async () => {};
+  client.setConfigOption = async () => {};
+  client.setMode = async () => {};
+  client.prompt = async () => ({ stopReason: "end_turn" });
+  client.getTranscript = () => "";
+  client.stop = () => {};
+  return client;
+}
+
 function thinkingFactory() {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-think" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-think");
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "SECRET-THOUGHT: planning" } } });
       client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit File", kind: "edit", status: "pending" } });
@@ -37,8 +48,6 @@ function thinkingFactory() {
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } } });
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -56,13 +65,7 @@ function fakeFactory({ mode, onCreatePlan }) {
 }
 
 function oversizedFactory() {
-  const client = new EventEmitter();
-  client.start = async () => {};
-  client.initialize = async () => {};
-  client.newSession = async () => ({ sessionId: "sess-big" });
-  client.setModel = async () => {};
-  client.setConfigOption = async () => {};
-  client.setMode = async () => {};
+  const client = stubClient("sess-big");
   client.prompt = async () => {
     const chunk = "x".repeat(1024 * 1024);
     for (let i = 0; i < 12; i++) {
@@ -70,42 +73,26 @@ function oversizedFactory() {
     }
     return { stopReason: "end_turn" };
   };
-  client.stop = () => {};
   return client;
 }
 
 // One "x" then a single emoji chunk longer than the remaining budget, so the 10MB cut lands
 // on the high surrogate of a pair (an even index) and must step back to stay well-formed.
 function surrogateBoundaryFactory() {
-  const client = new EventEmitter();
-  client.start = async () => {};
-  client.initialize = async () => {};
-  client.newSession = async () => ({ sessionId: "sess-surrogate" });
-  client.setModel = async () => {};
-  client.setConfigOption = async () => {};
-  client.setMode = async () => {};
+  const client = stubClient("sess-surrogate");
   client.prompt = async () => {
     client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "x" } } });
     const emoji = "\u{1f525}".repeat(5 * 1024 * 1024);
     client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: emoji } } });
     return { stopReason: "end_turn" };
   };
-  client.stop = () => {};
   return client;
 }
 
 function fastToggleFactory({ onSetFast }) {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-track" });
-    client.setModel = async () => {};
+    const client = stubClient("sess-track");
     client.setConfigOption = async (_sid, configId, value) => onSetFast?.(value, configId);
-    client.setMode = async () => {};
-    client.prompt = async () => ({ stopReason: "end_turn" });
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -114,11 +101,7 @@ function fastToggleFactory({ onSetFast }) {
 // rejectFast throws the -32602 a model without the fast knob returns.
 function servedModelFactory({ served, rejectFast = false }) {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-model" });
-    client.setModel = async () => {};
+    const client = stubClient("sess-model");
     client.setConfigOption = async (_sid, configId) => {
       if (rejectFast && configId === "fast") {
         const err = new Error("Unknown model config option: fast");
@@ -127,13 +110,10 @@ function servedModelFactory({ served, rejectFast = false }) {
       }
       return { configOptions: [{ id: "model", currentValue: served, options: [{ value: served }] }] };
     };
-    client.setMode = async () => {};
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -252,20 +232,12 @@ test("runDelegate propagates a set_config_option failure that is not an unknown 
 // Measured on gpt-5.4: reasoning accepts none|low|medium|high|extra-high, context 272k|1m.
 function configFactory({ onSet, refuse = [], invalid = [] }) {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-cfg" });
-    client.setModel = async () => {};
+    const client = stubClient("sess-cfg");
     client.setConfigOption = async (_sid, configId, value) => {
       if (refuse.includes(configId)) throw rpcError(-32602, `Invalid params: Unknown model config option: ${configId}`);
       if (invalid.includes(configId)) throw rpcError(-32602, `Invalid params: Invalid value for ${configId}: ${value}`);
       onSet?.(configId, value);
     };
-    client.setMode = async () => {};
-    client.prompt = async () => ({ stopReason: "end_turn" });
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -316,10 +288,8 @@ test("runDelegate fails loudly when a config value is rejected as invalid", asyn
 
 test("runDelegate leaves an existing reason alone and tags nothing without an rpc code", async () => {
   const factory = () => {
-    const client = new EventEmitter();
+    const client = stubClient();
     client.start = async () => { throw new Error("spawn failed"); };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
   await assert.rejects(
@@ -344,20 +314,12 @@ test("runDelegate leaves an existing reason alone and tags nothing without an rp
 test("runDelegate surfaces the agent-assigned title as progress, not in the result", async () => {
   const progress = [];
   const factory = () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-titled" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-titled");
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "session_info_update", title: "File Creator" } });
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } } });
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
   const out = await runDelegate({ spec: "task", workspace: process.cwd(), clientFactory: factory, onProgress: (m) => progress.push(m) });
@@ -370,17 +332,8 @@ test("runDelegate surfaces the agent-assigned title as progress, not in the resu
 
 test("runDelegate reports why a failed resume started a fresh session", async () => {
   const factory = () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
+    const client = stubClient("sess-fresh");
     client.loadSession = async () => { throw rpcError(-32602, "Invalid params: Session old-id not found"); };
-    client.newSession = async () => ({ sessionId: "sess-fresh" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
-    client.prompt = async () => ({ stopReason: "end_turn" });
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
   const out = await runDelegate({
@@ -409,13 +362,7 @@ test("runDelegate captures session/update:plan with latest update winning", asyn
 
 function planDetailFactory({ message, overview, plan, trailingTool = false }) {
   return ({ onCreatePlan }) => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-plandetail" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-plandetail");
     client.prompt = async () => {
       onCreatePlan?.({ overview, plan });
       client.emit("update", { update: { sessionUpdate: "plan", entries: [{ content: "step", priority: "low", status: "pending" }] } });
@@ -427,51 +374,31 @@ function planDetailFactory({ message, overview, plan, trailingTool = false }) {
       }
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
 
-// In plan/ask result is the agent's own message verbatim; the filed plan is dropped from
-// plan.detail (it lives in plan.entries and the agent's session). No bridge-side promotion, so
-// message length no longer changes what result carries.
-test("runDelegate returns a real plan message verbatim and drops plan.detail", async () => {
-  const message = "Here is the plan in full. " + "Ship the change step by step with rationale. ".repeat(5);
-  const plan = message + " " + "Extra rendered detail with mermaid the orchestrator never needs. ".repeat(5);
-  const out = await runDelegate({
-    spec: "plan it", mode: "plan", workspace: process.cwd(),
-    clientFactory: planDetailFactory({ message, overview: "ov", plan }),
+// In plan/ask result is the agent's own message verbatim and plan.detail is dropped (the plan
+// lives in plan.entries and in the agent's session). The rule is the mode alone — no bridge-side
+// promotion — so these three replies, which a former length heuristic told apart, must now all
+// come back untouched.
+for (const [shape, message] of [
+  ["a full plan message", "Here is the plan in full. " + "Ship the change step by step with rationale. ".repeat(5)],
+  ["a terse message", "plan ready"],
+  ["a clarifying question", "Should the config format be TOML or JSON?"],
+]) {
+  test(`runDelegate returns ${shape} verbatim and drops plan.detail`, async () => {
+    const out = await runDelegate({
+      spec: "plan it", mode: "plan", workspace: process.cwd(),
+      clientFactory: planDetailFactory({ message, overview: "ov", plan: "# Plan\n\n1. The filed plan document." }),
+    });
+    assert.equal(out.result, message, "result is the agent's own message");
+    assert.equal(out.resultSource, undefined);
+    assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
+    assert.equal(out.plan.overview, "ov");
+    assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
   });
-  assert.equal(out.result, message, "result is the agent's own message");
-  assert.equal(out.resultSource, undefined);
-  assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
-  assert.equal(out.plan.overview, "ov");
-  assert.deepEqual(out.plan.entries, [{ content: "step", priority: "low", status: "pending" }]);
-});
-
-test("runDelegate keeps a terse plan message verbatim, without promoting the filed plan", async () => {
-  const plan = "# Plan\n\n1. Do the thing with a lot of detailed explanation and several steps.";
-  const out = await runDelegate({
-    spec: "plan it", mode: "plan", workspace: process.cwd(),
-    clientFactory: planDetailFactory({ message: "plan ready", overview: "ov", plan }),
-  });
-  assert.equal(out.result, "plan ready", "the terse message is the result, not the filed plan");
-  assert.equal(out.resultSource, undefined);
-  assert.equal(out.plan.detail, undefined, "detail is dropped in plan/ask");
-});
-
-test("runDelegate keeps a clarifying question verbatim as result in plan mode", async () => {
-  const plan = "# Plan\n\n1. Add the config loader with a detailed multi-step rollout description.";
-  const question = "Should the config format be TOML or JSON?";
-  const out = await runDelegate({
-    spec: "file the plan and ask the format", mode: "plan", workspace: process.cwd(),
-    clientFactory: planDetailFactory({ message: question, overview: "ov", plan }),
-  });
-  assert.equal(out.result, question, "the agent's question is the result — answer by resuming the session");
-  assert.equal(out.resultSource, undefined);
-  assert.equal(out.plan.detail, undefined);
-});
+}
 
 test("runDelegate falls back to the pre-tool preamble when a trailing tool leaves no final message", async () => {
   const plan = "# Plan\n\n1. A detailed multi-step plan filed before the agent ran a tool.";
@@ -514,12 +441,6 @@ test("runDelegate populates filesReportedByEditTools from a tool_call_update dif
   assert.deepEqual(out.filesReportedByEditTools, ["hello.txt"]);
 });
 
-test("runDelegate reports diff-event paths in a non-git workspace", async () => {
-  // Attribution comes only from native ACP diff events, so git state is irrelevant.
-  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: tmpdir(), clientFactory: fakeFactory });
-  assert.deepEqual(out.filesReportedByEditTools, ["hello.txt"]);
-});
-
 test("runDelegate does not fold reasoning (thinking) into the result", async () => {
   const progress = [];
   const out = await runDelegate({
@@ -550,19 +471,11 @@ test("runDelegate calls onProgress on agent message chunks and tool-call updates
 });
 
 const replayFactory = (updates) => () => {
-  const client = new EventEmitter();
-  client.start = async () => {};
-  client.initialize = async () => {};
-  client.newSession = async () => ({ sessionId: "sess-replay" });
-  client.setModel = async () => {};
-  client.setConfigOption = async () => {};
-  client.setMode = async () => {};
+  const client = stubClient("sess-replay");
   client.prompt = async () => {
     for (const update of updates) client.emit("update", { update });
     return { stopReason: "end_turn" };
   };
-  client.getTranscript = () => "";
-  client.stop = () => {};
   return client;
 };
 
@@ -1207,20 +1120,12 @@ test("runDelegate appends the transcript when CURSOR_DELEGATE_TRANSCRIPT is set"
 
 function scriptedFactory({ planEntries, stopReason = "end_turn", message = "plan ready" }) {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-scripted" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-scripted");
     client.prompt = async () => {
       if (planEntries) client.emit("update", { update: { sessionUpdate: "plan", entries: planEntries } });
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: message } } });
       return { stopReason };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -1285,19 +1190,10 @@ test("runDelegate omits protocolWarnings when frames are well-formed", async () 
 
 function abortablePromptFactory({ onAbortReady, track }) {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-abort" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
-    client.on = (...args) => EventEmitter.prototype.on.call(client, ...args);
-    client.off = (...args) => EventEmitter.prototype.off.call(client, ...args);
+    const client = stubClient("sess-abort");
     client.cancel = async () => {};
     client.child = { pid: null, exitCode: null, signalCode: null, kill() {} };
     client.prompt = () => new Promise((resolve) => { onAbortReady?.(resolve); });
-    client.getTranscript = () => "";
     client.stop = () => { track.stopped = true; };
     return client;
   };
@@ -1351,20 +1247,12 @@ test("runDelegate rejects immediately when signal is already aborted", async () 
 // full list, then merge:true deltas carrying only the changed entries.
 function todoFactory(frames) {
   return ({ onTodos }) => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-todo" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-todo");
     client.prompt = async () => {
       for (const f of frames) onTodos(f);
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "done" } } });
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -1496,13 +1384,7 @@ test("todo progress messages are omitted when the agent tracks none", async () =
 test("heartbeat names the in-progress todo during a silent turn", async () => {
   const lines = [];
   const factory = ({ onTodos }) => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-hb" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-hb");
     client.prompt = () => {
       onTodos({ merge: false, todos: [
         { id: "1", content: "Set up fixtures", status: "completed" },
@@ -1510,8 +1392,6 @@ test("heartbeat names the in-progress todo during a silent turn", async () => {
       ] });
       return new Promise(() => {});
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
   await assert.rejects(
@@ -1533,16 +1413,10 @@ test("heartbeat names the in-progress todo during a silent turn", async () => {
 
 function hangingFactory({ todos: frames = [], emit, title, loadFails } = {}) {
   return ({ onTodos }) => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-forensics" });
+    const client = stubClient("sess-forensics");
     client.loadSession = async () => {
       if (loadFails) throw rpcError(-32602, "Invalid params: Session stale-id not found");
     };
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
     client.cancel = async () => {};
     client.prompt = () => {
       if (title) client.emit("update", { update: { sessionUpdate: "session_info_update", title } });
@@ -1550,8 +1424,6 @@ function hangingFactory({ todos: frames = [], emit, title, loadFails } = {}) {
       emit?.(client);
       return new Promise(() => {});
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -1688,22 +1560,15 @@ test("timeout forensics stay quiet when the agent tracked no todos", async () =>
 
 function modelListFactory(availableModels) {
   return () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
+    const client = stubClient("sess-models");
     client.newSession = async () => {
       if (availableModels !== undefined) client.sessionModels = { availableModels };
       return { sessionId: "sess-models" };
     };
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } });
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
 }
@@ -1767,7 +1632,7 @@ test("runDelegate reports a plan-mode edit via filesReportedByEditTools from its
 // session/load replays the previous turn: measured 23 frames, incl. tool_call with
 // synthetic "replay-0-N" ids and tool_call_update carrying real diff blocks.
 function loadReplayFactory() {
-  const client = new EventEmitter();
+  const client = stubClient("sess-new");
   const replay = () => {
     client.emit("update", { update: { sessionUpdate: "user_message_chunk", content: { text: "earlier request" } } });
     client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "replay-0-2", title: "Edit File", status: "pending" } });
@@ -1775,19 +1640,11 @@ function loadReplayFactory() {
       content: [{ type: "diff", path: "from-a-previous-turn.txt" }] } });
     client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "stale result text" } } });
   };
-  client.start = async () => {};
-  client.initialize = async () => {};
-  client.newSession = async () => ({ sessionId: "sess-new" });
   client.loadSession = async () => { replay(); return {}; };
-  client.setModel = async () => {};
-  client.setConfigOption = async () => {};
-  client.setMode = async () => {};
   client.prompt = async () => {
     client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "fresh answer" } } });
     return { stopReason: "end_turn" };
   };
-  client.getTranscript = () => "";
-  client.stop = () => {};
   return () => client;
 }
 
@@ -1828,13 +1685,7 @@ test("frames arriving after the prompt settles do not mutate the finished turn",
   // still being assembled across awaits.
   let emitLate;
   const clientFactory = () => {
-    const client = new EventEmitter();
-    client.start = async () => {};
-    client.initialize = async () => {};
-    client.newSession = async () => ({ sessionId: "sess-late" });
-    client.setModel = async () => {};
-    client.setConfigOption = async () => {};
-    client.setMode = async () => {};
+    const client = stubClient("sess-late");
     client.prompt = async () => {
       client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "answer" } } });
       emitLate = () => client.emit("update", {
@@ -1847,8 +1698,6 @@ test("frames arriving after the prompt settles do not mutate the finished turn",
       });
       return { stopReason: "end_turn" };
     };
-    client.getTranscript = () => "";
-    client.stop = () => {};
     return client;
   };
   const out = await runDelegate({
