@@ -58,7 +58,7 @@ You need [Node.js 22+](https://nodejs.org/) and the [Cursor CLI](https://cursor.
 
 ```shell
 /plugin marketplace add andreilungeanu/cursor-delegate-mcp
-/plugin install cursor-delegate-mcp@cursor-delegate-mcp
+/plugin install cursor-delegate@cursor-delegate-mcp
 ```
 
 Then just ask:
@@ -71,7 +71,7 @@ That's the whole loop — Claude writes the brief, Cursor grinds through the fil
 
 ```shell
 codex plugin marketplace add andreilungeanu/cursor-delegate-mcp
-codex plugin add cursor-delegate-mcp@cursor-delegate-mcp
+codex plugin add cursor-delegate@cursor-delegate-mcp
 ```
 
 ### GitHub Copilot CLI

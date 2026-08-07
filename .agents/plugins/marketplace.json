@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "cursor-delegate-mcp",
+      "name": "cursor-delegate",
       "source": {
         "source": "url",
         "url": "https://github.com/andreilungeanu/cursor-delegate-mcp.git",

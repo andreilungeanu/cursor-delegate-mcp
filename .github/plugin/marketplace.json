@@ -10,7 +10,7 @@
   },
   "plugins": [
     {
-      "name": "cursor-delegate-mcp",
+      "name": "cursor-delegate",
       "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
       "version": "1.14.0",
       "source": "./"

@@ -8,19 +8,22 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel) => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8"));
 const pkg = read("package.json");
 const pin = `cursor-delegate-mcp@${pkg.version}`;
+const pluginName = "cursor-delegate";
+const serverName = "cursor-delegate";
+const marketplaceName = "cursor-delegate-mcp";
 
 test("Codex plugin manifest references real portable components", () => {
   const manifestPath = resolve(ROOT, ".codex-plugin/plugin.json");
   const manifest = read(".codex-plugin/plugin.json");
-  assert.equal(manifest.name, "cursor-delegate-mcp");
+  assert.equal(manifest.name, pluginName);
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
 
   for (const field of ["skills"]) {
     assert.match(manifest[field], /^\.\//);
     assert.ok(existsSync(resolve(dirname(manifestPath), "..", manifest[field])), `${field} path must exist`);
   }
-  assert.equal(manifest.mcpServers["cursor-delegate"].command, "npx");
-  assert.deepEqual(manifest.mcpServers["cursor-delegate"].args, ["-y", pin]);
+  assert.equal(manifest.mcpServers[serverName].command, "npx");
+  assert.deepEqual(manifest.mcpServers[serverName].args, ["-y", pin]);
   for (const field of ["composerIcon", "logo"]) {
     const target = resolve(dirname(manifestPath), "..", manifest.interface[field]);
     assert.ok(existsSync(target), `${field} asset must exist`);
@@ -32,31 +35,55 @@ test("Codex plugin manifest references real portable components", () => {
 test("marketplaces and Copilot plugin point at the intended package", () => {
   const codexMarketplace = read(".agents/plugins/marketplace.json");
   const codexEntry = codexMarketplace.plugins[0];
-  assert.equal(codexEntry.name, "cursor-delegate-mcp");
+  const codexManifest = read(".codex-plugin/plugin.json");
+  const readme = readFileSync(resolve(ROOT, "README.md"), "utf8");
+  const selector = `${codexEntry.name}@${codexMarketplace.name}`;
+  assert.equal(codexMarketplace.name, marketplaceName);
+  assert.equal(codexEntry.name, pluginName);
+  assert.equal(codexEntry.name, codexManifest.name);
+  assert.notEqual(codexEntry.name, codexMarketplace.name);
+  assert.match(readme, new RegExp(`/plugin install ${selector}`));
+  assert.match(readme, new RegExp(`codex plugin add ${selector}`));
   assert.equal(codexEntry.source.source, "url");
   assert.match(codexEntry.source.url, /^https:\/\/github\.com\/andreilungeanu\//);
   assert.equal(codexEntry.policy.installation, "AVAILABLE");
   assert.equal(codexEntry.policy.authentication, "ON_INSTALL");
 
   const copilot = read("plugin.json");
+  assert.equal(copilot.name, pluginName);
   assert.ok(existsSync(resolve(ROOT, copilot.skills)));
   assert.ok(existsSync(resolve(ROOT, copilot.mcpServers)));
   const copilotMcp = read(".mcp.copilot.json");
-  assert.deepEqual(copilotMcp["cursor-delegate"].args, ["-y", pin]);
+  assert.deepEqual(copilotMcp[serverName].args, ["-y", pin]);
 
   const copilotMarketplace = read(".github/plugin/marketplace.json");
+  assert.equal(copilotMarketplace.name, marketplaceName);
+  assert.equal(copilotMarketplace.plugins[0].name, pluginName);
+  assert.equal(copilotMarketplace.plugins[0].name, copilot.name);
   assert.equal(copilotMarketplace.plugins[0].source, "./");
 });
 
 test("Claude plugin launches bundled code and bootstraps its runtime dependencies", () => {
   const manifest = read(".claude-plugin/plugin.json");
+  const marketplace = read(".claude-plugin/marketplace.json");
+  assert.equal(manifest.name, pluginName);
+  assert.equal(marketplace.name, marketplaceName);
+  assert.equal(marketplace.plugins[0].name, manifest.name);
+  assert.notEqual(marketplace.plugins[0].name, marketplace.name);
   assert.equal(manifest.mcpServers, "./.claude-plugin/mcp.json");
   assert.equal(manifest.hooks, "./.claude-plugin/hooks.json");
 
   const claudeMcp = read(".claude-plugin/mcp.json");
-  const server = claudeMcp.mcpServers["cursor-delegate"];
+  const server = claudeMcp.mcpServers[serverName];
   assert.equal(server.command, "node");
   assert.deepEqual(server.args, ["${CLAUDE_PLUGIN_ROOT}/src/server.js"]);
+
+  const listed = new Set(marketplace.plugins.map((entry) => entry.name));
+  for (const [from, to] of Object.entries(marketplace.renames)) {
+    assert.ok(!listed.has(from), `renamed-from ${from} must not still be a plugin entry`);
+    assert.ok(to === null || listed.has(to), `rename ${from} must terminate at null or a listed plugin`);
+  }
+  assert.equal(marketplace.renames["cursor-delegate-mcp"], pluginName);
 
   const hooks = read(".claude-plugin/hooks.json");
   const command = hooks.hooks.SessionStart[0].hooks[0].command;

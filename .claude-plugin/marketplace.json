@@ -8,11 +8,14 @@
   "description": "Marketplace hosting the Cursor Delegate plugin.",
   "plugins": [
     {
-      "name": "cursor-delegate-mcp",
+      "name": "cursor-delegate",
       "source": "./",
       "description": "MCP server bridging AI coding hosts to cursor-agent over ACP.",
       "license": "MIT",
       "keywords": ["mcp", "cursor", "acp", "claude-code", "codex", "copilot"]
     }
-  ]
+  ],
+  "renames": {
+    "cursor-delegate-mcp": "cursor-delegate"
+  }
 }

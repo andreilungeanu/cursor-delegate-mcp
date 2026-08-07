@@ -1,5 +1,5 @@
 {
-  "name": "cursor-delegate-mcp",
+  "name": "cursor-delegate",
   "version": "1.14.0",
   "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
   "author": {
