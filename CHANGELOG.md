@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.16.0] - 2026-08-07
+
+`delegate` and `doctor` now answer once instead of twice. The fields they report are unchanged.
+
+### Changed
+
+- **`delegate` and `doctor` no longer return `structuredContent`.** The result is a single
+  compact JSON text block. Both previously sent the same payload twice — pretty-printed text
+  *and* `structuredContent` — which a host reading both (Codex does) loaded into the model's
+  context twice. Hosts that read the text block are unaffected; a host wired to
+  `structuredContent` for these two tools must read `content[0].text` and parse it. `cancel`
+  still returns `structuredContent`.
+- `TECHNICAL.md` is tracked at the repo root and its stale contract corrected;
+  `skills/delegate/reference.md` is the single source of truth for `delegate` and `doctor`
+  fields.
+
+### Security
+
+- Lockfile-only dependency bump clearing the high-severity audit advisories.
+
+### Internal
+
+- Test suite: the ACP client stub is declared once instead of in 19 hand-rolled copies, and
+  tests left behind by deleted heuristics are collapsed or removed. Two regression tests
+  covering `delegate` behaviour moved out of `session-supervisor.test.js` and are named for
+  what they assert rather than for a retired bug label.
+- Code comments state the constraint that still holds rather than the change history behind it.
+  Every protocol fact, agent quirk and probe measurement is retained; `git log` keeps the rest.
+
 ## [1.15.0] - 2026-08-07
 
 ### Changed
