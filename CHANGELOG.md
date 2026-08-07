@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.15.0] - 2026-08-07
+
+### Changed
+
+- The plugin is renamed `cursor-delegate-mcp` → `cursor-delegate`, so the selector reads
+  `cursor-delegate@cursor-delegate-mcp` instead of repeating itself. Claude Code v2.1.193+
+  migrates existing installs through the marketplace's new `renames` map; elsewhere,
+  reinstall once. Update permission rules to `mcp__plugin_cursor-delegate_cursor-delegate__*`.
+
+Marketplace, MCP server key and npm package names are unchanged, as are standalone installs.
+
 ## [1.14.0] - 2026-07-25
 
 A correctness, performance and tooling pass. `delegate`'s contract is unchanged. `doctor` gains

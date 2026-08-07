@@ -1,6 +1,6 @@
 {
   "name": "cursor-delegate",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
   "author": {
     "name": "Andrei Lungeanu",
