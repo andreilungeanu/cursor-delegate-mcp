@@ -17,10 +17,10 @@ for the tool contract. Orchestration guidance is in
 
 ### Result envelope
 
-`delegate` and `doctor` return their payload as one compact JSON text block and declare no MCP
+Every tool returns its payload as one compact JSON text block and declares no MCP
 `outputSchema`. Declaring one obliges the server to send the same object again as
 `structuredContent`, and hosts that read both fields put both copies into the model's context.
-`cancel` keeps its output schema: its text block is prose, not a duplicate of the status object.
+`cancel`'s status vocabulary is published in its tool description instead.
 
 ### Other tools
 

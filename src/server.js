@@ -26,6 +26,10 @@ function registerInFlight(map, sessionId, handle) {
   if (handles) handles.add(handle);
   else map.set(sessionId, new Set([handle]));
 }
+/** @returns {import("@modelcontextprotocol/sdk/types.js").CallToolResult} */
+function cancelResult(status, sessionId) {
+  return { content: [{ type: "text", text: JSON.stringify({ status, sessionId }) }] };
+}
 function unregisterInFlight(map, sessionId, handle) {
   const handles = map.get(sessionId);
   if (!handles) return;
@@ -54,11 +58,12 @@ const planEntrySchema = z.object({
   status: z.enum(PLAN_STATUSES).optional(),
 }).passthrough();
 
-// Deliberately not declared to hosts as an outputSchema: declaring one obliges the server to
-// also return structuredContent, and a host that reads both it and the text block — Codex does —
-// puts the whole payload in the model's context twice. So this is an in-repo contract instead,
-// enforced by the .strict() copy in delegate.test.js, which fails when a field added in
-// delegate.js is forgotten here.
+// No tool declares an outputSchema: declaring one obliges the server to also return
+// structuredContent, and a host that reads both it and the text block — Codex does — puts the
+// payload in the model's context twice. Every tool returns one compact JSON text block instead.
+// So this is an in-repo contract, enforced by the .strict() copy in delegate.test.js, which
+// fails when a field added in delegate.js is forgotten here. cancel's status vocabulary is
+// published in its tool description, which is now its only schema.
 //
 // Types only. What each field means, and what its absence means, is documented once in
 // skills/delegate/reference.md.
@@ -262,7 +267,6 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         sessionId: z.string(),
         force: z.boolean().default(false).describe("After the cancel notify, wait a short grace period and kill the agent process if the delegation is still running"),
       },
-      outputSchema: z.object({ status: z.enum(["cancelled", "killed", "not-running", "not-found"]), sessionId: z.string() }),
       annotations: {
         title: "Cancel Cursor delegation",
         readOnlyHint: false,
@@ -277,12 +281,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         // A finished session and a garbage id are both "not in flight". Reporting them alike
         // would read as "bad id" for a session that ran and is still resumable.
         const known = seenSessions.has(sessionId);
-        return {
-          content: [{ type: "text", text: known
-            ? `session ${sessionId} is not running; its turn already ended (still resumable via resumeSessionId)`
-            : `no in-flight session ${sessionId}` }],
-          structuredContent: { status: known ? "not-running" : "not-found", sessionId },
-        };
+        return cancelResult(known ? "not-running" : "not-found", sessionId);
       }
       // Cancel every turn running on the id: the caller named a session, not one of the
       // turns that happen to share it.
@@ -293,25 +292,14 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         // be running. Dropping them here made the natural escalation — cancel, wait, cancel
         // with force — report not-found while the agent was alive. Each delegation's own
         // finally removes its handle when the turn actually settles.
-        return {
-          content: [{ type: "text", text: `cancelled ${sessionId}` }],
-          structuredContent: { status: "cancelled", sessionId },
-        };
+        return cancelResult("cancelled", sessionId);
       }
       await new Promise((r) => setTimeout(r, forceGraceMs));
       const stillRunning = inFlight.get(sessionId);
-      if (!stillRunning || stillRunning.size === 0) {
-        return {
-          content: [{ type: "text", text: `cancelled ${sessionId}` }],
-          structuredContent: { status: "cancelled", sessionId },
-        };
-      }
+      if (!stillRunning || stillRunning.size === 0) return cancelResult("cancelled", sessionId);
       for (const handle of stillRunning) handle.client.stop();
       inFlight.delete(sessionId);
-      return {
-        content: [{ type: "text", text: `killed ${sessionId}` }],
-        structuredContent: { status: "killed", sessionId },
-      };
+      return cancelResult("killed", sessionId);
     }
   );
 

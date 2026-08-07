@@ -8,9 +8,8 @@ import { AcpClient } from "../src/acp-client.js";
 import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
 import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server.js";
 
-// delegate and doctor return their payload as one compact JSON text block and no
-// structuredContent, so every assertion on their fields goes through here. cancel is the
-// exception and still carries structuredContent — its text block is prose, not a duplicate.
+// Every tool returns its payload as one compact JSON text block and no structuredContent, so
+// every assertion on their fields goes through here.
 const payload = (res) => JSON.parse(res.content[0].text);
 
 // Real AcpClient over a stub subprocess, so force-kill exercises the actual treeKill path.
@@ -203,11 +202,15 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.ok(!/uses MCP elicitation/i.test(tools.delegate.description));
     assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
     assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
-    // No outputSchema on delegate or doctor: declaring one forces structuredContent alongside
-    // the text block, which duplicates the whole payload into the caller's context.
+    // No outputSchema on any tool: declaring one forces structuredContent alongside the text
+    // block, which puts the payload in the caller's context twice.
     assert.equal(tools.delegate.outputSchema, undefined);
     assert.equal(tools.doctor.outputSchema, undefined);
-    assert.ok(tools.cancel.outputSchema, "cancel keeps its status enum machine-readable");
+    assert.equal(tools.cancel.outputSchema, undefined);
+    // With the schema gone, the description is the only published source of cancel's statuses.
+    for (const status of ["cancelled", "killed", "not-running", "not-found"]) {
+      assert.ok(tools.cancel.description.includes(status), `cancel description names ${status}`);
+    }
     assert.equal(tools.delegate.annotations.readOnlyHint, false);
     assert.equal(tools.delegate.annotations.destructiveHint, true);
     assert.equal(tools.delegate.annotations.idempotentHint, false);
@@ -318,14 +321,14 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
     const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
     await ready;
     const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
-    assert.match(cancelRes.content[0].text, /^cancelled sess-live$/);
+    assert.deepEqual(payload(cancelRes), { status: "cancelled", sessionId: "sess-live" });
     assert.equal(cancelledWith, "sess-live");
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
     assert.equal(payload(delegateRes).cancelRequested, true);
     const again = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
-    assert.equal(again.structuredContent.status, "not-running");
-    assert.match(again.content[0].text, /^session sess-live is not running/);
+    assert.equal(payload(again).status, "not-running");
+    assert.deepEqual(payload(again), { status: "not-running", sessionId: "sess-live" });
   } finally {
     await client.close();
   }
@@ -356,8 +359,8 @@ test("cancel tool with force kills the agent when delegation does not settle", a
     const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
     await ready;
     const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-kill", force: true } });
-    assert.equal(cancelRes.structuredContent.status, "killed");
-    assert.match(cancelRes.content[0].text, /^killed sess-force-kill$/);
+    assert.equal(payload(cancelRes).status, "killed");
+    assert.deepEqual(payload(cancelRes), { status: "killed", sessionId: "sess-force-kill" });
     assert.equal(cancelledWith, "sess-force-kill");
     assert.equal(stopCalled, true);
     const delegateRes = await delegateP;
@@ -393,12 +396,12 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
     const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
     await ready;
     const first = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate" } });
-    assert.equal(first.structuredContent.status, "cancelled");
+    assert.equal(payload(first).status, "cancelled");
     // Second, plain: the turn is still in flight, so this must not report not-found.
     const second = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate" } });
-    assert.equal(second.structuredContent.status, "cancelled");
+    assert.equal(payload(second).status, "cancelled");
     const escalated = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate", force: true } });
-    assert.equal(escalated.structuredContent.status, "killed");
+    assert.equal(payload(escalated).status, "killed");
     assert.equal(stopCalled, true);
     const delegateRes = await delegateP;
     assert.equal(payload(delegateRes).cancelRequested, true);
@@ -431,8 +434,8 @@ test("cancel tool with force returns cancelled when delegation settles during gr
     const delegateP = client.callTool({ name: "delegate", arguments: { spec: "task" } });
     await ready;
     const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-settle", force: true } });
-    assert.equal(cancelRes.structuredContent.status, "cancelled");
-    assert.match(cancelRes.content[0].text, /^cancelled sess-force-settle$/);
+    assert.equal(payload(cancelRes).status, "cancelled");
+    assert.deepEqual(payload(cancelRes), { status: "cancelled", sessionId: "sess-force-settle" });
     assert.equal(stopCalled, false);
     const delegateRes = await delegateP;
     assert.notEqual(delegateRes.isError, true);
@@ -465,14 +468,14 @@ test("cancel force kills a real stub agent whose prompt never finishes", async (
     let registered = false;
     while (Date.now() - started < 8000) {
       const probe = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-infinite" } });
-      if (probe.structuredContent.status !== "not-found") { registered = true; break; }
+      if (payload(probe).status !== "not-found") { registered = true; break; }
       await new Promise((r) => setTimeout(r, 25));
     }
     assert.ok(registered, "the stub session should register as in-flight");
 
     const killedAt = Date.now();
     const killRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-infinite", force: true } });
-    assert.equal(killRes.structuredContent.status, "killed");
+    assert.equal(payload(killRes).status, "killed");
 
     const delegateRes = await delegateP;
     assert.equal(delegateRes.isError, true);
@@ -513,8 +516,8 @@ test("cancel tool reports unknown sessions without erroring", async () => {
   try {
     const res = await client.callTool({ name: "cancel", arguments: { sessionId: "never-existed" } });
     assert.notEqual(res.isError, true);
-    assert.equal(res.structuredContent.status, "not-found");
-    assert.match(res.content[0].text, /^no in-flight session never-existed$/);
+    assert.equal(payload(res).status, "not-found");
+    assert.deepEqual(payload(res), { status: "not-found", sessionId: "never-existed" });
   } finally {
     await client.close();
   }
@@ -536,10 +539,10 @@ test("cancel distinguishes a finished session (not-running) from an unknown id (
     assert.notEqual(delegateRes.isError, true);
 
     const finished = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-finished" } });
-    assert.equal(finished.structuredContent.status, "not-running");
+    assert.equal(payload(finished).status, "not-running");
 
     const unknown = await client.callTool({ name: "cancel", arguments: { sessionId: "brand-new-uuid" } });
-    assert.equal(unknown.structuredContent.status, "not-found");
+    assert.equal(payload(unknown).status, "not-found");
   } finally {
     await client.close();
   }
