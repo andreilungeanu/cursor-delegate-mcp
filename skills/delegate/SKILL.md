@@ -7,6 +7,7 @@ description: >
   coding; hand off implementation; plan before building; ask Cursor a read-only question
   about the codebase; resume a delegation session; or diagnose delegation that is failing
   or not set up. Do not shell out to cursor-agent — use the delegate MCP tool.
+license: MIT
 ---
 
 # Delegate to Cursor

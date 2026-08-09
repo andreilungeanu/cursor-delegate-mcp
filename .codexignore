@@ -1,0 +1,23 @@
+# Keep local artifacts out of plugin packaging and scanning.
+# Mirrors the local-only entries in .gitignore.
+
+node_modules/
+.git/
+
+# Local / runtime config and scratch
+acp.config.json
+.env
+.env.*
+.claude/
+/docs/
+spike/
+.firecrawl/
+bench/
+
+# Logs and debug output
+*.log
+npm-debug.log*
+
+# Test and build artifacts
+coverage/
+*.tgz

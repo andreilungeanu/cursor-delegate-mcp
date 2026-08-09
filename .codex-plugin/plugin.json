@@ -36,6 +36,7 @@
     ],
     "brandColor": "#0FB8C5",
     "composerIcon": "./assets/logo-light.png",
-    "logo": "./assets/logo-light.png"
+    "logo": "./assets/logo-light.png",
+    "screenshots": ["./assets/result-json.png"]
   }
 }
