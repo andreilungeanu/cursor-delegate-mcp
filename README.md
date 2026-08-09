@@ -42,6 +42,8 @@ You  →  your agent (plans & reviews)
         Clean result: what changed, which files, the plan
 ```
 
+![Delegate result payload](assets/result-json.png)
+
 ## Features
 
 - 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
