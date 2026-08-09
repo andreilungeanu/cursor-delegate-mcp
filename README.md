@@ -1,6 +1,8 @@
 # Cursor Delegate
 
-**Stop burning your frontier agent's limits on boilerplate.** Delegate edits to Cursor's CLI agent — your agent writes the brief and reviews the diff.
+**Stop burning your frontier agent's limits on boilerplate.** 
+
+Delegate edits to Cursor's CLI agent — your agent writes the brief and reviews the diff.
 
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
@@ -30,7 +32,7 @@ Composer 2.5 is built for throughput on multi-file edits. The whole delegation i
 
 ## 🔋 Your limits stop being the bottleneck
 
-Composer and Grok run on their **own usage allowance** on every Cursor plan — separate from the API-priced main quota, and generous enough that most people never reach the ceiling ([Cursor's own wording](https://cursor.com/pricing)). Your Claude or Codex subscription spends tokens only on the brief and the review, so the 5-hour window and weekly limits go a lot further. Paying per token on API? That grind moves onto Cursor capacity you already have.
+Composer and Grok run on their **own usage allowance** on every Cursor plan — separate from the API-priced main quota, and generous enough that most people never reach the ceiling. Your Claude or Codex subscription spends tokens only on the brief and the review, so the 5-hour window and weekly limits go a lot further. Paying per token on API? That grind moves onto Cursor capacity you already have.
 
 ![You and your agent plan and review; the MCP delegate tool hands the brief to cursor-agent (Composer 2.5), which implements and edits your workspace; a clean result comes back with what changed, which files, and the plan, for your agent to review](assets/flow.png)
 
@@ -88,7 +90,7 @@ copilot plugin install andreilungeanu/cursor-delegate-mcp
   }
 }
 ```
- 
+
 ### Client-specific config locations
 
 <details>
