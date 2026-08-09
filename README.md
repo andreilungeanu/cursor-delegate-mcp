@@ -98,7 +98,12 @@ copilot plugin install andreilungeanu/cursor-delegate-mcp
 ### Client-specific config locations
 
 <details>
-<summary><strong>VS Code</strong> — <code>.vscode/mcp.json</code></summary>
+<summary><strong>VS Code</strong> — one-click install, or <code>.vscode/mcp.json</code></summary>
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=cursor-delegate&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22cursor-delegate-mcp%22%5D%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=cursor-delegate&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22cursor-delegate-mcp%22%5D%7D&quality=insiders)
+
+Or add it manually:
 
 ```json
 {
