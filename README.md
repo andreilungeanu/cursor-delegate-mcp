@@ -32,15 +32,7 @@ Composer 2.5 is built for throughput on multi-file edits. The whole delegation i
 
 Composer and Grok run on their **own usage allowance** on every Cursor plan — separate from the API-priced main quota, and generous enough that most people never reach the ceiling ([Cursor's own wording](https://cursor.com/pricing)). Your Claude or Codex subscription spends tokens only on the brief and the review, so the 5-hour window and weekly limits go a lot further. Paying per token on API? That grind moves onto Cursor capacity you already have.
 
-```
-You  →  your agent (plans & reviews)
-              │  MCP delegate tool
-              ▼
-        cursor-agent (Composer 2.5 — implements)
-              │  edits your workspace
-              ▼
-        Clean result: what changed, which files, the plan
-```
+![You and your agent plan and review; the MCP delegate tool hands the brief to cursor-agent (Composer 2.5), which implements and edits your workspace; a clean result comes back with what changed, which files, and the plan, for your agent to review](assets/flow.png)
 
 ![Delegate result payload](assets/result-json.png)
 
