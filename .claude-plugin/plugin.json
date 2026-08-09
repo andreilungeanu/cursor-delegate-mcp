@@ -8,6 +8,8 @@
     "name": "Andrei Lungeanu",
     "email": "andrei@lungeanu.ro"
   },
+  "homepage": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "repository": "https://github.com/andreilungeanu/cursor-delegate-mcp",
   "license": "MIT",
   "mcpServers": "./.claude-plugin/mcp.json",
   "hooks": "./.claude-plugin/hooks.json",
