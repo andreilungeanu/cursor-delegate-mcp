@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.1] - 2026-08-09
+
+### Changed
+
+- **`workspace` guidance now has a floor.** "Smallest directory that fits" had no lower bound, so
+  callers invented throwaway directories for runs touching no files. The skill and the parameter
+  description now name the floor — smallest directory holding the task's files, never one created
+  for the call — and state that scoping bounds writes, not reads.
+
 ## [1.18.0] - 2026-08-07
 
 Findable, and answerable. The server can now be published to the official MCP Registry — the
