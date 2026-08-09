@@ -1,9 +1,10 @@
 # Cursor Delegate
 
-**Keep the brains. Delegate the build.**
+**Stop burning your frontier agent's limits on boilerplate.** Delegate edits to Cursor's CLI agent — your agent writes the brief and reviews the diff.
 
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-blue)](https://registry.modelcontextprotocol.io/v0/servers?search=cursor-delegate)
 [![node](https://img.shields.io/node/v/cursor-delegate-mcp)](https://nodejs.org)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![tests](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml)
@@ -20,15 +21,15 @@ Cursor Delegate is the MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot 
 
 ## 🧠 Frontier quality, kept
 
-Your assistant does what frontier models are actually for: understands the task, writes a precise brief, reviews the finished diff. And **Composer 2.5** holds its own — a seriously capable coding model, just guided and checked by a smarter one. The result reads like frontier work, because a frontier model planned it and signed off on it.
+Your assistant does what frontier models are actually for: understands the task, writes a precise brief, reviews the finished diff. **Composer 2.5** runs the implementation loop under that brief. Nothing lands unreviewed — the agent that scoped the work reads the changed files back before you see them.
 
 ## ⚡ Done faster
 
-Composer 2.5 is built for speed. It tears through multi-file edits while a frontier model would still be streaming the first file. You delegate, keep working with your assistant, and the diff shows up done.
+Composer 2.5 is built for throughput on multi-file edits. The whole delegation is one call — brief in, result out — so you review a finished diff instead of babysitting edits landing file by file.
 
 ## 🔋 Your limits stop being the bottleneck
 
-Delegated work bills to Composer's **own usage pool** — separate from Cursor's API-priced main quota, and so generous most users never hit its ceiling. Your Claude or Codex subscription spends tokens only on the brief and the review, so the 5-hour window and weekly limits go a lot further. On API? That's the per-token grind moved off your bill.
+Composer and Grok run on their **own usage allowance** on every Cursor plan — separate from the API-priced main quota, and generous enough that most people never reach the ceiling ([Cursor's own wording](https://cursor.com/pricing)). Your Claude or Codex subscription spends tokens only on the brief and the review, so the 5-hour window and weekly limits go a lot further. Paying per token on API? That grind moves onto Cursor capacity you already have.
 
 ```
 You  →  your agent (plans & reviews)
@@ -46,11 +47,11 @@ You  →  your agent (plans & reviews)
 - 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
 - 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape, nothing to guess.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
-- 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase, zero file changes.
+- 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
-- 🔌 **Works everywhere MCP does** — VS Code, JetBrains, Windsurf, Visual Studio, and more.
+- 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, and more.
 
-## Quick start
+## Install
 
 You need [Node.js 20+](https://nodejs.org/) and the [Cursor CLI](https://cursor.com/docs/cli/overview), logged in (`cursor-agent login`).
 
@@ -80,7 +81,20 @@ codex plugin add cursor-delegate@cursor-delegate-mcp
 copilot plugin install andreilungeanu/cursor-delegate-mcp
 ```
 
-### More clients
+### Any other MCP client
+
+```json
+{
+  "mcpServers": {
+    "cursor-delegate": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"]
+    }
+  }
+}
+```
+ 
+### Client-specific config locations
 
 <details>
 <summary><strong>VS Code</strong> — <code>.vscode/mcp.json</code></summary>
@@ -145,20 +159,12 @@ Requires 17.14+. Note the top-level key is `servers`, not `mcpServers`.
 
 </details>
 
-### Kiro, Kilo Code, and any other MCP client
+<details>
+<summary><strong>Kiro, Kilo Code, Zed</strong> — and any other stdio MCP client</summary>
 
-Add the following server to the client's MCP config:
+Use the portable definition above in the client's own MCP config file.
 
-```json
-{
-  "mcpServers": {
-    "cursor-delegate": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
+</details>
 
 ## License
 
