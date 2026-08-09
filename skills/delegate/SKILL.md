@@ -98,7 +98,7 @@ vars, read [reference.md](reference.md) in this skill directory.
 | `mode`      | `agent`        | `plan` = plan only; `ask` = read-only Q&A          |
 | `model`     | `composer-2.5` | Default model; Composer 2.5 standard tier          |
 | `fast`      | `false`        | `true` = higher costs — ONLY when user asks        |
-| `workspace` | server cwd     | Pass it — the default is the MCP **server's** cwd, not always your project root. Scope to the smallest directory that fits |
+| `workspace` | server cwd     | Pass it — the default is the MCP **server's** cwd, not always your project root. Smallest directory holding the task's files; none → project root |
 
 
 Other models (Opus, Codex, Grok, etc.) are available — pass `model` when the user requests
@@ -131,8 +131,8 @@ limited to any options Cursor listed.
 
 ## Security
 
-Every call grants write access to `workspace` in every mode — scope it to the smallest
-directory that fits, and never to `$HOME` or `/`.
+Every call grants write access to `workspace` in every mode — smallest directory holding the
+task's files, never `$HOME`, `/`, or one created for the call. Bounds writes, not reads.
 
 `contextFiles` resolves paths against `workspace` but is **not confined to it** — the write
 boundary is that tree, the read boundary is not. Attach only files you intend the agent to
