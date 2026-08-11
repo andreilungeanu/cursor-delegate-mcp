@@ -145,7 +145,7 @@ export const delegateInputSchema = z.object({
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them, so review the git diff after every run. ask held on every model tested while plan compliance varies by model, so prefer ask when you need the stricter read-only instruction."),
   resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
   workspace: z.string().optional().describe("Working directory for the agent. Optional; defaults to the server process cwd. Must already exist — never create one for the call."),
-  model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL),
+  model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
   fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
   // Which options a model offers, and their valid values, are only knowable by asking the
   // agent, so these stay open strings and the agent rejects what it does not accept.
