@@ -12,18 +12,21 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Always sent, so `false` turns it off on a resumed session. |
 | `workspace` | server cwd | Working directory for the agent. The default is the **MCP server process's** cwd, which for `npx`/plugin launches is not necessarily your project root — pass it explicitly. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
-| `reasoning` | — | Reasoning effort, forwarded as an ACP config option. gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. |
+| `effort` | — | Thinking effort, sent under whichever option id the model declares. Values differ per model; gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. `composer-2.5` declares none. Replaces `reasoning`, which is now rejected. |
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
 | `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**; paths outside it may arrive unreadable agent-side. Attachments are untrusted — the bridge does not scan for prompt injection. Skips are reported in `protocolWarnings`, never fatal. |
 
 ACP model ids are bare families, not the CLI's tier-suffixed `--list-models` strings: the
-CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `reasoning: "high"`, and `-fast` is
+CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `effort: "high"`, and `-fast` is
 `fast: true`. A suffixed id fails with `Invalid model value`; `doctor` with `deep: true`
 lists the ids this agent offers.
 
-Which knobs a model offers is not discoverable up front: a model without the knob yields a
-`protocolWarnings` note and the run continues, while an invalid value for a knob it *does*
-have fails the call. Do not pass `reasoning`/`context` speculatively.
+Config option ids differ per model and are known only once one is selected, so `effort` is
+resolved against the ids the agent reports for the model in use. A model declaring no
+thinking or reasoning option yields a `protocolWarnings` note naming what it does declare, and
+the run continues. An invalid value for an option the model *does* have fails the call, before
+the turn is billed. `doctor` with `deep: true` lists the ids and values of the current model.
+Do not pass `context` speculatively.
 
 ## Return value
 
