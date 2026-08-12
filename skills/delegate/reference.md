@@ -72,11 +72,10 @@ plan lives in the agent's session — resume to act on it.
 
 ## Mode behavior
 
-`mode` is set on the agent via `session/set_mode`. The bridge auto-approves **every**
-`session/request_permission` regardless of mode, so read-only-ness in `plan` and `ask` is the
-agent's behavior, not an enforced boundary. The bridge cannot detect a mode being ignored — an
-agent can write while nominally in `plan`, via shell, with no permission request to withhold and
-no frame to report it. **Review the git diff after every run**, whatever mode you asked for.
+`mode` is set on the agent via `session/set_mode`, and the bridge auto-approves **every**
+`session/request_permission` regardless of it. `plan` and `ask` describe how the agent behaves,
+not what the bridge permits, so **review the git diff after every run**, whatever mode you
+asked for.
 
 - **`agent`** — implements; auto-approves writes; accepts `cursor/create_plan` if emitted.
 - **`plan`** — plan only; the sole mode-dependent gate is rejecting `cursor/create_plan`

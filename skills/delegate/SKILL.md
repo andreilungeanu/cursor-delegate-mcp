@@ -69,9 +69,9 @@ Scale effort to the task:
 3. **Review** — read `filesReportedByEditTools` (absent when no edit tool reported a change),
    inspect the git diff, run tests/lint **yourself**,
    and check the result against the brief's acceptance criteria.
-   - `plan`/`ask` are agent conventions, not enforced boundaries — a run can write while
-     nominally in `plan`. Review the git diff after **every** run before reporting a
-     plan-only outcome, whatever mode you asked for.
+   - Review the git diff after **every** run before reporting a plan-only outcome, whatever
+     mode you asked for: `plan` and `ask` are instructions to the agent, not enforced
+     boundaries.
    - If `todoProgress` is present and `completed < total`, the agent left work unfinished —
      `todos` lists exactly what remains; resume rather than reporting done. Its **absence**
      means nothing; most turns track no todos at all.
@@ -131,13 +131,13 @@ limited to any options Cursor listed.
 
 ## Security
 
-Every call grants write access to `workspace` in every mode — smallest directory holding the
-task's files, never `$HOME`, `/`, or one created for the call. Bounds writes, not reads.
+Every permission the agent requests is auto-approved, in every mode, and `workspace` is the
+agent's working directory rather than a limit on what it can reach. Pass the smallest
+directory holding the task's files — never `$HOME`, `/`, or one created for the call.
 
-`contextFiles` resolves paths against `workspace` but is **not confined to it** — the write
-boundary is that tree, the read boundary is not. Attach only files you intend the agent to
-read; paths outside `workspace` may arrive unreadable. Attachments are untrusted — the bridge
-does not scan for prompt injection.
+`contextFiles` resolves relative paths against `workspace` and is **not confined to it**.
+Attach only files you intend the agent to read; paths outside `workspace` may arrive
+unreadable. Attachments are untrusted — the bridge does not scan for prompt injection.
 
 ## Other MCP tools
 

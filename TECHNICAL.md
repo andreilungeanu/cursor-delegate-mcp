@@ -57,7 +57,7 @@ diagnostic, not fail the call.
 - **`parameterizedModelPicker`** in `initialize` enables standard-tier `composer-2.5` (`fast: false`). Without it, only the ~6× fast tier is offered.
 - Model: `session/set_model` + `session/set_config_option { configId: "fast", value: "false" }`.
 - `session/prompt` requires a content-block array `[{ type: "text", text }]`.
-- `session/request_permission` → `allow-always`. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
+- `session/request_permission` → the broadest allow option by `kind` (`allow_always`, else `allow_once`, else the first offered); the selected `optionId` goes back on the wire. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
 - **Cross-process resume** via `session/load`; unknown ids fall back to a fresh session.
 - **`filesReportedByEditTools`**: built solely from ACP `diff` content blocks in `tool_call_update`; no git inference.
 - **Progress**: deduplicated high-level tool milestones such as reviewing, editing, and verification. Thought and message chunks are never forwarded as progress or folded into `result`.
