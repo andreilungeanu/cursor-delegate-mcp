@@ -24,7 +24,7 @@ Cursor Delegate is the MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot 
 
 ## 🧠 Frontier quality, kept
 
-Your assistant does what frontier models are actually for: understands the task, writes a precise brief, reviews the finished diff. **Composer 2.5** runs the implementation loop under that brief. Nothing lands unreviewed — the agent that scoped the work reads the changed files back before you see them.
+Your assistant does what frontier models are for: understands the task, writes a precise brief, reviews the finished diff. **Composer 2.5** runs the implementation loop under that brief. The bundled skill puts the review step in the loop — the agent that scoped the work reads the changed files back before reporting.
 
 ## ⚡ Done faster
 
@@ -42,11 +42,13 @@ Composer and Grok run on their **own usage allowance** on every Cursor plan — 
 
 - 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
 - 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
-- 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape, nothing to guess.
+- 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
 - 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
 - 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, and more.
+
+`plan` and `ask` are instructions to the agent, and `workspace` is its working directory — [Security](SECURITY.md) and the [delegate reference](skills/delegate/reference.md) spell out what the bridge enforces and what it reports back.
 
 ## Install
 
