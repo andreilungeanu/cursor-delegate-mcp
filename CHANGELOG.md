@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.19.0] - 2026-08-12
+
+### Changed
+
+- **`reasoning` is now `effort`.** Config option ids differ per model — gpt-5.x declares
+  `reasoning`, grok and gemini declare `effort`, Claude declares `thinking` and `effort` together,
+  `composer-2.5` declares none — so one hardcoded id could not reach them all, and `reasoning`
+  silently did nothing on three families. `effort` resolves against the ids the agent reports for
+  the model in use, read from the `configOptions` the `fast` reply already carries; models that
+  refuse `fast` — `claude-haiku-4-5`, `claude-sonnet-5`, `gemini-3.6-flash` — report the list on a
+  re-assert of the model just set. A model whose only thought-level option is boolean
+  (`claude-haiku-4-5` declares just `thinking`) is never sent a level, since that is a guaranteed
+  invalid value and would fail the run. Passing
+  `reasoning` is rejected before the agent is spawned, naming `effort`; it is not accepted as an
+  alias, because an undeclared argument would be stripped and the requested effort lost silently.
+- **The ignored-effort warning no longer misstates the model's capability.** It said "model X has
+  no reasoning option" — false for every model that declares effort under a different id. It now
+  names the ids the model does declare.
+
+### Added
+
+- **`doctor` with `deep: true` reports `currentModelOptions`** — option ids and allowed values for
+  the model the session opened with. `session/new` already returned these; other models would each
+  need a `set_model` first and are not reported.
+
 ## [1.18.1] - 2026-08-09
 
 ### Changed
