@@ -142,7 +142,7 @@ export const doctorOutputShape = {
 
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
-  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them, so review the git diff after every run. ask held on every model tested while plan compliance varies by model, so prefer ask when you need the stricter read-only instruction."),
+  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them, so review the git diff after every run."),
   resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
   workspace: z.string().optional().describe("Working directory for the agent. Optional; defaults to the server process cwd. Must already exist — never create one for the call."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
