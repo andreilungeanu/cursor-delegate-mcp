@@ -131,6 +131,7 @@ test("runDoctor deep:true runs handshake via clientFactory", async () => {
     agentCapabilities: {},
     models: [],
     currentModel: null,
+    currentModelOptions: [],
     modes: [],
   });
   assert.ok(calls.includes("start"));
