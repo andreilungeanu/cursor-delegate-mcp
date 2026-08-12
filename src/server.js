@@ -149,7 +149,12 @@ export const delegateInputSchema = z.object({
   fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
   // Which options a model offers, and their valid values, are only knowable by asking the
   // agent, so these stay open strings and the agent rejects what it does not accept.
-  reasoning: z.string().trim().min(1).optional().describe("Reasoning effort. Not offered by every model; gpt-5.x accepts none, low, medium, high, extra-high."),
+  effort: z.string().trim().min(1).optional().describe("Thinking effort. Not offered by every model, and the values differ; gpt-5.x accepts none, low, medium, high, extra-high. doctor deep:true lists the current model's options."),
+  // Declared only to be rejected: an undeclared key is stripped silently, which would lose the
+  // requested effort without a word. Rejection costs a retry and no spawn.
+  reasoning: z.string().trim().min(1).optional()
+    .refine((v) => v === undefined, { message: "reasoning was renamed to effort; pass effort instead" })
+    .describe("Removed — use effort."),
   context: z.string().trim().min(1).optional().describe("Context window size. Not offered by every model; gpt-5.x accepts 272k and 1m."),
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace, and paths outside it are allowed — attach only files the agent should read. Anything skipped is reported in protocolWarnings, never fatal."),
 });
@@ -164,7 +169,7 @@ export const delegateInputSchema = z.object({
  * @returns {Promise<import("@modelcontextprotocol/sdk/types.js").CallToolResult>}
  */
 export async function runDelegateTool({ args, extra, runDelegate, inFlight, seenSessions = new Set() }) {
-  const { spec, mode, resumeSessionId, workspace, model, fast, reasoning, context, contextFiles } = args;
+  const { spec, mode, resumeSessionId, workspace, model, fast, effort, context, contextFiles } = args;
 
   const progressToken = extra?._meta?.progressToken;
   /** @type {(message: string) => void} */
@@ -191,7 +196,7 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
       workspace: workspace || process.cwd(),
       model,
       fast,
-      reasoning,
+      effort,
       context,
       contextFiles,
       onProgress,

@@ -12,6 +12,7 @@ import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 import { makeTurnState } from "./turn-state.js";
 import { makeError } from "./errors.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
+import { optionsFrom, resolveEffortId, unsupportedWarning } from "./model-options.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
@@ -184,16 +185,25 @@ async function applyConfig(client, sessionId, configId, value) {
 // The resolved model appears only in a set_config_option reply's configOptions (set_model
 // returns nothing). Absent for models that reject every option sent — the field then stays off.
 function servedModelFrom(res) {
-  const opts = res?.configOptions;
-  if (!Array.isArray(opts)) return undefined;
+  const opts = optionsFrom(res);
+  if (opts === undefined) return undefined;
   const m = opts.find((o) => o?.id === "model");
   return typeof m?.currentValue === "string" ? m.currentValue : undefined;
+}
+
+// Sent under whichever id the model declares. A model that refuses fast leaves no option list;
+// only then are the candidate ids tried in turn.
+async function applyEffort(client, sessionId, value, modelOptions) {
+  const id = resolveEffortId(modelOptions, value);
+  if (id === undefined) return { applied: false };
+  const r = await applyConfig(client, sessionId, id, value);
+  return r.unsupported ? { applied: false } : { applied: true, res: r.res };
 }
 
 /**
  * @param {{
  *   spec?: string, mode?: string, resumeSessionId?: string, workspace?: string,
- *   model?: string, fast?: boolean, reasoning?: string, context?: string,
+ *   model?: string, fast?: boolean, effort?: string, context?: string,
  *   contextFiles?: string[], clientFactory?: (opts: any) => any,
  *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
  *   onSessionReady?: (sessionId: string, client: any) => void,
@@ -203,7 +213,7 @@ function servedModelFrom(res) {
  */
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
-  model = DEFAULT_MODEL, fast = false, reasoning, context, contextFiles, clientFactory,
+  model = DEFAULT_MODEL, fast = false, effort, context, contextFiles, clientFactory,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
@@ -365,15 +375,28 @@ export async function runDelegate({
       assertKnownModel(client, model);
       await client.setModel(sessionId, model);
       // fast is always sent — a resumed session may already have it on, so false is a real
-      // instruction. reasoning and context go only when the caller named one. Each reply reports
-      // the now-current model; the last one seen wins.
+      // instruction. Its reply carries this model's configOptions, which is where the effort id
+      // comes from. effort and context go only when the caller named one. Each reply reports the
+      // now-current model; the last one seen wins.
       const fastResult = await applyConfig(client, sessionId, "fast", fast);
-      if (fastResult.unsupported && fast) unsupportedOptions.push("fast");
+      if (fastResult.unsupported && fast) unsupportedOptions.push({ arg: "fast" });
       else servedModel = servedModelFrom(fastResult.res) ?? servedModel;
-      for (const [id, value] of [["reasoning", reasoning], ["context", context]]) {
-        if (value === undefined) continue;
-        const r = await applyConfig(client, sessionId, id, value);
-        if (r.unsupported) unsupportedOptions.push(id);
+      let modelOptions = optionsFrom(fastResult.res);
+      // A model that refuses fast leaves no list. Re-asserting the model just set is inert, and
+      // its reply carries the full list — measured on claude-haiku-4-5, which refuses fast.
+      if (modelOptions === undefined && effort !== undefined) {
+        const reasserted = await applyConfig(client, sessionId, "model", model);
+        modelOptions = optionsFrom(reasserted.res);
+        servedModel = servedModelFrom(reasserted.res) ?? servedModel;
+      }
+      if (effort !== undefined) {
+        const applied = await applyEffort(client, sessionId, effort, modelOptions);
+        if (!applied.applied) unsupportedOptions.push({ arg: "effort", modelOptions });
+        else servedModel = servedModelFrom(applied.res) ?? servedModel;
+      }
+      if (context !== undefined) {
+        const r = await applyConfig(client, sessionId, "context", context);
+        if (r.unsupported) unsupportedOptions.push({ arg: "context" });
         else servedModel = servedModelFrom(r.res) ?? servedModel;
       }
       await client.setMode(sessionId, mode);
@@ -441,7 +464,7 @@ export async function runDelegate({
     // sessionTitle stays out of the result: it is a live label (progress) and a forensic one
     // (timeout errors), not a fact about the finished turn.
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
-    for (const id of unsupportedOptions) protocolWarnings.push(`model ${model} has no ${id} option; the requested value was ignored`);
+    for (const u of unsupportedOptions) protocolWarnings.push(unsupportedWarning(model, u));
     protocolWarnings.push(...contextWarnings);
     if (state.planEntries.length > 0 || state.planOverview !== undefined || state.planDetail !== undefined) {
       // Sanitize even when the plan is discarded: the warnings it raises report malformed ACP

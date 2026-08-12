@@ -197,7 +197,7 @@ function rpcError(code, message) {
 
 // These factories model a turn that emits no session/update at all, which now warns on its
 // own ("no message closed the turn"). Config-option tests care only about their own warning.
-const configWarnings = (out) => (out.protocolWarnings || []).filter((w) => / has no .* option/.test(w));
+const configWarnings = (out) => (out.protocolWarnings || []).filter((w) => / has no .* option/.test(w) || /^effort ignored:/.test(w));
 
 // Measured against claude-haiku-4-5, which has no fast variant.
 const FAST_REFUSED = () => { throw rpcError(-32602, "Invalid params: Unknown model config option: fast"); };
@@ -230,29 +230,59 @@ test("runDelegate propagates a set_config_option failure that is not an unknown 
 });
 
 // Measured on gpt-5.4: reasoning accepts none|low|medium|high|extra-high, context 272k|1m.
-function configFactory({ onSet, refuse = [], invalid = [] }) {
+// effort resolves against the list the reply echoes. noOptions models a reply carrying no list.
+const vals = (...v) => v.map((value) => ({ value }));
+const GPT_OPTIONS = [
+  { id: "model", currentValue: "gpt-5.4" },
+  { id: "reasoning", options: vals("none", "low", "medium", "high", "extra-high") },
+  { id: "context", options: vals("272k", "1m") },
+  { id: "fast", options: vals("true", "false") },
+];
+const GROK_OPTIONS = [
+  { id: "model", currentValue: "grok-4.5" },
+  { id: "effort", options: vals("low", "medium", "high") },
+  { id: "fast", options: vals("true", "false") },
+];
+// Claude declares both at once: a boolean toggle and a level.
+const CLAUDE_OPTIONS = [
+  { id: "model", currentValue: "claude-sonnet-5" },
+  { id: "thinking", options: vals("true", "false") },
+  { id: "effort", options: vals("low", "medium", "high") },
+];
+// Measured: claude-haiku-4-5 refuses fast and declares only thinking.
+const HAIKU_OPTIONS = [
+  { id: "model", currentValue: "claude-haiku-4-5" },
+  { id: "thinking", options: vals("true", "false") },
+];
+const COMPOSER_OPTIONS = [
+  { id: "model", currentValue: "composer-2.5" },
+  { id: "fast", options: vals("true", "false") },
+];
+
+function configFactory({ onSet, refuse = [], invalid = [], options = GPT_OPTIONS, noOptions = false }) {
   return () => {
     const client = stubClient("sess-cfg");
     client.setConfigOption = async (_sid, configId, value) => {
       if (refuse.includes(configId)) throw rpcError(-32602, `Invalid params: Unknown model config option: ${configId}`);
       if (invalid.includes(configId)) throw rpcError(-32602, `Invalid params: Invalid value for ${configId}: ${value}`);
       onSet?.(configId, value);
+      return noOptions ? undefined : { configOptions: options };
     };
     return client;
   };
 }
 
-test("runDelegate sends reasoning and context when the caller names them", async () => {
+test("runDelegate sends effort and context when the caller names them", async () => {
   const seen = [];
   const out = await runDelegate({
-    spec: "task", model: "gpt-5.4", reasoning: "high", context: "1m",
+    spec: "task", model: "gpt-5.4", effort: "high", context: "1m",
     workspace: process.cwd(), clientFactory: configFactory({ onSet: (id, v) => seen.push([id, v]) }),
   });
   assert.deepEqual(seen, [["fast", false], ["reasoning", "high"], ["context", "1m"]]);
   assert.deepEqual(configWarnings(out), []);
 });
 
-test("runDelegate sends no reasoning or context when the caller omits them", async () => {
+test("runDelegate sends no effort or context when the caller omits them", async () => {
   const seen = [];
   await runDelegate({
     spec: "task", model: "composer-2.5",
@@ -261,21 +291,92 @@ test("runDelegate sends no reasoning or context when the caller omits them", asy
   assert.deepEqual(seen, ["fast"]);
 });
 
-test("runDelegate warns when the model has no reasoning option", async () => {
+test("runDelegate sends effort under the id the model declares", async () => {
+  const seen = [];
   const out = await runDelegate({
-    spec: "task", model: "composer-2.5", reasoning: "high",
-    workspace: process.cwd(), clientFactory: configFactory({ refuse: ["reasoning"] }),
+    spec: "task", model: "grok-4.5", effort: "high", workspace: process.cwd(),
+    clientFactory: configFactory({ options: GROK_OPTIONS, onSet: (id, v) => seen.push([id, v]) }),
+  });
+  assert.deepEqual(seen, [["fast", false], ["effort", "high"]]);
+  assert.deepEqual(configWarnings(out), []);
+});
+
+test("runDelegate prefers effort over a boolean thinking toggle when a model declares both", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "claude-sonnet-5", effort: "high", workspace: process.cwd(),
+    clientFactory: configFactory({ options: CLAUDE_OPTIONS, onSet: (id, v) => seen.push([id, v]) }),
+  });
+  assert.deepEqual(seen, [["fast", false], ["effort", "high"]]);
+});
+
+// claude-haiku-4-5 refuses fast, so no reply carries its list; re-asserting the model recovers it.
+test("runDelegate recovers the option list by re-asserting the model when fast is refused", async () => {
+  const seen = [];
+  const out = await runDelegate({
+    spec: "task", model: "claude-sonnet-5", effort: "high", workspace: process.cwd(),
+    clientFactory: configFactory({
+      options: CLAUDE_OPTIONS, refuse: ["fast"], onSet: (id, v) => seen.push([id, v]),
+    }),
+  });
+  assert.deepEqual(seen, [["model", "claude-sonnet-5"], ["effort", "high"]]);
+  assert.deepEqual(configWarnings(out), []);
+});
+
+// claude-haiku-4-5 declares only the boolean thinking. Sending a level there is a guaranteed
+// invalid value, which would fail the run, so it must degrade to a warning instead.
+test("runDelegate does not send an effort level to a model whose only knob is boolean", async () => {
+  const seen = [];
+  const out = await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", effort: "high", workspace: process.cwd(),
+    clientFactory: configFactory({
+      options: HAIKU_OPTIONS, refuse: ["fast"], onSet: (id, v) => seen.push([id, v]),
+    }),
+  });
+  assert.deepEqual(seen, [["model", "claude-haiku-4-5"]]);
+  assert.deepEqual(configWarnings(out), [
+    "effort ignored: claude-haiku-4-5 declares thinking, which did not take the requested value",
+  ]);
+});
+
+test("runDelegate warns with the ids a model does declare when effort cannot be applied", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "composer-2.5", effort: "high",
+    workspace: process.cwd(), clientFactory: configFactory({ options: COMPOSER_OPTIONS }),
   });
   assert.equal(out.stopReason, undefined);
   assert.deepEqual(configWarnings(out), [
-    "model composer-2.5 has no reasoning option; the requested value was ignored",
+    "effort ignored: composer-2.5 declares no thinking or reasoning option",
+  ]);
+});
+
+// Last resort: fast refused and the model re-assert carried nothing either, so the warning must
+// not claim what the model declares.
+test("runDelegate reports the list as unknown when it could not be recovered", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", fast: true, effort: "high", workspace: process.cwd(),
+    clientFactory: configFactory({ noOptions: true, refuse: ["fast"] }),
+  });
+  assert.deepEqual(configWarnings(out), [
+    "model claude-haiku-4-5 has no fast option; the requested value was ignored",
+    "effort ignored: claude-haiku-4-5 did not report its option list",
+  ]);
+});
+
+test("runDelegate names the declared thought-level ids when none accepted the value", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "grok-4.5", effort: "high", workspace: process.cwd(),
+    clientFactory: configFactory({ options: GROK_OPTIONS, refuse: ["effort"] }),
+  });
+  assert.deepEqual(configWarnings(out), [
+    "effort ignored: grok-4.5 declares effort, which did not take the requested value",
   ]);
 });
 
 test("runDelegate fails loudly when a config value is rejected as invalid", async () => {
   await assert.rejects(
     runDelegate({
-      spec: "task", model: "gpt-5.4", reasoning: "banana",
+      spec: "task", model: "gpt-5.4", effort: "banana",
       workspace: process.cwd(), clientFactory: configFactory({ invalid: ["reasoning"] }),
     }),
     (err) => {

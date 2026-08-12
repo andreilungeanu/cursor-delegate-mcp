@@ -117,6 +117,27 @@ test('delegate tool rejects empty model before runDelegate is called', async () 
   }
 });
 
+test('delegate tool rejects the old reasoning argument before runDelegate is called', async () => {
+  let called = false;
+  const runDelegate = async () => {
+    called = true;
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-reasoning", filesReportedByEditTools: [] };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const res = await client.callTool({ name: "delegate", arguments: { spec: "x", model: "grok-4.5", reasoning: "high" } });
+    assert.equal(res.isError, true);
+    assert.match(res.content[0].text, /reasoning was renamed to effort; pass effort instead/);
+    assert.equal(called, false);
+  } finally {
+    await client.close();
+  }
+});
+
 test('delegate tool trims whitespace from model before runDelegate', async () => {
   const captured = [];
   const runDelegate = async (args) => {
