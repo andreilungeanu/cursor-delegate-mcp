@@ -50,7 +50,7 @@ function rememberSession(set, id) {
 // Loaded at connect, before any tool schema is, so this carries only pre-call facts: what a
 // caller needs to decide whether to delegate at all. Call-time facts belong on the parameter
 // descriptions, read while the call is being written.
-export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: mode="plan" and mode="ask" are instructions to the agent, not limits the bridge enforces, and the bridge cannot detect one being ignored. So scope workspace to the smallest relevant directory and review the git diff after every run, not only write-capable ones; filesReportedByEditTools lists what the agent's edit tools reported changing (absent when they reported none) but the diff is authoritative.`;
+export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: agent/plan/ask reach any file the user account can, and mode instructs the agent rather than limiting it. Scope workspace tightly and review the git diff after every run — filesReportedByEditTools carries only what the agent's edit tools reported; the diff is authoritative.`;
 
 const planEntrySchema = z.object({
   content: z.string(),
@@ -141,17 +141,17 @@ export const doctorOutputShape = {
 };
 
 export const delegateInputSchema = z.object({
-  spec: z.string().trim().min(1, "spec must not be blank").describe("Inline task brief (default): goal, scope, decisions already made (constraints and fixed choices — quote the user's exact values verbatim), acceptance criteria. Point at files to read or mimic rather than pasting code. Optional file path if the user wants a persisted spec."),
-  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("Requested agent mode. plan and ask are passed to the agent as instructions, not enforced by the bridge — the agent may write in any of them, so review the git diff after every run."),
-  resumeSessionId: z.string().optional().describe("Resume an existing ACP session instead of a new one"),
-  workspace: z.string().optional().describe("Working directory for the agent. Optional; defaults to the server process cwd. Must already exist — never create one for the call."),
+  spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Point at files to read rather than pasting code. A lone file path is read as the brief."),
+  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
+  resumeSessionId: z.string().optional().describe("Continue an existing ACP session."),
+  workspace: z.string().optional().describe("The agent's working directory, not a limit. Defaults to the server process cwd, which under npx is often not your project root — pass it explicitly. Must already exist; never create one for the call."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
-  fast: z.boolean().default(false).describe("Fast speed tier — higher cost; enable only when the user asks"),
+  fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
   // Which options a model offers, and their valid values, are only knowable by asking the
   // agent, so these stay open strings and the agent rejects what it does not accept.
-  effort: z.string().trim().min(1).optional().describe("Thinking effort. Not offered by every model, and the values differ; gpt-5.x accepts none, low, medium, high, extra-high. doctor deep:true lists the current model's options."),
-  context: z.string().trim().min(1).optional().describe("Context window size. Not offered by every model; gpt-5.x accepts 272k and 1m."),
-  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting file contents into spec. Text files are passed as references the agent may open; images (png, jpg, gif, webp, under 5MB) are sent inline. Relative paths resolve against workspace, and paths outside it are allowed — attach only files the agent should read. Anything skipped is reported in protocolWarnings, never fatal."),
+  effort: z.string().trim().min(1).optional().describe("Thinking effort; ids and values differ per model, and some offer none. gpt-5.x: none, low, medium, high, extra-high. doctor deep:true lists the current model's."),
+  context: z.string().trim().min(1).optional().describe("Context window size; gpt-5.x accepts 272k and 1m. Do not pass speculatively."),
+  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting contents into spec. Text becomes references the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against workspace but are not limited to it. Skips are reported in protocolWarnings, never fatal."),
 });
 
 /**
@@ -243,7 +243,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Pass structured task text inline in spec (default); a file path is optional when the user wants a persisted brief. Defaults: mode=agent, model=${DEFAULT_MODEL}, fast=false. Plan workflow: mode=plan, then resume with mode=agent and resumeSessionId. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Returns the final result, selection source, stop reason, session ID, agent-reported files, and optional plan. See the delegate skill for orchestration.`,
+        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Keep model (${DEFAULT_MODEL}), fast and effort at their defaults unless the user asks. See the delegate skill.`,
       inputSchema: delegateInputSchema,
       annotations: {
         title: "Delegate coding task to Cursor",
@@ -260,10 +260,10 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "cancel",
     {
       description:
-        "Best-effort cancel of an in-flight ACP delegation by sessionId. Sends session/cancel; the agent may finish the turn anyway. The delegate result carries cancelRequested: true when the turn was cancelled mid-run. MCP hosts that serialize tool calls cannot run this while delegate is in flight. With force: true, the agent process is killed if the turn is still running after a short grace period. Returns not-running for a session whose turn already ended (it is still resumable), and not-found for an id never seen this process.",
+        "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed, not-running (turn already ended, still resumable), not-found (id never seen this process).",
       inputSchema: {
         sessionId: z.string(),
-        force: z.boolean().default(false).describe("After the cancel notify, wait a short grace period and kill the agent process if the delegation is still running"),
+        force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
       },
       annotations: {
         title: "Cancel Cursor delegation",
@@ -305,12 +305,12 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "doctor",
     {
       description:
-        "Report setup and health diagnostics: plugin version, MCP client capabilities, cursor-agent launcher resolution, and optional deep ACP handshake. Use when delegation fails or agent.found is false.",
+        "Setup diagnostics: plugin version, MCP client capabilities, cursor-agent launcher resolution. Run when delegation fails or agent.found is false.",
       inputSchema: {
         deep: z
           .boolean()
           .default(false)
-          .describe("When true, run a lightweight ACP handshake (start → initialize → newSession) to verify the agent is usable"),
+          .describe("Run an ACP handshake (start → initialize → newSession) to verify the agent is usable; adds models, modes and the current model's options."),
       },
       annotations: {
         title: "Diagnose Cursor delegation setup",
