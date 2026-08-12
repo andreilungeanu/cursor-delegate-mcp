@@ -12,7 +12,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Always sent, so `false` turns it off on a resumed session. |
 | `workspace` | server cwd | Working directory for the agent. The default is the **MCP server process's** cwd, which for `npx`/plugin launches is not necessarily your project root — pass it explicitly. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
-| `effort` | — | Thinking effort, sent under whichever option id the model declares. Values differ per model; gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. `composer-2.5` declares none. Replaces `reasoning`, which is now rejected. |
+| `effort` | — | Thinking effort, sent under whichever option id the model declares. Values differ per model; gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. `composer-2.5` declares none. |
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
 | `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**; paths outside it may arrive unreadable agent-side. Attachments are untrusted — the bridge does not scan for prompt injection. Skips are reported in `protocolWarnings`, never fatal. |
 

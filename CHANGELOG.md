@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- **The `reasoning` input is gone from the schema.** 1.19.0 kept it declared solely to reject it,
+  so every caller read a field it must never use. Callers read the live schema and pass `effort`,
+  so the stale-caller it guarded against is hypothetical. A `reasoning` key is now dropped by
+  schema validation without comment.
+
 ## [1.19.0] - 2026-08-12
 
 ### Changed
