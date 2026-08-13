@@ -29,7 +29,7 @@ No API keys and no environment variables are required. Auth is Cursor's own CLI 
 
 ## Verify
 
-Call the `doctor` tool. It reports the Node version, whether `cursor-agent` is on PATH, and whether the CLI session is authenticated, naming whatever is missing. A clean `doctor` means `delegate` is ready.
+Call the `doctor` tool. It reports the Node version and how `cursor-agent` resolves on PATH, naming whatever is missing. Call it with `deep: true` to run an ACP handshake — that is what proves the CLI session is logged in, and a clean deep `doctor` means `delegate` is ready.
 
 ## Optional environment variables
 
