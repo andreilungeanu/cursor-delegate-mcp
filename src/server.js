@@ -148,7 +148,7 @@ export const doctorOutputShape = {
 };
 
 export const delegateInputSchema = z.object({
-  spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Point at files to read rather than pasting code. A lone file path is read as the brief."),
+  spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
   resumeSessionId: z.string().optional().describe("Continue an existing ACP session."),
   workspace: z.string().optional().describe("The agent's working directory, not a limit. Defaults to the server process cwd, which under npx is often not your project root — pass it explicitly. Must already exist; never create one for the call."),

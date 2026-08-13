@@ -36,37 +36,12 @@ function fmtDuration(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
-// Two separate questions. "Could this be a path?" is loose — worth a stat. "Was a path clearly
-// intended?" must be strict, since ordinary prose names files ("fix the bug in src/api.js") and
-// must never be rejected for it. Whitespace discriminates: a path argument has none.
-function looksLikeSpecPath(spec) {
-  return !spec.includes("\n")
-    && (spec.includes("/") || spec.includes("\\") || spec.endsWith(".md") || spec.endsWith(".txt"));
-}
-const isBareSpecPath = (spec) => !/\s/.test(spec.trim());
-
-async function resolveSpec(spec) {
-  if (typeof spec !== "string") return spec;
-  // A blank spec spins up a live session that only replies "No prompt content provided" —
-  // a billed turn for nothing. Reject it here, before the spawn, like the other bad specs.
-  if (spec.trim() === "") {
-    throw makeError("invalid-spec", "spec is empty. Provide a task brief inline, or a path to one.");
+// A blank spec spins up a live session that only replies "No prompt content provided" —
+// a billed turn for nothing. Reject it before the spawn, like a bad workspace.
+function assertSpec(spec) {
+  if (typeof spec === "string" && spec.trim() === "") {
+    throw makeError("invalid-spec", "spec is empty. Provide a task brief.");
   }
-  if (!looksLikeSpecPath(spec)) return spec;
-  let stat;
-  try {
-    stat = statSync(spec);
-  } catch {
-    // Only a bare path was unambiguously meant as one. Anything else is prose that happens
-    // to name a file, and prose is the common case.
-    if (!isBareSpecPath(spec)) return spec;
-    throw makeError("invalid-spec", `spec looks like a file path but nothing exists at ${spec}. Pass the brief inline, or fix the path.`);
-  }
-  if (stat.isFile()) return readFile(spec, "utf8");
-  if (isBareSpecPath(spec)) {
-    throw makeError("invalid-spec", `spec looks like a file path but ${spec} is not a file. Pass the brief inline, or point at a file.`);
-  }
-  return spec;
 }
 
 // Without this, the agent's first write creates the directory: a typo'd workspace spawns a
@@ -278,18 +253,17 @@ export async function runDelegate({
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
+  // Nothing between here and the abort listener below may await: addEventListener does not
+  // replay an abort that already fired, so an abort landing in that window would be lost. A
+  // spec read used to await here, and did lose one. Throwing, not supervisor.abort(): tripping
+  // before supervise() installs its reject settles the supervisor with nothing listening.
   if (signal?.aborted) {
     throw makeError("aborted", "delegation aborted by MCP host");
   }
   // Before the spawn: validating later costs a process, a handshake and a billed turn.
   assertWorkspace(workspace);
-  const promptText = await resolveSpec(spec);
-  // addEventListener does not replay an abort that already fired, and the listener is registered
-  // below, so an abort during the await above is otherwise lost. Throwing, not supervisor.abort():
-  // tripping before supervise() installs its reject settles the supervisor with nothing listening.
-  if (signal?.aborted) {
-    throw makeError("aborted", "delegation aborted by MCP host");
-  }
+  assertSpec(spec);
+  const promptText = spec;
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);

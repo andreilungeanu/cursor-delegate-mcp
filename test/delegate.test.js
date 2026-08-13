@@ -1365,24 +1365,6 @@ test("runDelegate skips an image when the agent does not advertise image prompts
   }
 });
 
-test("runDelegate reads the spec from a file when spec is an existing path", async () => {
-  const specPath = path.join(tmpdir(), `delegate-spec-${process.pid}.md`);
-  const brief = "# Brief\n\nDo the persisted thing.\n";
-  writeFileSync(specPath, brief);
-  const track = {};
-  try {
-    await runDelegate({
-      spec: specPath,
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: promptTextFactory(track),
-    });
-    assert.equal(track.promptText, brief, "prompt must carry the file contents, not the path");
-  } finally {
-    try { unlinkSync(specPath); } catch {}
-  }
-});
-
 test("runDelegate rejects a workspace that does not exist", async () => {
   const track = {};
   await assert.rejects(
@@ -1409,32 +1391,6 @@ test("runDelegate rejects a workspace that is a file", async () => {
   );
 });
 
-test("runDelegate rejects a bare spec path that does not exist", async () => {
-  const track = {};
-  await assert.rejects(
-    runDelegate({
-      spec: "missing/brief.md",
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: promptTextFactory(track),
-    }),
-    (err) => err.reason === "invalid-spec" && /nothing exists at/.test(err.message),
-  );
-  assert.equal(track.promptText, undefined, "rejected before the agent was prompted");
-});
-
-test("runDelegate rejects a bare spec path that is a directory", async () => {
-  await assert.rejects(
-    runDelegate({
-      spec: process.cwd(),
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: promptTextFactory({}),
-    }),
-    (err) => err.reason === "invalid-spec" && /is not a file/.test(err.message),
-  );
-});
-
 test("runDelegate rejects a blank spec before spending a session", async () => {
   const track = {};
   await assert.rejects(
@@ -1449,7 +1405,7 @@ test("runDelegate rejects a blank spec before spending a session", async () => {
   assert.equal(track.promptText, undefined, "rejected before the agent was spawned");
 });
 
-test("runDelegate still sends prose that merely names a missing path", async () => {
+test("runDelegate sends a brief that names a path as written", async () => {
   const track = {};
   await runDelegate({
     spec: "fix the bug in missing/brief.md",
@@ -1460,12 +1416,12 @@ test("runDelegate still sends prose that merely names a missing path", async () 
   assert.equal(track.promptText, "fix the bug in missing/brief.md");
 });
 
-// A bare word with no separator and no .md/.txt is never a path candidate, so a file that
-// happens to share the name must not be read in place of the brief.
-test("runDelegate sends a bare inline spec literally even when a file of that name exists", async () => {
-  const inlineSpec = "inline-spec-name-collision";
+// The contract spec-as-path used to break: a brief is the prompt, whatever it looks like. This
+// pins the case the old path detection got wrong — a spec that is itself an existing file name.
+test("runDelegate sends a spec literally even when a file of that name exists", async () => {
+  const inlineSpec = "brief.md";
   const specPath = path.join(process.cwd(), inlineSpec);
-  writeFileSync(specPath, "file contents should not be used\n");
+  writeFileSync(specPath, "file contents must not be used\n");
   const track = {};
   try {
     await runDelegate({
@@ -1708,33 +1664,6 @@ test("runDelegate rejects immediately when signal is already aborted", async () 
       return true;
     }
   );
-  assert.equal(factoryCalls, 0);
-});
-
-// The pre-flight check runs before spec resolution and the listener is registered after it, so an
-// abort in that window hit neither and the turn ran to completion against an aborted signal.
-test("runDelegate rejects when the signal aborts during spec resolution", async () => {
-  const ac = new AbortController();
-  const specPath = path.join(tmpdir(), `delegate-abort-${process.pid}.md`);
-  writeFileSync(specPath, "task from a file");
-  let factoryCalls = 0;
-  try {
-    const pending = runDelegate({
-      spec: specPath,
-      mode: "agent",
-      workspace: process.cwd(),
-      signal: ac.signal,
-      clientFactory: () => { factoryCalls++; return new EventEmitter(); },
-    });
-    // Aborts once the awaited read is in flight — after the pre-flight check has passed.
-    ac.abort();
-    await assert.rejects(pending, (err) => {
-      assert.equal(err.reason, "aborted");
-      return true;
-    });
-  } finally {
-    unlinkSync(specPath);
-  }
   assert.equal(factoryCalls, 0);
 });
 

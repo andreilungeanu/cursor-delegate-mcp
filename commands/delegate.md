@@ -6,6 +6,6 @@ argument-hint: <task description>
 Follow the **delegate** skill (`/cursor-delegate:delegate` or auto-invoked) for the full
 workflow. Task: **$ARGUMENTS**
 
-1. Pass a self-contained inline brief in `spec` (goal, scope, acceptance criteria) — do not create a spec file unless the user asks to persist it.
+1. Pass a self-contained inline brief in `spec` (goal, scope, acceptance criteria) — `spec` is sent as written, so attach files with `contextFiles` rather than pointing `spec` at one.
 2. Call the `delegate` MCP tool — do not invoke `cursor-agent` directly.
 3. Review the diff and confirm acceptance criteria.

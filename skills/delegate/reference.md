@@ -6,7 +6,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 
 | Field | Default | Description |
 | ----- | ------- | ----------- |
-| `spec` | — | Inline task brief (default). Path detection is automatic, not opt-in: a single-line `spec` that is itself an existing file path is replaced by that file's contents. A brief that merely *mentions* a path is unaffected. |
+| `spec` | — | The task brief, sent as written. Name files in it for the agent to read, or attach them with `contextFiles`. |
 | `mode` | `agent` | `agent`, `plan`, or `ask`. |
 | `model` | `composer-2.5` | Bare ACP family id (`composer-2.5`, `grok-4.5`, `gpt-5.4`). Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Cursor keeps the tier per model across sessions; the bridge sends it unless the session already opened on that model at that tier. |
@@ -90,7 +90,7 @@ Errors come back as `delegate failed [<reason>]: …`.
 
 | Reason | Meaning | Action |
 | ------ | ------- | ------ |
-| `invalid-spec` | `spec` was blank, or named a path that does not exist or is not a file. Nothing was spawned. | Fix the argument. |
+| `invalid-spec` | `spec` was blank. Nothing was spawned. | Fix the argument. |
 | `invalid-workspace` | `workspace` does not exist or is not a directory. Nothing was spawned. | Fix the argument. |
 | `unknown-model` | `model` is not offered by this agent; the message names the valid ids. | Fix the argument. |
 | `invalid-effort` | `effort` is not an exact value advertised by the selected model, or that model advertises no configurable effort. No prompt was sent. | Retry the named session with the complete original `spec` and an accepted value; when the message says `Accepted: none`, omit the `effort` field entirely and do not send the string `"none"`. |
