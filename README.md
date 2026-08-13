@@ -44,7 +44,7 @@ Composer and Grok run on their **own usage allowance** on every Cursor plan — 
 - 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
 - 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
-- 🔍 **Ask anything** — `ask` mode: read-only Q&A over your codebase.
+- 🔍 **Ask anything** — `ask` mode: Q&A over your codebase.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
 - 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, and more.
 
