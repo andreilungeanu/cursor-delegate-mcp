@@ -82,6 +82,44 @@ test("captures stderr and surfaces it on exit", async () => {
   client.stop();
 });
 
+// Mirrors STDERR_CAP in src/acp-client.js. The cap is the contract this pins, so it is stated
+// here rather than imported from the module under test.
+const STDERR_CAP = 64 * 1024;
+// Not a divisor of the cap, so the retained window sits above it and the getter's own slice runs
+// too. Chunks are fed straight to the handler rather than piped: how an OS splits a write into
+// 'data' events is not fixed, and a flood delivered as one event would satisfy the trim assertion
+// below with the trim deleted. The pipe itself is covered by the exit test above.
+const CHUNK_BYTES = 20000;
+const floodChunk = (i) => {
+  const tag = String(i).padStart(2, "0");
+  const head = `[chunk-${tag}]`;
+  const tail = `[end-${tag}]`;
+  return head + "x".repeat(CHUNK_BYTES - head.length - tail.length) + tail;
+};
+
+// The trim only runs past the cap, which no other test reaches. What it bounds is retained memory:
+// stderrBuffer slices to the cap on every read regardless, so deleting the trim changes nothing an
+// exit message shows and is visible only in what the client still holds — hence the private reads.
+test("stderr past the cap keeps a full newest-bytes window without retaining the flood", async () => {
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  try {
+    await client.start();
+    for (let i = 0; i < 32; i++) client.child.stderr.emit("data", Buffer.from(floodChunk(i)));
+    assert.equal(client.stderrBuffer.length, STDERR_CAP, "the reported tail is exactly one cap window");
+    assert.ok(client.stderrBuffer.endsWith("[end-31]"), "the newest bytes survive");
+    assert.ok(!client.stderrBuffer.includes("[chunk-00]"), "the oldest stderr is gone from the tail");
+    assert.ok(client._stderrChunks.length > 1, "several chunks are retained, so the check below measures a real front");
+    // The loop's postcondition, and the only assertion the trim carries: everything behind the
+    // front chunk fits under the cap. Without the shift this holds all 640KB fed above.
+    assert.ok(
+      client._stderrLength - client._stderrChunks[0].length < STDERR_CAP,
+      `retained ${client._stderrLength} bytes across ${client._stderrChunks.length} chunks`
+    );
+  } finally {
+    await client.stop();
+  }
+});
+
 // Spawn failure was the one untagged failure class: every other error carries a reason,
 // so the server rendered this one as a bare "delegate failed:" with no [reason].
 test("start() rejects a failed spawn with reason spawn-failed", async () => {

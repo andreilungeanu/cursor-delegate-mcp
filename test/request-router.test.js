@@ -88,6 +88,21 @@ test("update_todos still acks when no onTodos is wired", async () => {
   assert.deepEqual(responses[0], { id: 3, result: {} });
 });
 
+// Pins what the router sends for ACK_METHODS, not what cursor-agent accepts: FIXLIST L5 records
+// that generate_image's real expected result has never been probed against a live agent. Without
+// this, both methods would fall through to -32601 and no test would notice.
+for (const method of ["cursor/task", "cursor/generate_image"]) {
+  test(`${method} is acked with an empty result and logged`, async () => {
+    const { router, responses, logs } = harness();
+    await router(21, method, { prompt: "make it" });
+    assert.deepEqual(responses[0], { id: 21, result: {} });
+    // Which method was acked, not the whole payload: nothing consumes the "ack" event AcpClient
+    // re-emits this as, so freezing its shape would only break on a harmless field.
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].method, method);
+  });
+}
+
 test("unknown method fails safe with an error, never hangs", async () => {
   const { router, responses } = harness();
   await router(8, "cursor/some_future_method", { weird: true });
