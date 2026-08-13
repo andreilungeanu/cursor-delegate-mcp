@@ -82,9 +82,9 @@ Scale effort to the task:
    - After 2 failed resume attempts, start a fresh session with a rewritten brief.
    - Report the honest outcome either way.
 
-   On failure the error is tagged `delegate failed [reason]: …` — fix the argument for
-   `unknown-model` and `agent-error`, otherwise resume the id named in the message or run
-   `doctor`. reference.md maps every reason to its action.
+   On failure the error is tagged `delegate failed [reason]: …` — argument errors are fixed, not
+   retried; stalls and exits resume the id named in the message. reference.md maps every reason
+   to its action.
 4. **Report** — summarize what changed and whether acceptance criteria are met.
 
 For the failure-reason table, full input and output fields, timeouts, and debugging env

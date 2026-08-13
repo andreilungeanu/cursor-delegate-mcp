@@ -38,7 +38,7 @@ Do not pass `context` speculatively.
 | `sessionId` | Session id for resume. |
 | `effectiveModel` | The model id the agent served, present **only when it differs** from the requested `model` (e.g. `default` resolving to a concrete id, or a cross-model resume). Also absent when the agent reported no model; some models report none. |
 | `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Omitted when empty — absence means no edit tool reported a change, **not** that nothing changed: shell-driven edits leave no diff event; the git diff is authoritative. |
-| `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a failed resume — a failed resume is explained in `protocolWarnings`. |
+| `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a resume that fell back — the fallback is explained in `protocolWarnings`. |
 | `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
 | `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
 | `plan` | Agent mode only, when the agent filed a plan. Absent in `plan`/`ask`, where `result` is the plan. |
@@ -88,7 +88,10 @@ Errors come back as `delegate failed [<reason>]: …`.
 
 | Reason | Meaning | Action |
 | ------ | ------- | ------ |
+| `invalid-spec` | `spec` was blank, or named a path that does not exist or is not a file. Nothing was spawned. | Fix the argument. |
+| `invalid-workspace` | `workspace` does not exist or is not a directory. Nothing was spawned. | Fix the argument. |
 | `unknown-model` | `model` is not offered by this agent; the message names the valid ids. | Fix the argument. |
+| `resume-failed` | `resumeSessionId` could not be loaded for a reason other than the agent not having that session — no fresh session was started. | Retry; omit `resumeSessionId` to start fresh deliberately. A session the agent does not have is not this: it starts fresh and reports a `protocolWarnings` entry. |
 | `agent-error` | The agent rejected a request (JSON-RPC error, e.g. an invalid config value). | Fix the argument; retrying is pointless. |
 | `hard-cap` | The 1h absolute cap elapsed. | Resume the id in the message. |
 | `idle-timeout` | Opt-in mid-turn idle guard tripped (off by default). | Resume the id in the message. |
@@ -107,7 +110,8 @@ itself. `ACP_LOG_SIZE` bounds retention (2000 frames) and so caps what this can 
 
 ## Resume
 
-Cross-process resume via `session/load`. Unknown ids fall back to a fresh session.
+Cross-process resume via `session/load`. Unknown ids fall back to a fresh session; any other load
+failure is `resume-failed` and starts nothing.
 
 ## Progress
 
