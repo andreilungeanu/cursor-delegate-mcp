@@ -9,7 +9,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `spec` | — | Inline task brief (default). Path detection is automatic, not opt-in: a single-line `spec` that is itself an existing file path is replaced by that file's contents. A brief that merely *mentions* a path is unaffected. |
 | `mode` | `agent` | `agent`, `plan`, or `ask`. |
 | `model` | `composer-2.5` | Bare ACP family id (`composer-2.5`, `grok-4.5`, `gpt-5.4`). Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
-| `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Always sent, so `false` turns it off on a resumed session. |
+| `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Cursor keeps the tier per model across sessions; the bridge sends it unless the session already opened on that model at that tier. |
 | `workspace` | server cwd | Working directory for the agent. The default is the **MCP server process's** cwd, which for `npx`/plugin launches is not necessarily your project root — pass it explicitly. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
 | `effort` | — | Exact thinking-effort value, sent under whichever option id the selected model declares. Values are case-sensitive and model-specific; some models expose no effort option. |

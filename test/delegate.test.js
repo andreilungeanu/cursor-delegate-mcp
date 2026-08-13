@@ -178,15 +178,132 @@ test("runDelegate offers the fast toggle to every model", async () => {
   assert.equal(fastValue, true);
 });
 
-test("runDelegate defaults fast to false for Composer when omitted", async () => {
-  let fastValue;
+// Cursor persists the tier across sessions, so the skip is keyed to the value the session reports
+// opening with, never to an assumption about what a fresh session starts at.
+function opensWithFastFactory(opened, onSetFast, openedOn = "composer-2.5") {
+  return () => {
+    const client = stubClient("sess-fast");
+    client.newSession = async () => {
+      client.sessionModels = { currentModelId: openedOn, availableModels: [{ modelId: "composer-2.5" }, { modelId: "grok-4.6" }] };
+      client.configOptions = opened === undefined
+        ? undefined
+        : [{ id: "fast", currentValue: opened, options: [{ value: "false" }, { value: "true" }] }];
+      return { sessionId: "sess-fast" };
+    };
+    client.setConfigOption = async (_sid, configId, value) => { onSetFast(configId, value); };
+    return client;
+  };
+}
+
+test("runDelegate skips the fast round-trip when the session already opens at that tier", async () => {
+  let fastCalls = 0;
   await runDelegate({
-    spec: "task",
-    model: "composer-2.5",
-    workspace: process.cwd(),
-    clientFactory: fastToggleFactory({ onSetFast: (v) => { fastValue = v; } }),
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: opensWithFastFactory("false", () => { fastCalls++; }),
   });
-  assert.equal(fastValue, false);
+  assert.equal(fastCalls, 0);
+});
+
+// The regression this exists for: one fast:true turn leaves the tier on, so every later fast:false
+// turn would silently bill the higher tier if the write were skipped.
+test("runDelegate sends fast=false when the session opens on the fast tier", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: opensWithFastFactory("true", (id, value) => seen.push([id, value])),
+  });
+  assert.deepEqual(seen, [["fast", false]]);
+});
+
+// The tier is per model, so the opening snapshot describes the model we left, not the one asked
+// for. Skipping on it would run the wrong tier silently in both directions.
+test("runDelegate sends fast after a model switch even when the opening tier matches", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "grok-4.6", fast: true, workspace: process.cwd(),
+    clientFactory: opensWithFastFactory("true", (id, value) => seen.push([id, value]), "composer-2.5"),
+  });
+  assert.deepEqual(seen, [["fast", true]], "composer's tier says nothing about grok's");
+});
+
+test("runDelegate sends fast when the session reports no tier at all", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: opensWithFastFactory(undefined, (id, value) => seen.push([id, value])),
+  });
+  assert.deepEqual(seen, [["fast", false]], "an absent list must read as a mismatch and send");
+});
+
+test("runDelegate still sends fast=false on a resume that opens on the fast tier", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "composer-2.5", resumeSessionId: "sess-track", workspace: process.cwd(),
+    clientFactory: () => {
+      const client = stubClient("sess-track");
+      client.loadSession = async () => {
+        // sessionModels too, or openedOnModel is false and the send is forced by the model clause
+        // rather than by the tier mismatch this is here to pin.
+        client.sessionModels = { currentModelId: "composer-2.5", availableModels: [{ modelId: "composer-2.5" }] };
+        client.configOptions = [{ id: "fast", currentValue: "true", options: [{ value: "true" }] }];
+        return {};
+      };
+      client.setConfigOption = async (_sid, configId, value) => { seen.push([configId, value]); };
+      return client;
+    },
+  });
+  assert.deepEqual(seen, [["fast", false]]);
+});
+
+test("runDelegate sends fast=false for a routable model id, whose served model it reports", async () => {
+  let fastCalls = 0;
+  const out = await runDelegate({
+    spec: "task",
+    model: "default",
+    workspace: process.cwd(),
+    clientFactory: () => {
+      const client = stubClient("sess-routed");
+      client.setConfigOption = async () => {
+        fastCalls++;
+        return { configOptions: [{ id: "model", currentValue: "grok-4.6", options: [{ value: "grok-4.6" }] }] };
+      };
+      return client;
+    },
+  });
+  assert.equal(fastCalls, 1);
+  assert.equal(out.effectiveModel, "grok-4.6");
+});
+
+// session/new reports the model the session opened on, and Cursor carries that selection across
+// sessions, so a matching id is already served. Measured against cursor-agent 2026.08.11.
+function openedOnFactory(sessionId, currentModelId, availableIds, onSetModel) {
+  return () => {
+    const client = stubClient(sessionId);
+    client.newSession = async () => {
+      client.sessionModels = { currentModelId, availableModels: availableIds.map((modelId) => ({ modelId })) };
+      return { sessionId };
+    };
+    client.setModel = async () => { onSetModel(); };
+    return client;
+  };
+}
+
+test("runDelegate skips set_model when the session already opened on that model", async () => {
+  let setModelCalls = 0;
+  await runDelegate({
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: openedOnFactory("sess-same", "composer-2.5", ["composer-2.5", "claude-sonnet-5"], () => { setModelCalls++; }),
+  });
+  assert.equal(setModelCalls, 0);
+});
+
+test("runDelegate sends set_model when the session opened on a different model", async () => {
+  let setModelCalls = 0;
+  await runDelegate({
+    spec: "task", model: "claude-sonnet-5", workspace: process.cwd(),
+    clientFactory: openedOnFactory("sess-diff", "composer-2.5", ["composer-2.5", "claude-sonnet-5"], () => { setModelCalls++; }),
+  });
+  assert.equal(setModelCalls, 1);
 });
 
 function rpcError(code, message) {
@@ -264,9 +381,16 @@ const COMPOSER_OPTIONS = [
   { id: "fast", options: vals("true", "false") },
 ];
 
-function configFactory({ onSet, onPrompt, refuse = [], invalid = [], options = GPT_OPTIONS, noOptions = false }) {
+function configFactory({ onSet, onPrompt, refuse = [], invalid = [], options = GPT_OPTIONS, noOptions = false, opensWith }) {
   return () => {
     const client = stubClient("sess-cfg");
+    if (opensWith) {
+      client.newSession = async () => {
+        client.sessionModels = { currentModelId: "composer-2.5", availableModels: [{ modelId: "composer-2.5" }] };
+        client.configOptions = opensWith;
+        return { sessionId: "sess-cfg" };
+      };
+    }
     client.setConfigOption = async (_sid, configId, value) => {
       if (refuse.includes(configId)) throw rpcError(-32602, `Invalid params: Unknown model config option: ${configId}`);
       if (invalid.includes(configId)) throw rpcError(-32602, `Invalid params: Invalid value for ${configId}: ${value}`);
@@ -291,13 +415,16 @@ test("runDelegate sends effort and context when the caller names them", async ()
   assert.deepEqual(configWarnings(out), []);
 });
 
-test("runDelegate sends no effort or context when the caller omits them", async () => {
+test("runDelegate sends no config option at all when the caller omits them", async () => {
   const seen = [];
   await runDelegate({
-    spec: "task", model: "composer-2.5",
-    workspace: process.cwd(), clientFactory: configFactory({ onSet: (id) => seen.push(id) }),
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: configFactory({
+      onSet: (id) => seen.push(id),
+      opensWith: [{ id: "fast", currentValue: "false", options: [{ value: "false" }, { value: "true" }] }],
+    }),
   });
-  assert.deepEqual(seen, ["fast"]);
+  assert.deepEqual(seen, []);
 });
 
 test("runDelegate sends effort under the id the model declares", async () => {

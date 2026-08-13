@@ -15,6 +15,9 @@ import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 import { optionsFrom, resolveEffort, unsupportedWarning } from "./model-options.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
+// The one advertised id the agent resolves to a different model ("Auto"), so it is the one id
+// whose served model has to be read back off a config reply for effectiveModel.
+const ROUTED_MODEL = "default";
 export const DEFAULT_HANDSHAKE_MS = 60000;
 export const DEFAULT_HEARTBEAT_MS = 30000;
 
@@ -204,6 +207,13 @@ async function applyConfig(client, sessionId, configId, value) {
 
 // The resolved model appears only in a set_config_option reply's configOptions (set_model
 // returns nothing). Absent for models that reject every option sent — the field then stays off.
+// session/new and session/load both report the values the session opens with, which is what makes
+// a config round-trip skippable: the bridge can see it would set what is already set.
+function configOptionValue(configOptions, id) {
+  const opt = (Array.isArray(configOptions) ? configOptions : []).find((o) => o?.id === id);
+  return typeof opt?.currentValue === "string" ? opt.currentValue : undefined;
+}
+
 function servedModelFrom(res) {
   const opts = optionsFrom(res);
   if (opts === undefined) return undefined;
@@ -428,15 +438,28 @@ export async function runDelegate({
       supervisor.setSessionId(sessionId);
       onSessionReady?.(sessionId, client);
       assertKnownModel(client, model);
-      await client.setModel(sessionId, model);
-      // fast is always sent — a resumed session may already have it on, so false is a real
-      // instruction. Its reply carries this model's configOptions, which is where the effort id
-      // comes from. effort and context go only when the caller named one. Each reply reports the
-      // now-current model; the last one seen wins.
-      const fastResult = await applyConfig(client, sessionId, "fast", fast);
-      if (fastResult.unsupported && fast) unsupportedOptions.push({ arg: "fast" });
-      else servedModel = servedModelFrom(fastResult.res) ?? servedModel;
-      let modelOptions = optionsFrom(fastResult.res);
+      // session/new and session/load both report the model the session opened on, and an id that
+      // already matches is served without an explicit set — measured, so this round-trip has
+      // nothing to change. Cursor carries the selection across sessions, so the common shape
+      // (same model twice running) hits this.
+      const openedOnModel = client.sessionModels?.currentModelId === model;
+      if (!openedOnModel) await client.setModel(sessionId, model);
+      // fast is an instruction, not a probe. Cursor persists the tier, and persists it per model —
+      // both measured: one fast:true turn leaves the next fresh session reporting fast=true, and a
+      // set_model to another model reports that model's own tier. So the opening snapshot only
+      // describes the tier in force when the session also opened on this model; after a switch it
+      // describes the model we left. Skip only when both hold, which is the steady-state path this
+      // is for, and send whenever the reply itself is read: effort needs its option list, and a
+      // routable id needs the served model. An absent value reads as a mismatch and sends. effort
+      // and context go only when the caller named one; the last reply seen wins.
+      const openedFast = configOptionValue(client.configOptions, "fast");
+      let modelOptions;
+      if (!openedOnModel || openedFast !== String(fast) || effort !== undefined || model === ROUTED_MODEL) {
+        const fastResult = await applyConfig(client, sessionId, "fast", fast);
+        if (fastResult.unsupported && fast) unsupportedOptions.push({ arg: "fast" });
+        else servedModel = servedModelFrom(fastResult.res) ?? servedModel;
+        modelOptions = optionsFrom(fastResult.res);
+      }
       // A model that refuses fast leaves no list. Re-asserting the model just set is inert, and
       // its reply carries the full list — measured on claude-haiku-4-5, which refuses fast.
       if (modelOptions === undefined && effort !== undefined) {
