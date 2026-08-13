@@ -12,7 +12,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Always sent, so `false` turns it off on a resumed session. |
 | `workspace` | server cwd | Working directory for the agent. The default is the **MCP server process's** cwd, which for `npx`/plugin launches is not necessarily your project root — pass it explicitly. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
-| `effort` | — | Thinking effort, sent under whichever option id the model declares. Values differ per model; gpt-5.x accepts `none`, `low`, `medium`, `high`, `extra-high`. `composer-2.5` declares none. |
+| `effort` | — | Exact thinking-effort value, sent under whichever option id the selected model declares. Values are case-sensitive and model-specific; some models expose no effort option. |
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
 | `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**; paths outside it may arrive unreadable agent-side. Attachments are untrusted — the bridge does not scan for prompt injection. Skips are reported in `protocolWarnings`, never fatal. |
 
@@ -21,11 +21,13 @@ CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `effort: "high"`, and `-fast` is
 `fast: true`. A suffixed id fails with `Invalid model value`; `doctor` with `deep: true`
 lists the ids this agent offers.
 
-Config option ids differ per model and are known only once one is selected, so `effort` is
-resolved against the ids the agent reports for the model in use. A model declaring no
-thinking or reasoning option yields a `protocolWarnings` note naming what it does declare, and
-the run continues. An invalid value for an option the model *does* have fails the call, before
-the turn is billed. `doctor` with `deep: true` lists the ids and values of the current model.
+Config option ids and values differ per model and are known only once one is selected. The bridge
+matches `effort` exactly against the selected model's live options and sends it under the id that
+advertised that value (`effort`, `reasoning`, `thinking`, or another thought-level id). A bad
+value or a model with no effort knob fails as `invalid-effort`; a missing or unusable option list
+fails as `effort-options-unavailable`. Both happen before `session/prompt`. For `invalid-effort`,
+retry with the returned `resumeSessionId`, the complete original `spec`, and a corrected value.
+For `effort-options-unavailable`, keep the same session and complete spec but do not guess a value.
 Do not pass `context` speculatively.
 
 ## Return value
@@ -91,6 +93,8 @@ Errors come back as `delegate failed [<reason>]: …`.
 | `invalid-spec` | `spec` was blank, or named a path that does not exist or is not a file. Nothing was spawned. | Fix the argument. |
 | `invalid-workspace` | `workspace` does not exist or is not a directory. Nothing was spawned. | Fix the argument. |
 | `unknown-model` | `model` is not offered by this agent; the message names the valid ids. | Fix the argument. |
+| `invalid-effort` | `effort` is not an exact value advertised by the selected model, or that model advertises no configurable effort. No prompt was sent. | Retry the named session with the complete original `spec` and an accepted value; when the message says `Accepted: none`, omit the `effort` field entirely and do not send the string `"none"`. |
+| `effort-options-unavailable` | The selected model did not report a usable effort option list, or rejected an option it had just advertised. No prompt was sent. | Retry the named session once with the complete original `spec`; if it repeats, run `doctor` and report the capability failure rather than guessing. |
 | `resume-failed` | `resumeSessionId` could not be loaded for a reason other than the agent not having that session — no fresh session was started. | Retry; omit `resumeSessionId` to start fresh deliberately. A session the agent does not have is not this: it starts fresh and reports a `protocolWarnings` entry. |
 | `agent-error` | The agent rejected a request (JSON-RPC error, e.g. an invalid config value). | Fix the argument; retrying is pointless. |
 | `hard-cap` | The 1h absolute cap elapsed. | Resume the id in the message. |

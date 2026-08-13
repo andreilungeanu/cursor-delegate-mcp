@@ -197,7 +197,7 @@ function rpcError(code, message) {
 
 // These factories model a turn that emits no session/update at all, which now warns on its
 // own ("no message closed the turn"). Config-option tests care only about their own warning.
-const configWarnings = (out) => (out.protocolWarnings || []).filter((w) => / has no .* option/.test(w) || /^effort ignored:/.test(w));
+const configWarnings = (out) => (out.protocolWarnings || []).filter((w) => / has no .* option/.test(w));
 
 // Measured against claude-haiku-4-5, which has no fast variant.
 const FAST_REFUSED = () => { throw rpcError(-32602, "Invalid params: Unknown model config option: fast"); };
@@ -243,6 +243,11 @@ const GROK_OPTIONS = [
   { id: "effort", options: vals("low", "medium", "high") },
   { id: "fast", options: vals("true", "false") },
 ];
+const GROK_46_OPTIONS = [
+  { id: "model", currentValue: "grok-4.6" },
+  { id: "effort", options: vals("low", "medium", "high", "xhigh") },
+  { id: "fast", options: vals("true", "false") },
+];
 // Claude declares both at once: a boolean toggle and a level.
 const CLAUDE_OPTIONS = [
   { id: "model", currentValue: "claude-sonnet-5" },
@@ -259,7 +264,7 @@ const COMPOSER_OPTIONS = [
   { id: "fast", options: vals("true", "false") },
 ];
 
-function configFactory({ onSet, refuse = [], invalid = [], options = GPT_OPTIONS, noOptions = false }) {
+function configFactory({ onSet, onPrompt, refuse = [], invalid = [], options = GPT_OPTIONS, noOptions = false }) {
   return () => {
     const client = stubClient("sess-cfg");
     client.setConfigOption = async (_sid, configId, value) => {
@@ -267,6 +272,10 @@ function configFactory({ onSet, refuse = [], invalid = [], options = GPT_OPTIONS
       if (invalid.includes(configId)) throw rpcError(-32602, `Invalid params: Invalid value for ${configId}: ${value}`);
       onSet?.(configId, value);
       return noOptions ? undefined : { configOptions: options };
+    };
+    client.prompt = async () => {
+      onPrompt?.();
+      return { stopReason: "end_turn" };
     };
     return client;
   };
@@ -301,6 +310,88 @@ test("runDelegate sends effort under the id the model declares", async () => {
   assert.deepEqual(configWarnings(out), []);
 });
 
+test("runDelegate accepts grok xhigh exactly under the advertised effort id", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "grok-4.6", effort: "xhigh", workspace: process.cwd(),
+    clientFactory: configFactory({ options: GROK_46_OPTIONS, onSet: (id, v) => seen.push([id, v]) }),
+  });
+  assert.deepEqual(seen, [["fast", false], ["effort", "xhigh"]]);
+});
+
+test("runDelegate rejects extra-high for grok before prompting and names exact accepted values", async () => {
+  const seen = [];
+  let prompts = 0;
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "grok-4.6", effort: "extra-high", workspace: process.cwd(),
+      clientFactory: configFactory({
+        options: GROK_46_OPTIONS,
+        onSet: (id, v) => seen.push([id, v]),
+        onPrompt: () => { prompts++; },
+      }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "invalid-effort");
+      assert.match(err.message, /Invalid effort "extra-high" for "grok-4\.6"/);
+      assert.match(err.message, /Accepted: \["low","medium","high","xhigh"\]/);
+      assert.match(err.message, /Resume with resumeSessionId sess-cfg/);
+      return true;
+    }
+  );
+  assert.deepEqual(seen, [["fast", false]], "the rejected value must not reach ACP");
+  assert.equal(prompts, 0);
+});
+
+test("runDelegate keeps gpt extra-high distinct from xhigh", async () => {
+  const accepted = [];
+  await runDelegate({
+    spec: "task", model: "gpt-5.4", effort: "extra-high", workspace: process.cwd(),
+    clientFactory: configFactory({ onSet: (id, v) => accepted.push([id, v]) }),
+  });
+  assert.deepEqual(accepted, [["fast", false], ["reasoning", "extra-high"]]);
+
+  let prompts = 0;
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "gpt-5.4", effort: "xhigh", workspace: process.cwd(),
+      clientFactory: configFactory({ onPrompt: () => { prompts++; } }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "invalid-effort");
+      assert.match(err.message, /Accepted: \["none","low","medium","high","extra-high"\]/);
+      return true;
+    }
+  );
+  assert.equal(prompts, 0);
+});
+
+test("runDelegate accepts future effort tokens when the model advertises them", async () => {
+  const options = [
+    { id: "model", currentValue: "future-model" },
+    { id: "thought_level", options: vals("max", "ultra") },
+    { id: "fast", options: vals("true", "false") },
+  ];
+  for (const effort of ["max", "ultra"]) {
+    const seen = [];
+    await runDelegate({
+      spec: "task", model: "future-model", effort, workspace: process.cwd(),
+      clientFactory: configFactory({ options, onSet: (id, v) => seen.push([id, v]) }),
+    });
+    assert.deepEqual(seen, [["fast", false], ["thought_level", effort]]);
+  }
+});
+
+test("runDelegate does not case-fold effort values", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "gpt-5.4", effort: "EXTRA-HIGH", workspace: process.cwd(),
+      clientFactory: configFactory({}),
+    }),
+    (err) => err.reason === "invalid-effort" && /Invalid effort "EXTRA-HIGH"/.test(err.message)
+  );
+});
+
 test("runDelegate prefers effort over a boolean thinking toggle when a model declares both", async () => {
   const seen = [];
   await runDelegate({
@@ -323,64 +414,133 @@ test("runDelegate recovers the option list by re-asserting the model when fast i
   assert.deepEqual(configWarnings(out), []);
 });
 
-// claude-haiku-4-5 declares only the boolean thinking. Sending a level there is a guaranteed
-// invalid value, which would fail the run, so it must degrade to a warning instead.
-test("runDelegate does not send an effort level to a model whose only knob is boolean", async () => {
+// claude-haiku-4-5 declares only the boolean thinking. Exact true/false still work, while a
+// level is rejected locally instead of being guessed or ignored.
+test("runDelegate rejects a level for a boolean-only model before prompting", async () => {
   const seen = [];
-  const out = await runDelegate({
-    spec: "task", model: "claude-haiku-4-5", effort: "high", workspace: process.cwd(),
+  let prompts = 0;
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "claude-haiku-4-5", effort: "high", workspace: process.cwd(),
+      clientFactory: configFactory({
+        options: HAIKU_OPTIONS,
+        refuse: ["fast"],
+        onSet: (id, v) => seen.push([id, v]),
+        onPrompt: () => { prompts++; },
+      }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "invalid-effort");
+      assert.match(err.message, /Accepted: \["true","false"\]/);
+      return true;
+    }
+  );
+  assert.deepEqual(seen, [["model", "claude-haiku-4-5"]]);
+  assert.equal(prompts, 0);
+});
+
+test("runDelegate sends exact boolean effort to a boolean-only thinking option", async () => {
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", effort: "true", workspace: process.cwd(),
     clientFactory: configFactory({
       options: HAIKU_OPTIONS, refuse: ["fast"], onSet: (id, v) => seen.push([id, v]),
     }),
   });
-  assert.deepEqual(seen, [["model", "claude-haiku-4-5"]]);
-  assert.deepEqual(configWarnings(out), [
-    "effort ignored: claude-haiku-4-5 declares thinking, which did not take the requested value",
-  ]);
+  assert.deepEqual(seen, [["model", "claude-haiku-4-5"], ["thinking", "true"]]);
 });
 
-test("runDelegate warns with the ids a model does declare when effort cannot be applied", async () => {
-  const out = await runDelegate({
-    spec: "task", model: "composer-2.5", effort: "high",
-    workspace: process.cwd(), clientFactory: configFactory({ options: COMPOSER_OPTIONS }),
-  });
-  assert.equal(out.stopReason, undefined);
-  assert.deepEqual(configWarnings(out), [
-    "effort ignored: composer-2.5 declares no thinking or reasoning option",
-  ]);
-});
-
-// Last resort: fast refused and the model re-assert carried nothing either, so the warning must
-// not claim what the model declares.
-test("runDelegate reports the list as unknown when it could not be recovered", async () => {
-  const out = await runDelegate({
-    spec: "task", model: "claude-haiku-4-5", fast: true, effort: "high", workspace: process.cwd(),
-    clientFactory: configFactory({ noOptions: true, refuse: ["fast"] }),
-  });
-  assert.deepEqual(configWarnings(out), [
-    "model claude-haiku-4-5 has no fast option; the requested value was ignored",
-    "effort ignored: claude-haiku-4-5 did not report its option list",
-  ]);
-});
-
-test("runDelegate names the declared thought-level ids when none accepted the value", async () => {
-  const out = await runDelegate({
-    spec: "task", model: "grok-4.5", effort: "high", workspace: process.cwd(),
-    clientFactory: configFactory({ options: GROK_OPTIONS, refuse: ["effort"] }),
-  });
-  assert.deepEqual(configWarnings(out), [
-    "effort ignored: grok-4.5 declares effort, which did not take the requested value",
-  ]);
-});
-
-test("runDelegate fails loudly when a config value is rejected as invalid", async () => {
+test("runDelegate rejects explicit effort for Composer and names no accepted value", async () => {
+  let prompts = 0;
   await assert.rejects(
     runDelegate({
-      spec: "task", model: "gpt-5.4", effort: "banana",
+      spec: "task", model: "composer-2.5", effort: "xhigh", workspace: process.cwd(),
+      clientFactory: configFactory({ options: COMPOSER_OPTIONS, onPrompt: () => { prompts++; } }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "invalid-effort");
+      assert.match(err.message, /Model "composer-2.5" does not advertise configurable effort/);
+      assert.match(err.message, /Accepted: none/);
+      assert.match(err.message, /Omit effort; do not send "none"/);
+      assert.match(err.message, /Resume with resumeSessionId sess-cfg/);
+      return true;
+    }
+  );
+  assert.equal(prompts, 0);
+});
+
+// Last resort: fast refused and re-asserting the model carried no option list either. That is a
+// capability-read failure, not evidence that the caller's exact token is invalid.
+test("runDelegate fails separately when the effort option list cannot be recovered", async () => {
+  let prompts = 0;
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "claude-haiku-4-5", fast: true, effort: "high", workspace: process.cwd(),
+      clientFactory: configFactory({
+        noOptions: true, refuse: ["fast"], onPrompt: () => { prompts++; },
+      }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "effort-options-unavailable");
+      assert.match(err.message, /did not report a usable effort option list/);
+      assert.match(err.message, /Resume with resumeSessionId sess-cfg/);
+      return true;
+    }
+  );
+  assert.equal(prompts, 0);
+});
+
+test("runDelegate treats an empty reported option list as unavailable, not unsupported", async () => {
+  let prompts = 0;
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "grok-4.6", effort: "xhigh", workspace: process.cwd(),
+      clientFactory: configFactory({ options: [], onPrompt: () => { prompts++; } }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "effort-options-unavailable");
+      assert.doesNotMatch(err.message, /Accepted: none/);
+      return true;
+    }
+  );
+  assert.equal(prompts, 0);
+});
+
+test("runDelegate fails separately when a model rejects the effort option it advertised", async () => {
+  let prompts = 0;
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "grok-4.5", effort: "high", workspace: process.cwd(),
+      clientFactory: configFactory({
+        options: GROK_OPTIONS, refuse: ["effort"], onPrompt: () => { prompts++; },
+      }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "effort-options-unavailable");
+      assert.match(err.message, /advertised option "effort" but rejected it/);
+      return true;
+    }
+  );
+  assert.equal(prompts, 0);
+});
+
+test("runDelegate does not require an option list when effort is omitted", async () => {
+  let prompts = 0;
+  await runDelegate({
+    spec: "task", model: "composer-2.5", workspace: process.cwd(),
+    clientFactory: configFactory({ noOptions: true, onPrompt: () => { prompts++; } }),
+  });
+  assert.equal(prompts, 1);
+});
+
+test("runDelegate preserves an agent rejection for an advertised exact effort", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "gpt-5.4", effort: "high",
       workspace: process.cwd(), clientFactory: configFactory({ invalid: ["reasoning"] }),
     }),
     (err) => {
-      assert.match(err.message, /Invalid value for reasoning: banana/);
+      assert.match(err.message, /Invalid value for reasoning: high/);
       assert.equal(err.reason, "agent-error");
       return true;
     }

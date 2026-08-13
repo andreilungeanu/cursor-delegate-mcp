@@ -12,7 +12,7 @@ import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 import { makeTurnState } from "./turn-state.js";
 import { makeError } from "./errors.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
-import { optionsFrom, resolveEffortId, unsupportedWarning } from "./model-options.js";
+import { optionsFrom, resolveEffort, unsupportedWarning } from "./model-options.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
 export const DEFAULT_HANDSHAKE_MS = 60000;
@@ -211,13 +211,42 @@ function servedModelFrom(res) {
   return typeof m?.currentValue === "string" ? m.currentValue : undefined;
 }
 
-// Sent under whichever id the model declares. A model that refuses fast leaves no option list;
-// only then are the candidate ids tried in turn.
-async function applyEffort(client, sessionId, value, modelOptions) {
-  const id = resolveEffortId(modelOptions, value);
-  if (id === undefined) return { applied: false };
-  const r = await applyConfig(client, sessionId, id, value);
-  return r.unsupported ? { applied: false } : { applied: true, res: r.res };
+// Sent only when the exact value appears under a thought-level option the selected model
+// advertised. Local validation keeps a bad token out of ACP and, more importantly, out of a
+// billed prompt. Missing capability data is not mislabeled as a caller mistake.
+async function applyEffort(client, sessionId, model, value, modelOptions) {
+  const resolved = resolveEffort(modelOptions, value);
+  if (resolved.status === "unavailable") {
+    throw makeError(
+      "effort-options-unavailable",
+      `Cannot validate effort ${JSON.stringify(value)} for ${JSON.stringify(model)}:`
+        + " the selected model did not report a usable effort option list."
+    );
+  }
+  if (resolved.status === "unsupported") {
+    throw makeError(
+      "invalid-effort",
+      `Model ${JSON.stringify(model)} does not advertise configurable effort.`
+        + ` Accepted: none. Omit effort; do not send ${JSON.stringify("none")}.`
+    );
+  }
+  if (resolved.status === "invalid") {
+    throw makeError(
+      "invalid-effort",
+      `Invalid effort ${JSON.stringify(value)} for ${JSON.stringify(model)}.`
+        + ` Accepted: ${JSON.stringify(resolved.accepted)}.`
+    );
+  }
+
+  const r = await applyConfig(client, sessionId, resolved.id, resolved.value);
+  if (r.unsupported) {
+    throw makeError(
+      "effort-options-unavailable",
+      `Cannot apply effort ${JSON.stringify(value)} for ${JSON.stringify(model)}:`
+        + ` the selected model advertised option ${JSON.stringify(resolved.id)} but rejected it.`
+    );
+  }
+  return r.res;
 }
 
 /**
@@ -416,9 +445,8 @@ export async function runDelegate({
         servedModel = servedModelFrom(reasserted.res) ?? servedModel;
       }
       if (effort !== undefined) {
-        const applied = await applyEffort(client, sessionId, effort, modelOptions);
-        if (!applied.applied) unsupportedOptions.push({ arg: "effort", modelOptions });
-        else servedModel = servedModelFrom(applied.res) ?? servedModel;
+        const r = await applyEffort(client, sessionId, model, effort, modelOptions);
+        servedModel = servedModelFrom(r) ?? servedModel;
       }
       if (context !== undefined) {
         const r = await applyConfig(client, sessionId, "context", context);

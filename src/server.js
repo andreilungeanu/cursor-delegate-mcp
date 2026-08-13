@@ -154,9 +154,9 @@ export const delegateInputSchema = z.object({
   workspace: z.string().optional().describe("The agent's working directory, not a limit. Defaults to the server process cwd, which under npx is often not your project root — pass it explicitly. Must already exist; never create one for the call."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
   fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
-  // Which options a model offers, and their valid values, are only knowable by asking the
-  // agent, so these stay open strings and the agent rejects what it does not accept.
-  effort: z.string().trim().min(1).optional().describe("Thinking effort; ids and values differ per model, and some offer none. gpt-5.x: none, low, medium, high, extra-high. doctor deep:true lists the current model's."),
+  // Which values a model offers is only knowable after selecting it, so this stays an open
+  // string and the bridge validates the exact token against the live option list.
+  effort: z.string().trim().min(1).optional().describe("Exact Cursor thinking-effort value for the selected model. Values differ per model and some expose no effort option; invalid values fail before the prompt and name the accepted set. Pass only when the user asks for Cursor effort — the host's own reasoning setting is unrelated."),
   context: z.string().trim().min(1).optional().describe("Context window size; gpt-5.x accepts 272k and 1m. Do not pass speculatively."),
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting contents into spec. Text becomes references the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against workspace but are not limited to it. Skips are reported in protocolWarnings, never fatal."),
 });
@@ -252,7 +252,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "delegate",
     {
       description:
-        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Keep model (${DEFAULT_MODEL}), fast and effort at their defaults unless the user asks. See the delegate skill.`,
+        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Keep model (${DEFAULT_MODEL}), fast and effort at their defaults unless the user explicitly asks. See the delegate skill.`,
       inputSchema: delegateInputSchema,
       annotations: {
         title: "Delegate coding task to Cursor",

@@ -202,6 +202,12 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.ok(!/uses MCP elicitation/i.test(tools.delegate.description));
     assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
     assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
+    assert.equal(delegateInputSchema.parse({ spec: "x", effort: "  xhigh  " }).effort, "xhigh");
+    const effortDescription = tools.delegate.inputSchema.properties.effort.description;
+    assert.match(effortDescription, /Exact Cursor thinking-effort value/);
+    assert.match(effortDescription, /invalid values fail before the prompt/);
+    assert.match(effortDescription, /host's own reasoning setting is unrelated/);
+    assert.doesNotMatch(effortDescription, /gpt-5\.x|extra-high/);
     // No outputSchema on any tool: declaring one forces structuredContent alongside the text
     // block, which puts the payload in the caller's context twice.
     assert.equal(tools.delegate.outputSchema, undefined);

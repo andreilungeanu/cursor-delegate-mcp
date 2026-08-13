@@ -104,7 +104,8 @@ vars, read [reference.md](reference.md) in this skill directory.
 Other models (Opus, Codex, Grok, etc.) are available — pass `model` when the user requests
 one. Use the bare family id (`grok-4.5`, `gpt-5.4`); the CLI's tier-suffixed `--list-models`
 strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast`, or
-`effort` in reference.md.
+`effort` in reference.md. Effort values are exact and model-specific; an invalid one fails before
+the prompt and names what the model accepts.
 
 ## Plan mode
 
