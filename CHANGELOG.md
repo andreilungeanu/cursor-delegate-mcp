@@ -6,6 +6,47 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-08-13
+
+### Fixed
+
+- **An async rejection no longer exits the server.** The progress callback wrapped
+  `sendNotification` in `try`/`catch`, but the SDK declares it `async`: the returned promise was
+  never awaited, so a transport rejection settled outside the `catch` and reached the process,
+  which under Node's default `--unhandled-rejections=throw` took every concurrent delegation down
+  with it. Two more instances of the same shape are closed: the ACP request router's discarded
+  promise, and `stdout`, which had no `error` listener where `stdin` and `stderr` both did.
+- **A host abort during spec resolution is no longer lost.** The pre-flight check ran before the
+  spec was read and the abort listener was registered after it, and `addEventListener` does not
+  replay an abort that already fired — so an abort landing in that window was dropped and the turn
+  ran to completion against an aborted signal.
+- **A failed resume no longer silently starts a fresh session.** Every `session/load` error fell
+  back, so a transient failure ran the whole task without the context the caller asked for and
+  reported it as a warning on a successful result. Only a session the agent does not have falls
+  back now.
+- **Every failure that leaves a live session names the id to resume.** The session id is assigned
+  at `session/new`, before the model and config calls, so an unknown model or a rejected config
+  value abandoned a resumable session without naming it. The hint was previously reserved for
+  stalls, aborts and exits.
+
+### Added
+
+- **`resume-failed`** — a resume that fails for any reason other than the agent not having that
+  session. Nothing is started, so the caller can retry or omit `resumeSessionId` deliberately.
+- **`invalid-spec` and `invalid-workspace` are documented.** Both were already raised; neither
+  appeared in the failure table the skill points at for every reason.
+
+### Changed
+
+- **`handshake-timeout` no longer tells hosts there is nothing to resume.** Setup continues past
+  `session/new`, so the session often exists; the error already named it while the skill said to
+  abandon it.
+- **`doctor` verification points at the call that proves login.** The install guide credited the
+  shallow probe, which only resolves `cursor-agent` on PATH — login shows up in the `deep: true`
+  handshake.
+- **`plan` and `ask` read as instructed behavior in the skill's parameter table**, matching what
+  the same file already says about modes not being enforced.
+
 ### Removed
 
 - **The `reasoning` input is gone from the schema.** 1.19.0 kept it declared solely to reject it,
