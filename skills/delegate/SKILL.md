@@ -95,7 +95,7 @@ vars, read [reference.md](reference.md) in this skill directory.
 
 | Parameter   | Default        | Notes                                              |
 | ----------- | -------------- | -------------------------------------------------- |
-| `mode`      | `agent`        | `plan` = plan only; `ask` = read-only Q&A          |
+| `mode`      | `agent`        | Instructed behavior: `plan` = plan only; `ask` = read-only Q&A |
 | `model`     | `composer-2.5` | Default model; Composer 2.5 standard tier          |
 | `fast`      | `false`        | `true` = higher costs — ONLY when user asks        |
 | `workspace` | server cwd     | Pass it — the default is the MCP **server's** cwd, not always your project root. Smallest directory holding the task's files; none → project root |
