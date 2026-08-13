@@ -263,7 +263,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "cancel",
     {
       description:
-        "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed, not-running (turn already ended, still resumable), not-found (id never seen this process).",
+        "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's recent session history).",
       inputSchema: {
         sessionId: z.string(),
         force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
@@ -298,7 +298,12 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       await new Promise((r) => setTimeout(r, forceGraceMs));
       const stillRunning = inFlight.get(sessionId);
       if (!stillRunning || stillRunning.size === 0) return cancelResult("cancelled", sessionId);
-      for (const handle of stillRunning) handle.client.stop();
+      const observed = await Promise.all(
+        [...stillRunning].map((handle) => Promise.resolve(handle.client.stop()).catch(() => false))
+      );
+      // "killed" claims the process is gone, so it needs the exit, not just a dispatched signal.
+      // When one does not follow, the handles stay registered and force can be tried again.
+      if (!observed.every(Boolean)) return cancelResult("cancelled", sessionId);
       inFlight.delete(sessionId);
       return cancelResult("killed", sessionId);
     }

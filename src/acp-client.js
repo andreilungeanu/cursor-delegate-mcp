@@ -9,6 +9,9 @@ import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
 
 const STDERR_CAP = 64 * 1024;
+// How long stop() waits for the child to actually exit after the kill is dispatched. SIGKILL and
+// taskkill /F land in milliseconds, so this only ever elapses when the kill did not work.
+const STOP_EXIT_TIMEOUT_MS = 2000;
 
 export class AcpClient extends EventEmitter {
   /**
@@ -27,6 +30,8 @@ export class AcpClient extends EventEmitter {
     this.onTodos = onTodos;
     this._stderrChunks = [];
     this._stderrLength = 0;
+    /** @type {Promise<boolean> | null} */
+    this._stopping = null;
   }
 
   // The tail of stderr, which is what an exit error quotes. Kept as chunks and joined on read:
@@ -131,12 +136,40 @@ export class AcpClient extends EventEmitter {
 
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
-  stop() {
-    try { this.peer?.close(); } catch {}
+  // Idempotent, so a force-cancel racing the delegation's own finally tears down once and both
+  // see the same answer. Resolves true when the child was observed to exit, false when the bound
+  // elapsed first: dispatching a signal is not the same fact as the process being gone, and
+  // cancel reports the difference rather than calling both "killed".
+  stop({ timeoutMs = STOP_EXIT_TIMEOUT_MS } = {}) {
+    if (!this._stopping) this._stopping = this._teardown(timeoutMs);
+    return this._stopping;
+  }
+
+  async _teardown(timeoutMs) {
+    const child = this.child;
+    if (!child?.pid) {
+      try { this.peer?.close(); } catch {}
+      return true;
+    }
+    const alive = isChildAlive(child);
+    // Subscribed before the kill is dispatched. A child that dies immediately would otherwise
+    // exit in the gap and leave this waiting on an event that has already fired.
+    const exited = alive
+      ? /** @type {Promise<boolean>} */ (new Promise((resolve) => child.once("exit", () => resolve(true))))
+      : Promise.resolve(true);
     // Runs for an exited child too: the agent can be gone while the commands it spawned are still
     // running, and on POSIX they stay in its process group, which is the only handle left on them.
-    if (this.child?.pid) {
-      treeKill(this.child.pid, { childAlive: isChildAlive(this.child) }).catch(() => {});
-    }
+    treeKill(child.pid, { childAlive: alive }).catch(() => {});
+    /** @type {NodeJS.Timeout | undefined} */
+    let timer;
+    const bounded = /** @type {Promise<boolean>} */ (new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    }));
+    const observed = await Promise.race([exited, bounded]);
+    clearTimeout(timer);
+    // Pending RPCs are left to the exit handler, which rejects them with agent-exit. Rejecting
+    // them here too would settle the same promises twice for no new information.
+    try { this.peer?.close(); } catch {}
+    return observed;
   }
 }

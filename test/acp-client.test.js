@@ -144,6 +144,36 @@ test("stop() kills the agent's descendants, not only the direct child", async ()
   }
 });
 
+function silentStub() {
+  return {
+    command: process.execPath,
+    args: [fileURLToPath(new URL("./fixtures/silent-stub.js", import.meta.url))],
+    options: { shell: false },
+  };
+}
+
+test("stop() is idempotent and reports the exit it observed", async () => {
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  await client.start();
+  const first = client.stop();
+  assert.equal(client.stop(), first, "a second caller must join the same teardown, not start one");
+  assert.equal(await first, true, "the child was observed to exit");
+  assert.equal(await client.stop(), true, "a later caller gets the same answer");
+});
+
+// A dispatched signal is not an exit, and cancel reports "killed" only for the second one. A real
+// agent cannot be made to swallow SIGKILL, so the exit event is withheld instead: the pid stays
+// real and is still killed, and only the notification this waits on goes missing.
+test("stop() reports false when no exit lands within the bound", async () => {
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  await client.start();
+  const child = client.child;
+  const reallyExited = new Promise((resolve) => child.once("exit", resolve));
+  client.child = { pid: child.pid, exitCode: null, signalCode: null, once: () => {} };
+  assert.equal(await client.stop({ timeoutMs: 25 }), false, "an exit that never arrives is not observed");
+  await reallyExited;
+});
+
 test("cancel sends session/cancel as a notification without id", async () => {
   const written = [];
   const client = new AcpClient({ spawnSpec: fakeSpawn() });

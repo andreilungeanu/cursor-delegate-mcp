@@ -379,7 +379,7 @@ test("cancel tool with force kills the agent when delegation does not settle", a
   const runDelegate = async ({ onSessionReady }) => {
     onSessionReady("sess-force-kill", {
       cancel: async (sid) => { cancelledWith = sid; },
-      stop: () => { stopCalled = true; releaseStop(); },
+      stop: () => { stopCalled = true; releaseStop(); return true; },
     });
     sessionReady();
     await gate;
@@ -416,7 +416,7 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
     // An agent that ignores session/cancel: the turn keeps running after the plain cancel.
     onSessionReady("sess-escalate", {
       cancel: async () => {},
-      stop: () => { stopCalled = true; releaseStop(); },
+      stop: () => { stopCalled = true; releaseStop(); return true; },
     });
     sessionReady();
     await gate;
@@ -440,6 +440,40 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
     assert.equal(stopCalled, true);
     const delegateRes = await delegateP;
     assert.equal(payload(delegateRes).cancelRequested, true);
+  } finally {
+    await client.close();
+  }
+});
+
+// stop() resolves false when the kill was dispatched and no exit followed. Reporting that as
+// killed would tell the caller the agent is gone while it is still running and still holding
+// the workspace.
+test("force cancel reports cancelled and keeps the handle when no exit follows the kill", async () => {
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  let releaseTurn;
+  const gate = new Promise((r) => { releaseTurn = r; });
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-stubborn", { cancel: async () => {}, stop: async () => false });
+    sessionReady();
+    await gate;
+    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-stubborn", filesReportedByEditTools: [] };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 50 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    await ready;
+    const first = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-stubborn", force: true } });
+    assert.equal(payload(first).status, "cancelled");
+    // Still registered, so the caller can force again instead of being told the id is unknown.
+    const second = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-stubborn", force: true } });
+    assert.equal(payload(second).status, "cancelled");
+    releaseTurn();
+    await delegateP;
   } finally {
     await client.close();
   }

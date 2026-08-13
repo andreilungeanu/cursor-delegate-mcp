@@ -567,6 +567,8 @@ export async function runDelegate({
     clearInterval(heartbeat);
     signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
-    client.stop();
+    // Deliberately not awaited: stop() waits for the child to exit, and every turn — success as
+    // much as failure — would pay that before returning. Nothing here reads whether it landed.
+    Promise.resolve(client.stop()).catch(() => {});
   }
 }

@@ -77,7 +77,9 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
     })();
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
-        try { client.stop(); } catch {}
+        // Not awaited, so the timeout still rejects at its stated deadline rather than at the
+        // deadline plus teardown. The finally below awaits the same idempotent promise.
+        try { Promise.resolve(client.stop()).catch(() => {}); } catch {}
         reject(new Error(`Handshake timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     });
@@ -87,7 +89,9 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
     return { ok: false, error: err?.message || String(err) };
   } finally {
     clearTimeout(timer);
-    try { client.stop(); } catch {}
+    // Awaited so doctor does not return while the agent it spawned is still being torn down.
+    // A killed child exits in milliseconds; only one that ignores the kill costs the full bound.
+    try { await Promise.resolve(client.stop()); } catch {}
   }
 }
 
