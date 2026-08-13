@@ -298,9 +298,9 @@ test("runDelegateTool survives sendNotification failures", async () => {
   assert.equal(payload(result).result, "ok");
 });
 
-// The SDK declares sendNotification async, so the sync-throwing stub above never exercised the
-// path that actually fails: a rejected promise settles outside the try block and reaches the
-// process. Asserting no unhandledRejection is the point of the test, not the return value.
+// The sync-throwing stub above never exercised the path that fails: the SDK declares
+// sendNotification async, and a rejection settles outside the try. The assertion is the absence
+// of an unhandledRejection, not the return value.
 test("runDelegateTool survives async sendNotification rejections", async () => {
   const inFlight = new Map();
   const extra = {
