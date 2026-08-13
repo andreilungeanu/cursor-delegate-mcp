@@ -6,7 +6,63 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-08-13
+
+### Added
+
+- **`cursor-delegate-mcp --version` prints the version and exits.** The flag previously fell
+  through to the stdio transport, which owns stdout and waits on stdin, so an install could only
+  be confirmed after it was wired into a host. The version is read from the `package.json` beside
+  the running code, so it reports what is executing rather than what a manifest pinned.
+
+### Removed
+
+- **Breaking: `spec` is sent as written. A `spec` that is a file path is no longer read as the
+  brief.** The bridge guessed which of the two a caller meant by sniffing the string for path
+  shape, so the meaning depended on whether a matching file existed. Orchestrators write the
+  brief and attach files with `contextFiles`, leaving nothing to disambiguate. A caller passing a
+  bare path now gets that path as the prompt text, with no error. `invalid-spec` fires only on a
+  blank `spec`.
+
+### Fixed
+
+- **The documented `cancel` vocabulary matches what 1.21.0 shipped.** The skill reference said a
+  forced cancel reports `killed`; since 1.21.0 that requires an observed exit, and a force that
+  cannot confirm one reports `cancelled` and keeps the session cancellable. It also called
+  `not-found` an id never seen by this process, which stops holding past the 500-session history
+  cap.
+
+### Changed
+
+- **The handshake skips config round-trips that would set what is already set.**
+  `session/set_model` goes only when the session did not open on the requested model, and
+  `session/set_config_option { configId: "fast" }` only when the session did not open on that
+  model *at* that tier — Cursor persists both, and persists the tier per model, so the values
+  `session/new` and `session/load` report are what the turn would otherwise re-assert. Anything
+  that reads the reply still sends it: an `effort` to validate, or `model: "default"`, whose
+  served id is only visible there. A value the agent does not report reads as a mismatch and
+  sends, and any model change re-applies the tier rather than trusting the previous model's. Two
+  delegations on the same model and tier now spend ~3.4 s in setup instead of ~5.5 s; a first
+  call, or one that switches model or tier, is unchanged.
+- **The ACP flight recorder records only when a transcript is asked for.** Every frame in and out
+  was retained whenever `ACP_LOG_SIZE` was above 0, which is the default, while the only consumer
+  is `CURSOR_DELEGATE_TRANSCRIPT` — unset by default. `ACP_LOG_SIZE` still bounds retention and
+  still disables at `0`.
+- **Three skill and reference facts now match the code.** `doctor deep` documents
+  `currentModelOptions`, including that it describes `currentModel` only — any other model needs a
+  `set_model` the handshake does not send. The skill's discovery description no longer calls `ask`
+  read-only. `TECHNICAL.md` lists the routing the request router performs.
+
 ## [1.21.0] - 2026-08-13
+
+### Fixed
+
+- **Teardown reaches the agent's descendants on POSIX.** `treeKill` sent `SIGKILL` to a single
+  pid, so commands the agent spawned outlived cancel-with-force, a host abort, a handshake
+  timeout and doctor's version probe; `taskkill /T` already took the tree on Windows. The agent
+  now leads its own process group and the group is killed. Because that also removes the agent
+  from this process's group, `SIGINT` and `SIGTERM` sweep registered delegations explicitly
+  rather than relying on the terminal to reach the child.
 
 ### Changed
 
@@ -14,6 +70,10 @@ All notable changes to this project are documented here. The format follows
   Invalid values name the accepted set, models without configurable effort tell callers to omit
   the field, and unavailable capability data fails as `effort-options-unavailable`. Calls that
   omit `effort` are unchanged.
+- **`cancel` reports `killed` only when the agent process was observed to exit.** `treeKill`
+  resolves whether or not the kill landed, so the status was untruthful. A forced cancel that
+  cannot confirm an exit answers `cancelled` and keeps the session registered, so force can be
+  retried rather than answering `not-found`.
 
 ## [1.20.0] - 2026-08-13
 

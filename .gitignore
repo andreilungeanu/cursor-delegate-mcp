@@ -6,6 +6,7 @@ acp.config.json
 .env
 .env.*
 .claude/
+.codex/
 /docs/
 spike/
 .firecrawl/

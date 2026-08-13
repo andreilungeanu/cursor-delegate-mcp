@@ -29,6 +29,12 @@ test("package and plugin manifest versions stay in sync", () => {
     assert.ok(JSON.stringify(read(path)).includes(pin), `${path} must pin ${pin}`);
   }
   assert.ok(JSON.stringify(manifests[1].mcpServers).includes(pin), "Codex inline MCP config must pin the package version");
+
+  // The Codex marketplace clones this ref for the skill while the manifest above pins the server
+  // to a published version. On `main` the two describe different builds, so the ref moves with
+  // the release like every other pin here.
+  const agents = read("../.agents/plugins/marketplace.json");
+  assert.equal(agents.plugins[0].source.ref, `v${pkg.version}`);
 });
 
 test("registry ownership metadata matches the published package", () => {
