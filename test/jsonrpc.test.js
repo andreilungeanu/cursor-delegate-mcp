@@ -5,6 +5,19 @@ import { JsonRpcPeer } from "../src/jsonrpc.js";
 
 function lines(buf) { return buf.split("\n").filter(Boolean).map((l) => JSON.parse(l)); }
 
+// Recording is opt-in, and the flag is read once in the constructor — so the env only has to be
+// set across that call, not across the whole test. Every test below that reads the ring buffer
+// asks for it the way someone debugging the bridge would.
+function recordingPeer(input, output, handlers = {}) {
+  const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "50";
+  try { return new JsonRpcPeer(input, output, handlers); }
+  finally {
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
+  }
+}
+
 test("request writes a framed call and resolves on matching response", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
@@ -113,7 +126,7 @@ test("unmatched response id is dropped silently", async () => {
 test("records inbound and outbound frames with direction tags", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
-  const peer = new JsonRpcPeer(input, output, {});
+  const peer = recordingPeer(input, output);
   const p = peer.request("initialize", { x: 1 });
   const log = peer.getLog();
   assert.equal(log.length, 1);
@@ -135,7 +148,7 @@ test("ring buffer trims to ACP_LOG_SIZE", () => {
   try {
     const input = new PassThrough();
     const output = new PassThrough();
-    const peer = new JsonRpcPeer(input, output, {});
+    const peer = recordingPeer(input, output);
     for (let i = 0; i < 5; i++) peer.notify("ping", { n: i });
     const log = peer.getLog();
     assert.equal(log.length, 3);
@@ -148,13 +161,31 @@ test("ring buffer trims to ACP_LOG_SIZE", () => {
   }
 });
 
+test("recording stays off until CURSOR_DELEGATE_TRANSCRIPT asks for it", () => {
+  const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  try {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const peer = new JsonRpcPeer(input, output, {});
+    peer.notify("ping", {});
+    input.write(JSON.stringify({ jsonrpc: "2.0", method: "pong" }) + "\n");
+    assert.equal(peer.getLog().length, 0, "the default must retain nothing nobody reads");
+    peer.close();
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
+  }
+});
+
+// ACP_LOG_SIZE keeps bounding retention, so 0 still wins over a requested transcript.
 test("ACP_LOG_SIZE=0 disables recording", () => {
   const prev = process.env.ACP_LOG_SIZE;
   process.env.ACP_LOG_SIZE = "0";
   try {
     const input = new PassThrough();
     const output = new PassThrough();
-    const peer = new JsonRpcPeer(input, output, {});
+    const peer = recordingPeer(input, output);
     peer.notify("ping", {});
     input.write(JSON.stringify({ jsonrpc: "2.0", method: "pong" }) + "\n");
     assert.equal(peer.getLog().length, 0);
@@ -172,7 +203,7 @@ test("a malformed ACP_LOG_SIZE keeps the default instead of disabling recording"
   try {
     const input = new PassThrough();
     const output = new PassThrough();
-    const peer = new JsonRpcPeer(input, output, {});
+    const peer = recordingPeer(input, output);
     peer.notify("ping", {});
     assert.equal(peer.getLog().length, 1, "a typo must not silently turn the transcript off");
     peer.close();
@@ -185,7 +216,7 @@ test("a malformed ACP_LOG_SIZE keeps the default instead of disabling recording"
 test("per-frame size is capped at FRAME_CAP", () => {
   const input = new PassThrough();
   const output = new PassThrough();
-  const peer = new JsonRpcPeer(input, output, {});
+  const peer = recordingPeer(input, output);
   const long = "x".repeat(3000);
   input.write(long + "\n");
   const log = peer.getLog();
@@ -197,7 +228,7 @@ test("per-frame size is capped at FRAME_CAP", () => {
 test("formatLog returns last n entries as readable lines", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
-  const peer = new JsonRpcPeer(input, output, {});
+  const peer = recordingPeer(input, output);
   peer.notify("a", {});
   peer.notify("b", {});
   peer.notify("c", {});
@@ -211,7 +242,7 @@ test("formatLog returns last n entries as readable lines", async () => {
 test("malformed inbound line is still recorded", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
-  const peer = new JsonRpcPeer(input, output, {});
+  const peer = recordingPeer(input, output);
   input.write("not json\n");
   await new Promise((r) => setImmediate(r));
   const log = peer.getLog();

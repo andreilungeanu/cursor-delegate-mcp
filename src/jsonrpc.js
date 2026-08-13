@@ -30,6 +30,10 @@ export class JsonRpcPeer {
     // 0 disables recording and is documented; anything unparseable is a typo, and silently
     // disabling the transcript on a typo is the opposite of what the setter wanted.
     this._logSize = readLogSize(process.env.ACP_LOG_SIZE);
+    // The failure transcript is the only thing that reads these frames, and it is opt-in, so
+    // recording by default retained up to _logSize × FRAME_CAP bytes per delegation that nothing
+    // would ever ask for. ACP_LOG_SIZE still bounds retention and still disables at 0.
+    this._recording = this._logSize > 0 && Number(process.env.CURSOR_DELEGATE_TRANSCRIPT) > 0;
     this._log = [];
     this.rl = readline.createInterface({ input });
     this.rl.on("line", (line) => this._onLine(line));
@@ -39,7 +43,7 @@ export class JsonRpcPeer {
   // chatty turn cost more than parsing the frames. Let the array overshoot by a quarter and trim
   // in one batch; readers below take the last _logSize, so what the log reports is unchanged.
   _record(dir, line) {
-    if (this._logSize <= 0) return;
+    if (!this._recording) return;
     const truncated = line.length > FRAME_CAP ? line.slice(0, FRAME_CAP) : line;
     this._log.push({ t: Date.now(), dir, line: truncated });
     if (this._log.length > this._logSize + (this._logSize >> 2)) {

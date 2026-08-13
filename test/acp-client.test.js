@@ -40,7 +40,15 @@ test("client initializes, opens a session, prompts and emits updates", async () 
   const updates = [];
   const client = new AcpClient({ spawnSpec: fakeSpawn() });
   client.on("update", (u) => updates.push(u));
-  await client.start();
+  // The wire assertion below reads the flight recorder, which is opt-in and reads the flag when
+  // start() builds the peer.
+  const prevTranscript = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "50";
+  try { await client.start(); }
+  finally {
+    if (prevTranscript === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prevTranscript;
+  }
   const caps = await client.initialize();
   assert.equal(caps.protocolVersion, 1);
   assert.equal(caps._meta.parameterizedModelPicker, true);
