@@ -298,6 +298,41 @@ test("runDelegateTool survives sendNotification failures", async () => {
   assert.equal(payload(result).result, "ok");
 });
 
+// The SDK declares sendNotification async, so the sync-throwing stub above never exercised the
+// path that actually fails: a rejected promise settles outside the try block and reaches the
+// process. Asserting no unhandledRejection is the point of the test, not the return value.
+test("runDelegateTool survives async sendNotification rejections", async () => {
+  const inFlight = new Map();
+  const extra = {
+    _meta: { progressToken: "tok-1" },
+    sendNotification: async () => { throw new Error("Not connected"); },
+  };
+  const runDelegate = async ({ onProgress, onSessionReady }) => {
+    onSessionReady("sess-s", { cancel: async () => {} });
+    onProgress("tick");
+    return { result: "ok", stopReason: "end_turn", sessionId: "sess-s", filesReportedByEditTools: [] };
+  };
+
+  const rejections = [];
+  const onUnhandled = (err) => rejections.push(err);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const result = await runDelegateTool({
+      args: { spec: "test", mode: "agent", model: "composer-2.5" },
+      extra,
+      runDelegate,
+      inFlight,
+    });
+    // A rejection queued by the notification settles on a later microtask than the tool result.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(result.isError, undefined);
+    assert.equal(payload(result).result, "ok");
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+  assert.deepEqual(rejections, []);
+});
+
 test("cancel tool cancels an in-flight delegation and cleans up", async () => {
   let cancelledWith;
   let release;
