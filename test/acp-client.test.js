@@ -1,9 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
+import { readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AcpClient } from "../src/acp-client.js";
 import { isChildAlive } from "../src/proc.js";
+
+// process.kill(pid, 0) probes without signalling. EPERM means the pid is taken by a process we
+// may not signal, which still counts as alive; ESRCH is the only "gone". A killed orphan whose
+// reaper has not run keeps its pid as a zombie, so on Linux the state decides — otherwise a
+// suite run where the runner is itself pid 1 reads every dead descendant as alive.
+function pidAlive(pid) {
+  try { process.kill(pid, 0); } catch (err) { return err.code === "EPERM"; }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] !== "Z";
+  } catch { return true; }
+}
+
+async function until(predicate, timeoutMs, message) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() >= deadline) assert.fail(message);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 
 function fakeSpawn() {
   // fileURLToPath (not .pathname) is required on Windows: pathname yields a
@@ -85,6 +109,39 @@ test("stop() terminates a live agent child (regression: Windows orphaned agent)"
   client.stop();
   await exited;
   assert.ok(!isChildAlive(client.child), "child must be dead after stop()");
+});
+
+// The agent spawns its own children; killing one pid orphans them. Windows taskkill /T already
+// takes the tree, so this only fails on POSIX until treeKill kills the process group there.
+test("stop() kills the agent's descendants, not only the direct child", async () => {
+  const pidFile = join(tmpdir(), `cdm-grandchild-${process.pid}-${Date.now()}`);
+  const client = new AcpClient({
+    spawnSpec: {
+      command: process.execPath,
+      args: [fileURLToPath(new URL("./fixtures/spawns-grandchild.js", import.meta.url)), pidFile],
+      options: { shell: false },
+    },
+  });
+  let grandchildPid;
+  try {
+    await client.start();
+    const readPid = () => {
+      try {
+        const raw = readFileSync(pidFile, "utf8");
+        return raw.endsWith("\n") ? Number(raw.trim()) : undefined;
+      } catch { return undefined; }
+    };
+    await until(() => readPid() !== undefined, 5000, "fixture never reported a grandchild pid");
+    grandchildPid = readPid();
+    assert.ok(pidAlive(grandchildPid), "grandchild must be alive before stop()");
+    const exited = new Promise((resolve) => client.child.once("exit", resolve));
+    client.stop();
+    await exited;
+    await until(() => !pidAlive(grandchildPid), 5000, "grandchild survived stop()");
+  } finally {
+    if (grandchildPid && pidAlive(grandchildPid)) { try { process.kill(grandchildPid, "SIGKILL"); } catch {} }
+    rmSync(pidFile, { force: true });
+  }
 });
 
 test("cancel sends session/cancel as a notification without id", async () => {

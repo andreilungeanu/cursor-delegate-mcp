@@ -8,6 +8,7 @@ import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION } from "./version.js";
+import { DETACHED } from "./proc.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 
 const nodeMajor = Number(process.versions.node.split(".")[0]);
@@ -347,7 +348,26 @@ if (process.argv[1]) {
   }
 }
 
+// Each agent runs in its own process group on POSIX, so a SIGINT or SIGTERM aimed at this process
+// no longer reaches it the way it did when the two shared a group. Kill what is registered, then
+// exit explicitly: installing a handler replaces Node's default, and a server that swallows Ctrl-C
+// would be a worse bug than the agent it leaks. Delegations still in their handshake are not in
+// the map yet, so this covers the turn, not the first few seconds of it.
+export function installSignalCleanup(map, { exit = (code) => process.exit(code) } = {}) {
+  if (!DETACHED) return;
+  const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143]]);
+  for (const [signal, code] of signals) {
+    process.on(signal, () => {
+      for (const handles of map.values()) {
+        for (const handle of handles) { try { handle.client.stop(); } catch {} }
+      }
+      exit(code);
+    });
+  }
+}
+
 if (isMain) {
   const server = buildServer();
+  installSignalCleanup(inFlight);
   await server.connect(new StdioServerTransport());
 }

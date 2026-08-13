@@ -2,7 +2,7 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
 import { resolveAcpSpawn } from "./spawn.js";
-import { treeKill } from "./proc.js";
+import { DETACHED, treeKill } from "./proc.js";
 import { readPackageVersion } from "./version.js";
 import { allowedValues } from "./model-options.js";
 
@@ -32,7 +32,7 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       clearTimeout(timer);
       resolve(result);
     };
-    const child = spawn(execCommand, execArgs, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(execCommand, execArgs, { ...options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
     child.on("error", () => finish({ found: false, version: null }));
     child.on("close", (code) => {

@@ -4,7 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
 import { resolveAcpSpawn } from "./spawn.js";
-import { isChildAlive, treeKill } from "./proc.js";
+import { DETACHED, isChildAlive, treeKill } from "./proc.js";
 import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
 
@@ -44,7 +44,7 @@ export class AcpClient extends EventEmitter {
     this._stderrLength = 0;
     const stderrDecoder = new StringDecoder("utf8");
     this._exitEmitted = false;
-    this.child = spawn(command, args, { ...options, stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn(command, args, { ...options, detached: DETACHED, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr.on("data", (chunk) => {
       const text = stderrDecoder.write(chunk);
       if (text) {
@@ -133,10 +133,10 @@ export class AcpClient extends EventEmitter {
 
   stop() {
     try { this.peer?.close(); } catch {}
-    if (isChildAlive(this.child) && this.child.pid) {
-      treeKill(this.child.pid).catch(() => {});
-    } else {
-      try { this.child?.kill(); } catch {}
+    // Runs for an exited child too: the agent can be gone while the commands it spawned are still
+    // running, and on POSIX they stay in its process group, which is the only handle left on them.
+    if (this.child?.pid) {
+      treeKill(this.child.pid, { childAlive: isChildAlive(this.child) }).catch(() => {});
     }
   }
 }

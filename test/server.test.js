@@ -6,7 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { AcpClient } from "../src/acp-client.js";
 import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
-import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server.js";
+import { runDelegateTool, buildServer, delegateInputSchema, installSignalCleanup } from "../src/server.js";
 
 // Every tool returns its payload as one compact JSON text block and no structuredContent, so
 // every assertion on their fields goes through here.
@@ -653,5 +653,26 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
     assert.match(out.protocolWarnings[0], /plan entry 0 dropped/);
   } finally {
     await client.close();
+  }
+});
+
+// A detached agent no longer dies with a terminal signal to this process, so the handler is what
+// keeps Ctrl-C from leaking one. win32 keeps the shared console group and installs nothing.
+test("installSignalCleanup stops registered agents, then exits", { skip: process.platform === "win32" }, () => {
+  const stopped = [];
+  const exited = [];
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => stopped.push("sess-1") } }])]]);
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(map, { exit: (code) => exited.push(code) });
+    process.emit("SIGINT");
+    assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
+    assert.deepEqual(exited, [130], "the handler must exit rather than swallow the signal");
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
   }
 });
