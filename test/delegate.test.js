@@ -412,6 +412,22 @@ test("runDelegate leaves an existing reason alone and tags nothing without an rp
   );
 });
 
+// The id is assigned at session/new, before the model and config calls that raise this — so the
+// session is live and resumable, and the hint used to be reserved for stalls and exits.
+test("a failure after the session exists still names the id to resume", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "no-such-model", workspace: process.cwd(),
+      clientFactory: modelListFactory([{ modelId: "composer-2.5" }]),
+    }),
+    (err) => {
+      assert.equal(err.reason, "unknown-model");
+      assert.match(err.message, /Resume with resumeSessionId /);
+      return true;
+    }
+  );
+});
+
 test("runDelegate surfaces the agent-assigned title as progress, not in the result", async () => {
   const progress = [];
   const factory = () => {

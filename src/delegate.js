@@ -521,8 +521,7 @@ export async function runDelegate({
     // outstanding — it also lets a retry resume the work already done.
     const isTimeout = err?.reason === "hard-cap" || err?.reason === "idle-timeout";
     // A handshake timeout gets the forensics but not the long-command advice: no prompt was sent,
-    // so no shell command explains the silence. The session may still exist (it is set before
-    // set_model/set_config_option/set_mode, any of which can hang), so the resume hint applies.
+    // so no shell command explains the silence.
     const isStall = isTimeout || err?.reason === "handshake-timeout";
     if (isStall || err?.reason === "aborted" || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
@@ -536,20 +535,23 @@ export async function runDelegate({
       }
       const files = normalizeAgentReportedFiles([...state.touched], workspace);
       if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
-      // Without this the resume hint below reads as "carry on from where you were", when the
-      // requested session was never loaded.
-      if (resumeError) {
-        err.message += ` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
-          + ` so this ran as a fresh session and none of that earlier work was in context.`;
-      }
-      if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
-      if (isTimeout) {
-        // Name the knob that actually fired: raising the hard cap does nothing for an
-        // idle-timeout, whose ceiling is CURSOR_DELEGATE_IDLE_MS.
-        const knob = err.reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
-        err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
-          + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`;
-      }
+    }
+    // Every failure after session/new leaves a live session, not just the stalls: the id is set
+    // before set_model/set_config_option/set_mode, so unknown-model and a rejected config value
+    // land here too and are abandoned without it.
+    if (resumeError) {
+      // Without this the resume hint reads as "carry on from where you were", when the requested
+      // session was never loaded.
+      err.message += ` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
+        + ` so this ran as a fresh session and none of that earlier work was in context.`;
+    }
+    if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
+    if (isTimeout) {
+      // Name the knob that actually fired: raising the hard cap does nothing for an
+      // idle-timeout, whose ceiling is CURSOR_DELEGATE_IDLE_MS.
+      const knob = err.reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
+      err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
+        + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`;
     }
     // Opt-in: the frames land in the caller's context and nothing there is actionable — the
     // forensics above already carry that. Raw frames only help someone debugging the bridge.
