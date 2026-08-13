@@ -90,7 +90,7 @@ diagnostic, not fail the call.
 | `src/server.js` | MCP server (`delegate`, `cancel`, `doctor`). |
 | `src/delegate.js` | One delegation lifecycle. |
 | `src/acp-client.js` | ACP client. |
-| `src/request-router.js` | Permission, question, plan routing. |
+| `src/request-router.js` | Permission, plan and todo routing. |
 | `src/jsonrpc.js` | NDJSON JSON-RPC peer. |
 | `src/spawn.js` | `agent acp` launcher resolution. |
 | `src/session-supervisor.js` | Handshake/idle/hard-cap timeouts. |

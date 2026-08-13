@@ -4,7 +4,7 @@ description: >
   Delegate implementation to Cursor via the cursor-delegate-mcp MCP delegate tool.
   Use when the user says delegate to Cursor, Composer, or cursor-agent; have Cursor
   handle or do this; offload this; send this to Composer; use Composer/Cursor for
-  coding; hand off implementation; plan before building; ask Cursor a read-only question
+  coding; hand off implementation; plan before building; ask Cursor a question
   about the codebase; resume a delegation session; or diagnose delegation that is failing
   or not set up. Do not shell out to cursor-agent — use the delegate MCP tool.
 license: MIT

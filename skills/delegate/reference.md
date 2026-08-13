@@ -167,9 +167,11 @@ exit reports `cancelled` and keeps the session cancellable, so force can be retr
 **`doctor`** — `{deep?}`. Always reports plugin version, MCP client `capabilities`,
 launcher resolution and `agent.found`, plus runtime info. With
 `deep: true` it adds `agent.handshake`: `{ok, protocolVersion, agentCapabilities, models,
-currentModel, modes}`, or `{ok: false, error}` — not logged in, or a timeout.
-`agent.handshake.models` is the authoritative list to check after an `unknown-model` failure;
-`protocolVersion` and `currentModel` are `null` when the agent reported none.
+currentModel, currentModelOptions, modes}`, or `{ok: false, error}` — not logged in, or a
+timeout. `agent.handshake.models` is the authoritative list to check after an `unknown-model`
+failure; `currentModelOptions` is `{id, values}[]` for `currentModel` only, not for a `model`
+you are about to pass; `protocolVersion` and `currentModel` are `null` when the agent reported
+none.
 
 `agent.version` is the launcher's `--version` output, or `null`. `found: false` means it is not
 installed; `found: true` with a `null` version means it exists but did not answer, and
