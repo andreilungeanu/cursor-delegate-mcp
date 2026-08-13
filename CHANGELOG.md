@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-08-13
+
+### Changed
+
+- **Explicit effort is validated against the selected model's live options before the prompt.**
+  Invalid values name the accepted set, models without configurable effort tell callers to omit
+  the field, and unavailable capability data fails as `effort-options-unavailable`. Calls that
+  omit `effort` are unchanged.
+
 ## [1.20.0] - 2026-08-13
 
 ### Fixed
