@@ -7,7 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
-import { VERSION } from "./version.js";
+import { VERSION, readPackageVersion } from "./version.js";
 import { DETACHED } from "./proc.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 
@@ -378,7 +378,15 @@ export function installSignalCleanup(map, { exit = (code) => process.exit(code) 
 }
 
 if (isMain) {
-  const server = buildServer();
-  installSignalCleanup(inFlight);
-  await server.connect(new StdioServerTransport());
+  // Without this the flag falls through to the transport, which owns stdout and waits on stdin —
+  // so confirming an install meant wiring the server into a host first. Reads the package.json
+  // beside this file, so it reports the code that is actually running rather than what a
+  // manifest pinned. stdout is free here because the transport never starts.
+  if (process.argv.slice(2).includes("--version")) {
+    console.log(readPackageVersion());
+  } else {
+    const server = buildServer();
+    installSignalCleanup(inFlight);
+    await server.connect(new StdioServerTransport());
+  }
 }
