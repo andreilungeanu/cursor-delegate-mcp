@@ -60,7 +60,6 @@ diagnostic, not fail the call.
 - `session/request_permission` → the broadest allow option by `kind` (`allow_always`, else `allow_once`, else the first offered); the selected `optionId` goes back on the wire. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
 - **Cross-process resume** via `session/load`; unknown ids fall back to a fresh session.
 - **`filesReportedByEditTools`**: built solely from ACP `diff` content blocks in `tool_call_update`; no git inference.
-- **Progress**: deduplicated high-level tool milestones such as reviewing, editing, and verification. Thought and message chunks are never forwarded as progress or folded into `result`.
 - **Long runs**: progress notifications reset client idle timeout; child exit fails fast with stderr.
 - **`ACP_LOG_SIZE`**: ring buffer of JSON-RPC frames (default `2000`; `0` disables). Bounds what `CURSOR_DELEGATE_TRANSCRIPT` can return.
 
