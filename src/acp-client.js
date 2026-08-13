@@ -61,8 +61,7 @@ export class AcpClient extends EventEmitter {
     this.child.stderr.on("error", () => {});
     // A supervisor trip writes session/cancel, which can land after the agent is already gone.
     // Without a handler that surfaces as an unhandled 'error' event on some platforms, taking
-    // the whole MCP server down with it. stdout is the stream the peer reads, and readline
-    // attaches no handler of its own, so it needs the same guard.
+    // the whole MCP server down with it. stdout needs the same guard; readline adds none.
     this.child.stdin.on("error", () => {});
     this.child.stdout.on("error", () => {});
     const emitExit = (code, signal) => {
@@ -82,9 +81,8 @@ export class AcpClient extends EventEmitter {
     this.router = null; // set before first stdout line
     this.peer = new JsonRpcPeer(this.child.stdout, this.child.stdin, {
       onNotification: (method, params) => { if (method === "session/update") this.emit("update", params); },
-      // The router is async and its result is discarded, so a throw from the respond call in
-      // its own catch block would reject unobserved and exit the process. Same class as the
-      // progress notification in server.js; Promise.resolve covers a sync router in tests.
+      // The router is async and its result discarded, so a throw from its own catch would reject
+      // unobserved and exit the process. Promise.resolve covers a sync router in tests.
       onRequest: (id, method, params) => {
         if (this.router) Promise.resolve(this.router(id, method, params)).catch(() => {});
       },

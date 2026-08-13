@@ -172,10 +172,8 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
   if (progressToken != null) {
     let progress = 0;
     onProgress = (message) => {
-      // sendNotification is async, so its rejection settles after this try block has returned
-      // and reaches the process instead — which under Node's default --unhandled-rejections=throw
-      // exits the server, taking every concurrent delegation with it. The try stays: the call
-      // itself is evaluated before Promise.resolve can wrap it, so a sync throw needs both.
+      // sendNotification is async: its rejection settles outside this try and would exit the
+      // server. The try stays for a sync throw, which lands before Promise.resolve can wrap it.
       try {
         Promise.resolve(extra.sendNotification({
           method: "notifications/progress",
