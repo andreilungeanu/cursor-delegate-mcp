@@ -27,6 +27,20 @@ test("request_permission auto-selects allow_always", async () => {
   assert.deepEqual(responses[0], { id: 5, result: { outcome: { outcome: "selected", optionId: "allow-always" } } });
 });
 
+// The test above always offers allow_always, so the second preference never ran. An agent that
+// offers only a one-shot allow must still be approved rather than falling through to a reject
+// that happens to sit earlier in the list.
+test("request_permission falls back to allow_once when no allow_always is offered", async () => {
+  const { router, responses } = harness();
+  await router(6, "session/request_permission", {
+    options: [
+      { optionId: "reject-always", kind: "reject_always" },
+      { optionId: "allow-once", kind: "allow_once" },
+    ],
+  });
+  assert.deepEqual(responses[0], { id: 6, result: { outcome: { outcome: "selected", optionId: "allow-once" } } });
+});
+
 test("request_permission with no options answers cancelled, not a selection without an id", async () => {
   const { router, responses } = harness();
   await router(7, "session/request_permission", { options: [] });

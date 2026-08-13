@@ -33,6 +33,25 @@ test("request writes a framed call and resolves on matching response", async () 
   assert.deepEqual(await p, { ok: true });
 });
 
+// The router tests substitute their own respondError, so the frame the peer actually writes for
+// an inbound request it cannot handle had never been checked against the wire.
+test("respondError answers an inbound request with a JSON-RPC error frame", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let written = "";
+  output.on("data", (c) => { written += c.toString(); });
+  const peer = new JsonRpcPeer(input, output, {
+    onRequest: (id, method) => peer.respondError(id, -32601, `Unhandled method: ${method}`),
+  });
+  input.write(JSON.stringify({ jsonrpc: "2.0", id: 9, method: "cursor/unknown" }) + "\n");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(lines(written)[0], {
+    jsonrpc: "2.0",
+    id: 9,
+    error: { code: -32601, message: "Unhandled method: cursor/unknown" },
+  });
+});
+
 test("a response echoing the id as a string still resolves its request", async () => {
   const input = new PassThrough();
   const output = new PassThrough();

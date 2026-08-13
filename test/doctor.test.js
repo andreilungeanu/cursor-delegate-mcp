@@ -143,6 +143,36 @@ test("runDoctor deep:true runs handshake via clientFactory", async () => {
   assert.ok(calls.includes("stop"));
 });
 
+// The test above leaves configOptions unset, so it only ever proves the empty case. This drives
+// the filter and map that build the field: model and mode are reported as their own handshake
+// keys, so they are dropped here, and each remaining option keeps only its string values.
+test("runDoctor deep:true reports currentModelOptions without the model and mode keys", async () => {
+  const clientFactory = () => ({
+    start: async () => {},
+    initialize: async () => {},
+    newSession: async () => ({ sessionId: "s" }),
+    stop: () => {},
+    configOptions: [
+      { id: "model", options: [{ value: "composer-2.5" }] },
+      { id: "mode", options: [{ value: "agent" }] },
+      { id: "fast", options: [{ value: "false" }, { value: "true" }] },
+      { id: "thinking", options: [{ value: "high" }, { value: 7 }] },
+    ],
+  });
+  const out = await runDoctor({
+    deep: true,
+    spawnSpec: stubSpawnSpec(),
+    clientFactory,
+    workspace: process.cwd(),
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.deepEqual(out.agent.handshake.currentModelOptions, [
+    { id: "fast", values: ["false", "true"] },
+    // 7 is dropped: a non-string value is not something a caller can pass back.
+    { id: "thinking", values: ["high"] },
+  ]);
+});
+
 test("runDoctor deep:true reports handshake error without throwing", async () => {
   const clientFactory = () => ({
     start: async () => { throw new Error("not logged in"); },
