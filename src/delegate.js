@@ -143,12 +143,32 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   return blocks;
 }
 
+// Only a session the agent does not have justifies a fresh one; falling back on anything else
+// runs the task without the context the caller asked for. Code and wording together, never
+// either: 2026.08.11 returns -32602 `Session "<id>" not found` when it is missing, but -32603
+// `Failed to load session "<id>": <cause>` when restore fails, and that cause can carry the
+// same words. A missed match costs a recoverable resume-failed; a false match costs a silent turn.
+function isMissingSession(err) {
+  const message = err?.message || "";
+  return err?.code === -32602
+    && /\bsession\b/i.test(message)
+    && /\bnot found\b|\bdoes not exist\b|\bunknown session\b|\bno such session\b/i.test(message);
+}
+
 async function openSession(client, resumeSessionId, workspace) {
   if (!resumeSessionId) return client.newSession(workspace);
   try {
     await client.loadSession(resumeSessionId, workspace);
     return { sessionId: resumeSessionId }; // load does not echo sessionId
   } catch (err) {
+    if (!isMissingSession(err)) {
+      throw makeError(
+        "resume-failed",
+        `session ${resumeSessionId} could not be loaded: ${err?.message || String(err)}.`
+        + ` The session was not resumed and no fresh session was started — retry, or omit`
+        + ` resumeSessionId to start fresh deliberately.`
+      );
+    }
     // Starting fresh is right, but silently doing so leaves the caller unable to tell a
     // stale id from a typo'd one — keep why the load failed.
     const fresh = await client.newSession(workspace);
@@ -225,6 +245,12 @@ export async function runDelegate({
   // Before the spawn: validating later costs a process, a handshake and a billed turn.
   assertWorkspace(workspace);
   const promptText = await resolveSpec(spec);
+  // addEventListener does not replay an abort that already fired, and the listener is registered
+  // below, so an abort during the await above is otherwise lost. Throwing, not supervisor.abort():
+  // tripping before supervise() installs its reject settles the supervisor with nothing listening.
+  if (signal?.aborted) {
+    throw makeError("aborted", "delegation aborted by MCP host");
+  }
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);

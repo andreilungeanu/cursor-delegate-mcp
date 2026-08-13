@@ -445,6 +445,34 @@ test("runDelegate reports why a failed resume started a fresh session", async ()
   assert.ok(out.protocolWarnings.some((w) => /resuming old-id failed.*Session old-id not found/.test(w)));
 });
 
+// Falling back on *any* load failure ran the task in a fresh session, without the context the
+// caller asked for, and reported it as a warning on a successful result.
+test("runDelegate fails rather than starting fresh when a resume dies for another reason", async () => {
+  let newSessions = 0;
+  const factory = () => {
+    const client = stubClient("sess-fresh");
+    const origNew = client.newSession.bind(client);
+    client.newSession = async (cwd) => { newSessions++; return origNew(cwd); };
+    // A restore failure: -32603 carrying both "session" and a sentinel word, which a classifier
+    // matching wording without the code would read as missing.
+    client.loadSession = async () => {
+      throw rpcError(-32603, 'Failed to load session "old-id": storage backend not found');
+    };
+    return client;
+  };
+  await assert.rejects(
+    () => runDelegate({
+      spec: "task", resumeSessionId: "old-id", workspace: process.cwd(), clientFactory: factory,
+    }),
+    (err) => {
+      assert.equal(err.reason, "resume-failed");
+      assert.match(err.message, /storage backend not found/);
+      return true;
+    }
+  );
+  assert.equal(newSessions, 0, "a failed resume must not silently spend a fresh session");
+});
+
 test("runDelegate captures session/update:plan with latest update winning", async () => {
   const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
   assert.equal(out.stopReason, undefined);
@@ -1377,6 +1405,33 @@ test("runDelegate rejects immediately when signal is already aborted", async () 
       return true;
     }
   );
+  assert.equal(factoryCalls, 0);
+});
+
+// The pre-flight check runs before spec resolution and the listener is registered after it, so an
+// abort in that window hit neither and the turn ran to completion against an aborted signal.
+test("runDelegate rejects when the signal aborts during spec resolution", async () => {
+  const ac = new AbortController();
+  const specPath = path.join(tmpdir(), `delegate-abort-${process.pid}.md`);
+  writeFileSync(specPath, "task from a file");
+  let factoryCalls = 0;
+  try {
+    const pending = runDelegate({
+      spec: specPath,
+      mode: "agent",
+      workspace: process.cwd(),
+      signal: ac.signal,
+      clientFactory: () => { factoryCalls++; return new EventEmitter(); },
+    });
+    // Aborts once the awaited read is in flight — after the pre-flight check has passed.
+    ac.abort();
+    await assert.rejects(pending, (err) => {
+      assert.equal(err.reason, "aborted");
+      return true;
+    });
+  } finally {
+    unlinkSync(specPath);
+  }
   assert.equal(factoryCalls, 0);
 });
 
