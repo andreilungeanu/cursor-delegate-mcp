@@ -87,10 +87,16 @@ diagnostic, not fail the call.
 | `src/request-router.js` | Permission, question, plan routing. |
 | `src/jsonrpc.js` | NDJSON JSON-RPC peer. |
 | `src/spawn.js` | `agent acp` launcher resolution. |
-| `src/session-supervisor.js` | Idle/hard-cap timeouts. |
+| `src/session-supervisor.js` | Handshake/idle/hard-cap timeouts. |
 | `src/agent-reported-files.js` | Path normalization for `filesReportedByEditTools`. |
 | `src/doctor.js` | Diagnostics. |
-| `hooks/` | Claude/VS Code SessionStart dependency bootstrap. |
+| `src/turn-state.js` | Per-turn accumulation and the `reset()` declaration replay applies. |
+| `src/model-options.js` | Model config-option resolution (`effort`, `context`). |
+| `src/proc.js` | Liveness check and process kill. |
+| `src/errors.js` | Reason-tagged errors. |
+| `src/acp-enums.js` | ACP constants. |
+| `src/version.js` | Version read from `package.json`. |
+| `.claude-plugin/hooks.json`, `.claude-plugin/ensure-deps.mjs` | Claude/VS Code SessionStart dependency bootstrap. |
 | `skills/` | Shared plugin skill for host orchestration. |
 | `commands/` | Slash command definition (legacy alias for delegate skill). |
 | `.mcp*.json` | Version-pinned host MCP server registrations. |
