@@ -57,13 +57,18 @@ diagnostic, not fail the call.
 ## ACP behavior (verified)
 
 - **`parameterizedModelPicker`** in `initialize` enables standard-tier `composer-2.5` (`fast: false`). Without it, only the ~6× fast tier is offered.
-- Model: `session/set_model` + `session/set_config_option { configId: "fast", value: "false" }`.
+- Model: `session/set_model` when the session did not open on the requested model.
+  `session/set_config_option { configId: "fast", … }` unless the session opened on that model *and*
+  at that tier — the tier is persisted per model, so the opening snapshot describes the requested
+  model only when no `set_model` was needed. It is also sent whenever its reply is read: an
+  `effort` to validate, or the routable `default` id. An absent value reads as a mismatch and
+  sends. Two delegations on the same model and tier therefore send neither.
 - `session/prompt` requires a content-block array `[{ type: "text", text }]`.
 - `session/request_permission` → the broadest allow option by `kind` (`allow_always`, else `allow_once`, else the first offered); the selected `optionId` goes back on the wire. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
 - **Cross-process resume** via `session/load`; unknown ids fall back to a fresh session.
 - **`filesReportedByEditTools`**: built solely from ACP `diff` content blocks in `tool_call_update`; no git inference.
 - **Long runs**: progress notifications reset client idle timeout; child exit fails fast with stderr.
-- **`ACP_LOG_SIZE`**: ring buffer of JSON-RPC frames (default `2000`; `0` disables). Bounds what `CURSOR_DELEGATE_TRANSCRIPT` can return.
+- **`ACP_LOG_SIZE`**: ring buffer of JSON-RPC frames (default `2000`; `0` disables). Bounds what `CURSOR_DELEGATE_TRANSCRIPT` can return, and frames are recorded only while that is set.
 
 ## Environment variables
 
@@ -71,7 +76,7 @@ diagnostic, not fail the call.
 | -------- | ----------- |
 | `ACP_AGENT_COMMAND` | Override agent launcher command. |
 | `ACP_AGENT_ARGS` | Override agent launcher args. |
-| `ACP_LOG_SIZE` | Flight recorder frame count (`0` = off). |
+| `ACP_LOG_SIZE` | Flight recorder frame count (`0` = off). Recording runs only while `CURSOR_DELEGATE_TRANSCRIPT` is set. |
 | `CURSOR_DELEGATE_TRANSCRIPT` | Frames of raw ACP transcript to append to failure messages; unset = none. Contains prompts, tool inputs/outputs and agent messages — use it only when debugging the bridge itself. |
 | `CURSOR_DELEGATE_HANDSHAKE_MS` | Handshake deadline (default 60 s). |
 | `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute delegation cap (default 1 h). |
