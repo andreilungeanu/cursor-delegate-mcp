@@ -44,9 +44,11 @@ Every tool returns its payload as one compact JSON text block and declares no MC
 
 Optional `deep: true` runs a bounded ACP handshake (15 s) and adds `agent.handshake`:
 `{ ok: false, error }` on failure — not logged in, or a timeout — or `{ ok: true,
-protocolVersion, agentCapabilities, models, currentModel, modes }` on success. `models` and
-`modes` are the ids this agent offers for a new session; `protocolVersion` and `currentModel`
-are `null` when the agent reported none.
+protocolVersion, agentCapabilities, models, currentModel, currentModelOptions, modes }` on
+success. `models` and `modes` are the ids this agent offers for a new session; `protocolVersion`
+and `currentModel` are `null` when the agent reported none. `currentModelOptions` is
+`{ id, values }[]` for `currentModel` only — any other model needs a `set_model` this handshake
+does not send.
 
 Fields relayed verbatim from the agent are typed as unknown in the schema on purpose: doctor is
 what you run when the agent is already misbehaving, so a weird `protocolVersion` must read as a

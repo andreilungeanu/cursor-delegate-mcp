@@ -104,20 +104,26 @@ export const delegateOutputShape = {
 // doctor.test.js parses every result against a strict copy of this shape.
 //
 // Types only; what the fields mean is documented once, in TECHNICAL.md.
+// Split out so the drift guard can make it strict on its own: a .strict() on agent does not look
+// inside handshake, which is the level this schema has drifted at twice.
+export const doctorHandshakeShape = {
+  ok: z.boolean(),
+  error: z.string().optional(),
+  protocolVersion: z.unknown().optional(),
+  agentCapabilities: z.unknown().optional(),
+  models: z.array(z.unknown()).optional(),
+  currentModel: z.unknown().optional(),
+  modes: z.array(z.unknown()).optional(),
+  // Built here rather than relayed, so it gets a real type where its neighbours get z.unknown().
+  currentModelOptions: z.array(z.object({ id: z.string(), values: z.array(z.string()) })).optional(),
+};
+
 export const doctorAgentShape = {
   found: z.boolean(),
   command: z.string(),
   version: z.string().nullable(),
   error: z.string().optional(),
-  handshake: z.object({
-    ok: z.boolean(),
-    error: z.string().optional(),
-    protocolVersion: z.unknown().optional(),
-    agentCapabilities: z.unknown().optional(),
-    models: z.array(z.unknown()).optional(),
-    currentModel: z.unknown().optional(),
-    modes: z.array(z.unknown()).optional(),
-  }).passthrough().optional(),
+  handshake: z.object(doctorHandshakeShape).passthrough().optional(),
 };
 
 // Exported as a shape for the same reason as delegateOutputShape, and with agent split out

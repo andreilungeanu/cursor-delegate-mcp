@@ -4,17 +4,20 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { runDoctor as rawRunDoctor } from "../src/doctor.js";
-import { doctorOutputShape, doctorAgentShape } from "../src/server.js";
+import { doctorOutputShape, doctorAgentShape, doctorHandshakeShape } from "../src/server.js";
 import { VERSION } from "../src/version.js";
 
 // Every result this suite produces is parsed against a strict copy of doctorOutputShape, for
 // the reason delegate.test.js does the same: the shape is not declared to hosts, so a field
 // added to the result but forgotten there would drift undocumented and no test would fail.
-// agent is made strict separately because a top-level .strict() does not look inside a nested
-// object, and agent is where this drifted.
+// agent and handshake are each made strict, because .strict() does not look inside a nested
+// object and both levels have drifted — agent in 1.14.0, handshake with currentModelOptions.
 const strictOutput = z.object({
   ...doctorOutputShape,
-  agent: z.object(doctorAgentShape).strict(),
+  agent: z.object({
+    ...doctorAgentShape,
+    handshake: z.object(doctorHandshakeShape).strict().optional(),
+  }).strict(),
 }).strict();
 const runDoctor = async (opts) => {
   const out = await rawRunDoctor(opts);
