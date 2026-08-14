@@ -8,6 +8,7 @@ import { allowedValues } from "./model-options.js";
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const VERSION_PROBE_TIMEOUT_MS = 10_000;
+const PROBE_STDOUT_CAP = 64 * 1024;
 const DEFAULT_LOG_SIZE = "2000";
 
 function formatCommand({ command, args }) {
@@ -33,7 +34,16 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       resolve(result);
     };
     const child = spawn(execCommand, execArgs, { ...options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
+    // Capped: a version string is a line, and a launcher that streams instead should not be
+    // accumulated whole while the probe waits out its timeout.
+    child.stdout?.on("data", (chunk) => {
+      if (stdout.length < PROBE_STDOUT_CAP) stdout += chunk.toString();
+    });
+    // Drained, not merely piped. An unread pipe fills, the launcher blocks writing to it and so
+    // never exits, and the probe can only report that as a timeout — a healthy but noisy
+    // launcher reads out identically to a wedged one. Nothing consumes the bytes.
+    child.stderr?.on("data", () => {});
+    child.stderr?.on("error", () => {});
     child.on("error", () => finish({ found: false, version: null }));
     child.on("close", (code) => {
       finish({

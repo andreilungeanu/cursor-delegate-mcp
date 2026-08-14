@@ -70,6 +70,23 @@ test("runDoctor times out a launcher that never answers --version", async () => 
   assert.match(out.agent.error, /version probe timed out after 250ms/);
 });
 
+// The probe opens stderr as a pipe. With no reader on it the launcher cannot drain its own
+// write buffer and never exits, so a merely noisy launcher gets diagnosed as one that spawned
+// and never answered — the same output as a wedged agent, for a healthy one.
+test("runDoctor reads the version of a launcher that floods stderr", async () => {
+  const floodPath = fileURLToPath(new URL("./fixtures/version-stderr-flood.js", import.meta.url));
+  const started = Date.now();
+  const out = await runDoctor({
+    spawnSpec: { command: floodPath, args: ["acp"], options: { shell: false } },
+    versionTimeoutMs: 4000,
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.ok(Date.now() - started < 4000, "the probe must not reach its timeout");
+  assert.equal(out.agent.found, true);
+  assert.equal(out.agent.version, "fake-agent 3.0.0");
+  assert.equal(out.agent.error, undefined);
+});
+
 test("runDoctor reports raw client capabilities and identity from injected getClientInfo", async () => {
   const withElicit = await runDoctor({
     spawnSpec: stubSpawnSpec(),
