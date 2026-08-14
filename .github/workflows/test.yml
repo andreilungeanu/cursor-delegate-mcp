@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # release.yml calls this before publishing. Running `npm test` there covered one leg on one
+  # runner, which is why 1.22.0 shipped while the coverage floor was red — that gate lives in
+  # `checks`, which a tag push never reached.
+  workflow_call:
 
 jobs:
   test:

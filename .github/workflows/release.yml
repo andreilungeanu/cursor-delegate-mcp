@@ -11,7 +11,17 @@ on:
         default: ""
 
 jobs:
+  # The full test workflow — every matrix leg, typecheck, the coverage floor, audit and min-deps.
+  # A tag push ships only what this passes. Skipped for the dispatch backfill, which fills in
+  # release pages for versions already on npm and must not be blocked by a runner that has moved
+  # on since they shipped.
+  verify:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: verify
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.verify.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,6 +65,7 @@ jobs:
   # Only tag pushes publish; the workflow_dispatch backfill exists to fill in
   # missing GitHub releases and must never republish an already-shipped version.
   publish:
+    needs: verify
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
