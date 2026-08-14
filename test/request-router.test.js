@@ -136,11 +136,29 @@ test("create_plan accepts in agent mode", async () => {
   assert.deepEqual(responses[0], { id: 13, result: { outcome: { outcome: "accepted" } } });
 });
 
-test("catch path: a thrown handler error returns a -32000 error response", async () => {
+// -32603 is JSON-RPC's internal error. ACP assigns -32000 to auth_required, so answering a
+// router exception with -32000 told the agent to authenticate — a recoverable-looking failure
+// for a bug on this side.
+test("catch path: a thrown handler error returns -32603, not ACP's -32000 auth_required", async () => {
   const { router, responses } = harness({
     onCreatePlan: () => { throw new Error("boom"); },
   });
   await router(13, "cursor/create_plan", { overview: "plan" });
   assert.ok(responses[0].error, "response must contain error");
-  assert.equal(responses[0].error.code, -32000, "error code must be -32000 for internal error");
+  assert.equal(responses[0].error.code, -32603, "error code must be -32603 for internal error");
+  assert.notEqual(responses[0].error.code, -32000, "-32000 is auth_required in ACP");
+});
+
+// The two tests above always offer an allow kind. A request offering none must not fall through
+// to opts[0] and return a reject id as a `selected` outcome: that is a silent denial dressed as
+// an approval, against a bridge that advertises auto-approval.
+test("request_permission with only reject options answers cancelled, never selects a reject", async () => {
+  const { router, responses } = harness();
+  await router(14, "session/request_permission", {
+    options: [
+      { optionId: "reject-once", kind: "reject_once" },
+      { optionId: "reject-always", kind: "reject_always" },
+    ],
+  });
+  assert.deepEqual(responses[0], { id: 14, result: { outcome: { outcome: "cancelled" } } });
 });
