@@ -64,6 +64,61 @@ function fakeFactory({ mode, onCreatePlan }) {
   });
 }
 
+// A real spawn, not a stub emit: the crash this covers depends on where the frame is handled.
+// A stub calling client.emit() from inside prompt() has its throw caught by the prompt promise
+// and only fails that delegation. Off the wire the same throw runs in the readline callback,
+// where nothing is awaiting it — an uncaught exception that takes the MCP server down.
+function malformedContentFactory() {
+  return new AcpClient({
+    spawnSpec: {
+      command: process.execPath,
+      args: [fileURLToPath(new URL("./fixtures/malformed-content-acp.js", import.meta.url))],
+      options: { shell: false },
+    },
+  });
+}
+
+// hardCapMs keeps the failure fast. Without the guard this test does not fail, it hangs: the
+// throw escapes the readline callback, so the end_turn reply on the next line is never read and
+// the turn runs to the cap — an hour on the default.
+test("a tool_call_update whose content is an object is ignored, not fatal", async () => {
+  const out = await runDelegate({
+    spec: "task",
+    clientFactory: malformedContentFactory,
+    hardCapMs: 8000,
+  });
+  assert.equal(out.result, "done");
+  // The frame named a path, but it arrived in a shape ACP does not define. Nothing is reported
+  // rather than reaching into it, and the turn still completes.
+  assert.equal(out.filesReportedByEditTools, undefined);
+});
+
+// A stub is enough here, unlike the tool_call_update case above: this frame does not throw where
+// it arrives, it throws later in the result builder, which is reached identically however the
+// frame was delivered. entries as a string is the shape that gets furthest — it has a .length,
+// so it passes the emptiness guard and reaches the sanitizer's forEach.
+function malformedPlanFactory() {
+  const client = stubClient("sess-plan-bad");
+  client.prompt = async () => {
+    client.emit("update", { update: { sessionUpdate: "plan", entries: "not-an-array" } });
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "done" } } });
+    return { stopReason: "end_turn" };
+  };
+  return client;
+}
+
+test("a plan frame whose entries is not an array is reported, not fatal", async () => {
+  const out = await runDelegate({ spec: "task", clientFactory: malformedPlanFactory });
+  // The sanitizer exists so a malformed plan frame cannot fail the call after the work is done.
+  // A non-array entries defeated it by throwing before it could report anything.
+  assert.equal(out.result, "done");
+  assert.ok(
+    out.protocolWarnings?.some((w) => /plan entries dropped/i.test(w)),
+    `expected a dropped-entries warning, got ${JSON.stringify(out.protocolWarnings)}`
+  );
+  assert.equal(out.plan, undefined);
+});
+
 function oversizedFactory() {
   const client = stubClient("sess-big");
   client.prompt = async () => {

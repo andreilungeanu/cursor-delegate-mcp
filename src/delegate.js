@@ -354,6 +354,10 @@ export async function runDelegate({
     heartbeat.unref?.();
   };
 
+  // Malformed frames noticed as they arrive, where protocolWarnings does not exist yet. Merged
+  // into it with the rest below.
+  const frameWarnings = [];
+
   // session/load replays the previous turn as ordinary update frames, tool_call and diff blocks
   // included. state.reset() clears what they touch but cannot unsend a progress notification, so
   // the guard below is what stops a resume reporting last turn's edits as if they were happening.
@@ -361,7 +365,17 @@ export async function runDelegate({
     if (!promptInFlight) return;
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
-      state.planEntries = up.entries || [];
+      // ACP defines entries as an array. A non-array is truthy, so it was stored as-is and
+      // reached the sanitizer's forEach — throwing after the turn's work was done, which is the
+      // one thing the sanitizer exists to prevent. Drop it here and say so instead.
+      if (up.entries !== undefined && !Array.isArray(up.entries)) {
+        frameWarnings.push(
+          `plan entries dropped: ACP requires an array, got ${up.entries === null ? "null" : typeof up.entries}`
+        );
+        state.planEntries = [];
+      } else {
+        state.planEntries = up.entries || [];
+      }
     }
     // The agent titles the turn a beat after the prompt lands ("File Creator") — useful live,
     // when several delegations run, and in timeout forensics. Kept out of the result: there it
@@ -388,7 +402,11 @@ export async function runDelegate({
     }
     if (up.sessionUpdate === "tool_call_update") {
       state.updateToolStatus(up.toolCallId, up.status);
-      for (const c of up.content || []) {
+      // Array.isArray, not `|| []`: a non-array content is truthy and iterating it throws
+      // "object is not iterable" here, in the readline callback, where nothing awaits it. That
+      // is an uncaught exception — the whole server, not this one turn — and it also stops the
+      // reply on the next line from being read, so the turn hangs to its cap.
+      for (const c of Array.isArray(up.content) ? up.content : []) {
         if (c.type === "diff" && c.path) {
           state.touched.add(c.path);
           try { onProgress?.("editing " + c.path); } catch {}
@@ -517,6 +535,7 @@ export async function runDelegate({
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const u of unsupportedOptions) protocolWarnings.push(unsupportedWarning(model, u));
     protocolWarnings.push(...contextWarnings);
+    protocolWarnings.push(...frameWarnings);
     if (state.planEntries.length > 0 || state.planOverview !== undefined || state.planDetail !== undefined) {
       // Sanitize even when the plan is discarded: the warnings it raises report malformed ACP
       // frames, which the caller needs whatever mode it asked for.
