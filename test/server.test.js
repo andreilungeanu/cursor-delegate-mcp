@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
+import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -698,16 +699,119 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
 
 // A detached agent no longer dies with a terminal signal to this process, so the handler is what
 // keeps Ctrl-C from leaking one. win32 keeps the shared console group and installs nothing.
-test("installSignalCleanup stops registered agents, then exits", { skip: process.platform === "win32" }, () => {
+test("installSignalCleanup stops registered agents, then exits", { skip: process.platform === "win32" }, async () => {
   const stopped = [];
   const exited = [];
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => stopped.push("sess-1") } }])]]);
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => { stopped.push("sess-1"); return Promise.resolve(true); } } }])]]);
   const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
   try {
     installSignalCleanup(map, { exit: (code) => exited.push(code) });
     process.emit("SIGINT");
     assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
+    await new Promise((r) => setImmediate(r));
     assert.deepEqual(exited, [130], "the handler must exit rather than swallow the signal");
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
+  }
+});
+
+// The Windows kill is a separate taskkill process: a server that exits before it walks the tree
+// orphans the launcher and the agent below the shell wrapper. Exit waits for the dispatched
+// stops to settle; stop() bounds itself, so the wait cannot hang. Driven through stdin because
+// win32 installs no signal handlers.
+test("installSignalCleanup waits for the kill to settle before exiting", async () => {
+  const order = [];
+  const exited = [];
+  let settle;
+  const stop = new Promise((r) => { settle = r; });
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => { order.push("stop"); return stop; } } }])]]);
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(map, { exit: (code) => { order.push("exit"); exited.push(code); }, stdin });
+    stdin.emit("end");
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(order, ["stop"], "exit must not land while the kill is still in flight");
+    settle(true);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(order, ["stop", "exit"], "exit must follow the settled kill");
+    assert.deepEqual(exited, [0]);
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
+  }
+});
+
+test("a second trigger during the wait exits at once", async () => {
+  const exited = [];
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => new Promise(() => {}) } }])]]);
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
+    stdin.emit("end");
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(exited, [], "first trigger waits for the kill");
+    stdin.emit("end");
+    assert.deepEqual(exited, [0], "second trigger skips the wait");
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
+  }
+});
+
+// The rejection a failed kill produces has to be observed here: an unhandled one exits the
+// server on its own, before the dispatched work is done (the discipline ebe7eab established
+// for the progress announcements).
+test("a stop that rejects on shutdown still exits and raises no unhandled rejection", async () => {
+  const exited = [];
+  const rejections = [];
+  const onRejection = (e) => rejections.push(e);
+  process.on("unhandledRejection", onRejection);
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => Promise.reject(new Error("kill failed")) } }])]]);
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
+    stdin.emit("end");
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(exited, [0], "a rejected kill must not gate the exit");
+    assert.deepEqual(rejections, [], "the rejection must be observed, not unhandled");
+  } finally {
+    process.off("unhandledRejection", onRejection);
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
+  }
+});
+
+// The MCP stdio shutdown sequence is: close the server's stdin, wait for it to exit, then
+// signal. The SDK transport does not listen for EOF, so without this handler a host that shuts
+// down politely leaves the server — and any delegation still running in it — alive.
+test("installSignalCleanup stops registered agents and exits when stdin closes", async () => {
+  const stopped = [];
+  const exited = [];
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => { stopped.push("sess-1"); return Promise.resolve(true); } } }])]]);
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
+    stdin.emit("end");
+    assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(exited, [0], "stdin EOF must exit rather than linger");
   } finally {
     for (const signal of ["SIGINT", "SIGTERM"]) {
       for (const listener of process.listeners(signal)) {

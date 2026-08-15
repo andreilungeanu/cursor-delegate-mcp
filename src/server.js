@@ -359,22 +359,40 @@ if (process.argv[1]) {
   }
 }
 
-// Each agent runs in its own process group on POSIX, so a SIGINT or SIGTERM aimed at this process
-// no longer reaches it the way it did when the two shared a group. Kill what is registered, then
-// exit explicitly: installing a handler replaces Node's default, and a server that swallows Ctrl-C
-// would be a worse bug than the agent it leaks. Delegations still in their handshake are not in
-// the map yet, so this covers the turn, not the first few seconds of it.
-export function installSignalCleanup(map, { exit = (code) => process.exit(code) } = {}) {
-  if (!DETACHED) return;
-  const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143]]);
-  for (const [signal, code] of signals) {
-    process.on(signal, () => {
-      for (const handles of map.values()) {
-        for (const handle of handles) { try { handle.client.stop(); } catch {} }
+// Kill what is still running, then exit, on any way the host has of going away.
+export function installSignalCleanup(map, { exit = (code) => process.exit(code), stdin = process.stdin } = {}) {
+  let shuttingDown = false;
+  const shutdown = (code) => {
+    // A second trigger skips the wait below: the kills are already dispatched, and a caller
+    // that has asked twice wants out now.
+    if (shuttingDown) return exit(code);
+    shuttingDown = true;
+    const stops = [];
+    for (const handles of map.values()) {
+      for (const handle of handles) {
+        try { stops.push(Promise.resolve(handle.client.stop()).catch(() => {})); } catch {}
       }
-      exit(code);
-    });
+    }
+    // On Windows the kill is a separate taskkill process: exiting before it walks the tree
+    // orphans everything below the shell wrapper — the ps1 launcher and the versioned agent
+    // were measured surviving the server's exit. stop() bounds itself (observed exit or its
+    // own deadline), so this wait is short and finite on every platform.
+    Promise.all(stops).then(() => exit(code), () => exit(code));
+  };
+  // Each agent runs in its own process group on POSIX, so a signal aimed at this process no
+  // longer reaches it the way it did when the two shared a group. Installing a handler replaces
+  // Node's default, and a server that swallows Ctrl-C would be a worse bug than the agent it
+  // leaks. Delegations still in their handshake are not in the map yet, so this covers the turn,
+  // not the first few seconds of it.
+  if (DETACHED) {
+    const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143]]);
+    for (const [signal, code] of signals) process.on(signal, () => shutdown(code));
   }
+  // Closing the server's stdin is how a stdio host shuts the transport down, and it is what a
+  // host reaches for before it resorts to a signal. The SDK transport does not listen for it —
+  // it subscribes to `data` and `error` only — so EOF leaves this process up with a delegation
+  // still running and nobody left to hand it to.
+  stdin.on("end", () => shutdown(0));
 }
 
 if (isMain) {
