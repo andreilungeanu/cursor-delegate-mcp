@@ -131,19 +131,6 @@ function oversizedFactory() {
   return client;
 }
 
-// One "x" then a single emoji chunk longer than the remaining budget, so the 10MB cut lands
-// on the high surrogate of a pair (an even index) and must step back to stay well-formed.
-function surrogateBoundaryFactory() {
-  const client = stubClient("sess-surrogate");
-  client.prompt = async () => {
-    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "x" } } });
-    const emoji = "\u{1f525}".repeat(5 * 1024 * 1024);
-    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: emoji } } });
-    return { stopReason: "end_turn" };
-  };
-  return client;
-}
-
 function fastToggleFactory({ onSetFast }) {
   return () => {
     const client = stubClient("sess-track");
@@ -1520,32 +1507,17 @@ test("runDelegate rejects promptly when agent exits during prompt", async () => 
   assert.ok(Date.now() - start < 2000, "expected fail-fast rejection, not full timeout");
 });
 
-test("runDelegate truncates accumulated output at 10MB", async () => {
-  const marker = "\n\n[output truncated at 10MB]";
-  const maxOutput = 10 * 1024 * 1024;
+test("runDelegate returns output above the former 10MB cap verbatim", async () => {
   const out = await runDelegate({
     spec: "big task",
     mode: "agent",
     workspace: process.cwd(),
     clientFactory: () => oversizedFactory(),
   });
-  assert.ok(out.result.endsWith(marker));
-  assert.equal(out.result.length, maxOutput + marker.length);
-});
-
-test("runDelegate cuts the 10MB output at a code-point boundary", async () => {
-  const marker = "\n\n[output truncated at 10MB]";
-  const maxOutput = 10 * 1024 * 1024;
-  const out = await runDelegate({
-    spec: "big emoji task",
-    mode: "agent",
-    workspace: process.cwd(),
-    clientFactory: () => surrogateBoundaryFactory(),
-  });
-  assert.ok(out.result.endsWith(marker));
-  assert.ok(out.result.isWellFormed(), "result must not contain a lone surrogate");
-  // Stepped back one unit off the surrogate pair, so one short of the raw cap.
-  assert.equal(out.result.length, maxOutput - 1 + marker.length);
+  // 12 one-megabyte chunks: over the former ceiling, delivered whole — model output
+  // is bounded by the model's own token limit, so there is nothing left to guard against.
+  assert.equal(out.result.length, 12 * 1024 * 1024);
+  assert.ok(!out.result.includes("[output truncated"));
 });
 
 function failingPromptFactory() {

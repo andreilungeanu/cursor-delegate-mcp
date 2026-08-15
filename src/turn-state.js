@@ -4,18 +4,6 @@
 // also what reset() applies — a field added there is reset for free, and one that is missed is a
 // silent stale-data bug on resume.
 
-const MAX_OUTPUT = 10 * 1024 * 1024;
-const TRUNCATION_MARKER = "\n\n[output truncated at 10MB]";
-
-// Cutting a UTF-16 string at an arbitrary index can split a surrogate pair and leave a lone
-// half-character — ill-formed Unicode that strict JSON consumers reject or mangle. Step back
-// one unit when the boundary would land inside a pair.
-function cutAtCodePoint(s, n) {
-  if (n >= s.length) return s;
-  const cu = s.charCodeAt(n - 1);
-  return s.slice(0, cu >= 0xd800 && cu <= 0xdbff ? n - 1 : n);
-}
-
 const isTerminalToolStatus = (status) =>
   status === "completed" || status === "failed" || status === "cancelled";
 
@@ -58,8 +46,6 @@ function progressStream(prefix, onProgress, throttleMs) {
 function freshFields() {
   return {
     resultChunks: [],
-    resultLength: 0,
-    truncated: false,
     // Text superseded by a later tool call is normally a preamble ("Inspecting the
     // implementation."), but the rule cannot tell a preamble from the whole answer: an agent
     // that replies and then runs one more command has its entire reply discarded, leaving the
@@ -97,33 +83,20 @@ export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
       state.messages.reset();
     },
 
-    // The result text as it stands, truncation marker included.
+    // The result text as it stands.
     text() {
-      const joined = state.resultChunks.join("");
-      return state.truncated ? joined + TRUNCATION_MARKER : joined;
+      return state.resultChunks.join("");
     },
 
     resetResult() {
-      if (state.resultLength > 0) state.discardedResult = state.resultChunks.join("");
+      if (state.resultChunks.length > 0) state.discardedResult = state.resultChunks.join("");
       state.resultChunks.length = 0;
-      state.resultLength = 0;
-      state.truncated = false;
     },
 
+    // The stream is the model's own message, bounded by its output limit; a byte cap
+    // here would hand back a partial answer as if it were the whole one.
     appendResult(text) {
-      if (state.truncated) return;
-      const remaining = MAX_OUTPUT - state.resultLength;
-      if (text.length <= remaining) {
-        state.resultChunks.push(text);
-        state.resultLength += text.length;
-      } else if (remaining > 0) {
-        const cut = cutAtCodePoint(text, remaining);
-        state.resultChunks.push(cut);
-        state.resultLength += cut.length;
-        state.truncated = true;
-      } else {
-        state.truncated = true;
-      }
+      state.resultChunks.push(text);
     },
 
     startTool(toolCallId, status) {
