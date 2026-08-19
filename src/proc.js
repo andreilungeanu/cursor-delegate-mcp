@@ -14,9 +14,15 @@ export const DETACHED = process.platform !== "win32";
 // On win32 a plain child.kill() only reaches the shell wrapper (spawn uses shell: true);
 // taskkill /T takes the whole tree so the agent itself dies too.
 export async function treeKill(pid, { childAlive = true } = {}) {
+  if (!pid) return;
   if (process.platform === "win32") {
+    // taskkill /T walks parent links, which an exited leader no longer has: what it started is
+    // either gone with it or detached and out of reach. So a post-exit kill has nothing left to
+    // reach, and a reaped pid can already belong to somebody else — which makes the gate the
+    // whole of it here, where POSIX still has the group to aim at.
+    if (!childAlive) return;
     await /** @type {Promise<void>} */ (new Promise((resolve) => {
-      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], () => resolve());
+      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => resolve());
     }));
     return;
   }
