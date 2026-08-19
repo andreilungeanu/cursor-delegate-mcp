@@ -274,15 +274,23 @@ test("malformed inbound line is still recorded", async () => {
   peer.close();
 });
 
-test("onActivity fires for every inbound line including malformed", async () => {
+test("onActivity fires for a parsed frame and not for anything else on the wire", async () => {
+  // The supervisor reads this as "the protocol advanced", and the stall message it feeds calls it
+  // "Last ACP frame". A launcher banner, a blank line and a half-written frame are none of those,
+  // and counting them let a chatty launcher hold the idle guard open indefinitely.
   const input = new PassThrough();
   const output = new PassThrough();
   let count = 0;
   const peer = new JsonRpcPeer(input, output, { onActivity: () => { count++; } });
-  input.write("not json\n");
+  input.write("Cursor CLI 2026.08.11 starting\n");
+  input.write("\n");
+  input.write("{ not json\n");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(count, 0, "noise on stdout is not the protocol advancing");
+
   input.write(JSON.stringify({ jsonrpc: "2.0", method: "ping" }) + "\n");
   await new Promise((r) => setImmediate(r));
-  assert.equal(count, 2);
+  assert.equal(count, 1, "a parsed frame is");
   peer.close();
 });
 

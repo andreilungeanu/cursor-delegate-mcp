@@ -232,6 +232,27 @@ test("cancel sends session/cancel as a notification without id", async () => {
   client.stop();
 });
 
+test("stderr is captured but is not reported as agent activity", async () => {
+  // The supervisor's clock feeds two strings the caller reads — the heartbeat's "last agent frame
+  // N ago" and the stall error's "Last ACP frame N ago" — and drives the opt-in idle guard. A
+  // launcher writing diagnostics on stderr is not the turn progressing, and while it counted, a
+  // noisy launcher could hold that guard open for as long as it kept talking.
+  const script = 'setInterval(() => process.stderr.write("still booting\\n"), 20);';
+  const client = new AcpClient({ spawnSpec: { command: process.execPath, args: ["-e", script] } });
+  let activity = 0;
+  client.on("activity", () => { activity++; });
+  await client.start();
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(activity, 0, "stderr chatter must not read as agent activity");
+    assert.match(client.stderrBuffer, /still booting/, "and it must still be captured for the exit error");
+  } finally {
+    // The stub never exits on its own, so a failed assertion above would otherwise leave it
+    // running and the runner waiting on its pipes.
+    await client.stop();
+  }
+});
+
 test("the exit error carries the whole of stderr, not a tail of it", async () => {
   // The reason a run failed can sit anywhere in the agent's stderr — a rejected model, an
   // expired login, a quota and when it resets. A byte cut here drops the half that names it.

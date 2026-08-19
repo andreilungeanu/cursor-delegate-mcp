@@ -67,11 +67,14 @@ export class JsonRpcPeer {
   }
 
   _onLine(line) {
-    this.onActivity();
     this._record("in", line);
     if (!line.trim()) return;
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
+    // Only a parsed frame counts. A blank line, a launcher banner or anything else the agent
+    // prints is not the protocol advancing, and treating it as such is what let a chatty
+    // launcher hold the idle guard open and made "Last ACP frame Ns ago" report a stderr byte.
+    this.onActivity();
     const hasId = msg.id !== undefined && msg.id !== null;
     if (hasId && (msg.result !== undefined || msg.error !== undefined)) {
       // Keyed by string: a peer that echoes "1" for the id 1 is still answering that request,

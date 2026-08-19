@@ -34,6 +34,8 @@ export class AcpClient extends EventEmitter {
     this._stopping = null;
   }
 
+  // stderr is captured but does not count as activity: the supervisor measures ACP frames, and
+  // an agent writing diagnostics is not the same fact as a turn making progress.
   // The tail of stderr, which is what an exit error quotes. Kept as chunks and joined on read:
   // rebuilding a 64KB string per chunk was the whole cost of a noisy agent. A StringDecoder
   // holds partial UTF-8 across chunk boundaries, so a multi-byte character split by the pipe
@@ -61,7 +63,6 @@ export class AcpClient extends EventEmitter {
           this._stderrLength -= this._stderrChunks.shift().length;
         }
       }
-      this.emit("activity");
     });
     this.child.stderr.on("error", () => {});
     // A supervisor trip writes session/cancel, which can land after the agent is already gone.
