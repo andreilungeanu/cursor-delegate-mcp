@@ -400,7 +400,8 @@ if (isMain) {
   // so confirming an install meant wiring the server into a host first. Reads the package.json
   // beside this file, so it reports the code that is actually running rather than what a
   // manifest pinned. stdout is free here because the transport never starts.
-  if (process.argv.slice(2).includes("--version")) {
+  const argv = process.argv.slice(2);
+  if (argv.includes("--version") || argv.includes("-v")) {
     console.log(readPackageVersion());
   } else {
     const server = buildServer();

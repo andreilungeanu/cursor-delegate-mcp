@@ -19,6 +19,10 @@ test("server builds with delegate and cancel registered", () => {
 // The version has to come back without a host attached, and it has to be the version of this
 // code rather than whatever a manifest pinned.
 test("the binary answers --version and exits without starting the transport", async () => {
-  const { stdout } = await run(process.execPath, [ENTRY, "--version"], { timeout: 10000 });
-  assert.equal(stdout.trim(), PKG.version);
+  // -v too: it is what a hand check reaches for, and falling through to the transport there
+  // reads exactly like the wedged install the flag exists to rule out.
+  for (const flag of ["--version", "-v"]) {
+    const { stdout } = await run(process.execPath, [ENTRY, flag], { timeout: 10000 });
+    assert.equal(stdout.trim(), PKG.version, `${flag} must print the version`);
+  }
 });
