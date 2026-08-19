@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import process from "node:process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { cp, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -97,4 +102,48 @@ test("Claude plugin launches bundled code and bootstraps its runtime dependencie
 test("no Claude-only config at paths other hosts auto-discover", () => {
   assert.ok(!existsSync(resolve(ROOT, ".mcp.json")), ".mcp.json at the repo root leaks into Copilot installs");
   assert.ok(!existsSync(resolve(ROOT, "hooks/hooks.json")), "hooks/hooks.json is auto-discovered by Codex");
+});
+
+// The bootstrap hook, run rather than read. Its dependencies are the names the server
+// imports, resolved from local directories so the install is offline and fast: an empty
+// dependency set cannot tell a working hook from one that exits 0 having installed nothing.
+const FIXTURES = { "@modelcontextprotocol/sdk": "sdk", zod: "zod" };
+
+const buildProbe = async (prepare) => {
+  const root = await mkdtemp(join(tmpdir(), "cdm-plugin-"));
+  await mkdir(join(root, ".claude-plugin"));
+  await cp(resolve(ROOT, ".claude-plugin/ensure-deps.mjs"), join(root, ".claude-plugin/ensure-deps.mjs"));
+
+  const dependencies = {};
+  for (const [name, dir] of Object.entries(FIXTURES)) {
+    await mkdir(join(root, "fixtures", dir), { recursive: true });
+    await writeFile(join(root, "fixtures", dir, "package.json"), JSON.stringify({ name, version: "1.0.0" }), "utf8");
+    dependencies[name] = `file:./fixtures/${dir}`;
+  }
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({ name: "cdm-plugin-probe", version: "1.0.0", private: true, dependencies }),
+    "utf8"
+  );
+
+  if (prepare) await prepare(root);
+  return root;
+};
+
+const runHook = (root) =>
+  promisify(execFile)(process.execPath, [join(root, ".claude-plugin", "ensure-deps.mjs")], { timeout: 120_000 });
+
+const importable = (root, name) => existsSync(join(root, "node_modules", name, "package.json"));
+
+test("the SessionStart hook can spawn npm on this platform", async () => {
+  // npm.cmd is a batch file, and Node refuses to spawn one without a shell — the failure is
+  // `spawnSync npm.cmd EINVAL` on the first session after a plugin install, before doctor
+  // exists to report it. Only a real spawn catches that, so this runs the hook.
+  const root = await buildProbe();
+  const { stdout } = await runHook(root);
+
+  assert.doesNotMatch(stdout, /dependency install failed/);
+  for (const name of Object.keys(FIXTURES)) {
+    assert.ok(importable(root, name), `${name} must be installed once the hook returns`);
+  }
 });
