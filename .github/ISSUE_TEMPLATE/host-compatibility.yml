@@ -34,8 +34,9 @@ body:
       label: What worked
       options:
         - label: "`doctor` reported client identity and detected the Cursor agent"
-        - label: "`ask` mode answered without changing files"
-        - label: "`plan` mode returned a plan and changed no files"
+        - label: "`ask` mode returned an answer"
+        - label: "`plan` mode returned a structured plan object"
+        - label: "I reviewed the git diff after `ask`/`plan` — every mode can edit files"
         - label: "Resuming the plan session in `agent` mode produced the expected edit"
         - label: "A clarifying question came back as a result instead of stalling"
         - label: "`cancel` stopped a running delegation"

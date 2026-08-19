@@ -32,7 +32,7 @@
     "defaultPrompt": [
       "Delegate this implementation to Cursor and review the diff.",
       "Ask Cursor to draft a plan for this change.",
-      "Use Cursor to inspect this code without editing files."
+      "Ask Cursor a question about this code, then review the git diff — every mode can edit files."
     ],
     "brandColor": "#0FB8C5",
     "composerIcon": "./assets/logo-light.png",
