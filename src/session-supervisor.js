@@ -29,7 +29,8 @@ export class SessionSupervisor {
     this._onExit = (info) => {
       this._trip(
         "agent-exit",
-        `agent exited (code=${info.code}${info.signal ? ", signal=" + info.signal : ""})${info.stderr ? ": " + String(info.stderr).slice(-2000) : ""}`
+        // Kept whole, for the reason acp-client.js states where it builds the same message.
+        `agent exited (code=${info.code}${info.signal ? ", signal=" + info.signal : ""})${info.stderr ? ": " + String(info.stderr) : ""}`
       );
     };
   }

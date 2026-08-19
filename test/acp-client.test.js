@@ -231,3 +231,22 @@ test("cancel sends session/cancel as a notification without id", async () => {
   assert.equal(msg.id, undefined);
   client.stop();
 });
+
+test("the exit error carries the whole of stderr, not a tail of it", async () => {
+  // The reason a run failed can sit anywhere in the agent's stderr — a rejected model, an
+  // expired login, a quota and when it resets. A byte cut here drops the half that names it.
+  // The 64KB ring buffer is what bounds this; nothing below it needs a second cut. Read off
+  // the rejection the client raises, not off a message the test builds.
+  const marker = "REASON-AT-THE-FRONT";
+  const noisy = marker + "M".repeat(4000);
+  const script = `process.stderr.write(${JSON.stringify(noisy)}); setTimeout(() => process.exit(3), 150);`;
+  const client = new AcpClient({ spawnSpec: { command: process.execPath, args: ["-e", script] } });
+  await client.start();
+
+  // Never answered, so the exit handler is what settles it.
+  const err = await client.peer.request("initialize", {}).then(() => null, (e) => e);
+
+  assert.equal(err?.reason, "agent-exit");
+  assert.ok(err.message.includes(marker), "the front of stderr must survive into the exit error");
+  assert.ok(err.message.length > 2000, `the whole of stderr must be carried, got ${err.message.length} chars`);
+});

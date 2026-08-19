@@ -75,7 +75,10 @@ export class AcpClient extends EventEmitter {
       const stderr = this.stderrBuffer;
       const err = makeError(
         "agent-exit",
-        `agent exited (code=${code}${signal ? ", signal=" + signal : ""})${stderr ? ": " + String(stderr).slice(-2000) : ""}`
+        // stderr kept whole. This is the one string that says why the agent died — the model
+        // that was rejected, the quota that ran out, the login that expired — and the part that
+        // names it can sit anywhere in it. The 64KB ring buffer above is the bound.
+        `agent exited (code=${code}${signal ? ", signal=" + signal : ""})${stderr ? ": " + String(stderr) : ""}`
       );
       // exit + rejectAllPending both settle the same Promise.race; second rejection is intentional.
       this.peer?.rejectAllPending(err);
