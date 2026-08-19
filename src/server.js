@@ -43,7 +43,12 @@ function unregisterInFlight(map, sessionId, handle) {
 const seenSessions = new Set();
 const SEEN_SESSIONS_CAP = 500;
 function rememberSession(set, id) {
-  if (id == null || set.has(id)) return;
+  if (id == null) return;
+  // Set iteration order makes the delete-then-add a small LRU: a session that is still being
+  // resumed moves back to the recent end, so it outlives an equally old id that was seen once
+  // and never again. Without it the id a caller is actually working with ages out on insertion
+  // order alone, and cancel then calls a live, resumable session one that never existed.
+  if (set.has(id)) set.delete(id);
   set.add(id);
   if (set.size > SEEN_SESSIONS_CAP) set.delete(set.values().next().value);
 }

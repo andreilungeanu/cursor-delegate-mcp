@@ -824,3 +824,34 @@ test("installSignalCleanup stops registered agents and exits when stdin closes",
     }
   }
 });
+
+test("a session still being resumed outlives an equally old one that was seen once", async () => {
+  // The remembered-session history is what lets cancel tell a finished, resumable session from
+  // an id that never existed. Ageing it on insertion order alone evicted the id the caller was
+  // actively working with, because a resume onto it did not count as use. Driven through the
+  // real tool, past the real cap, so it measures the history rather than a copy of it.
+  const runDelegate = async ({ resumeSessionId, onSessionReady }) => {
+    const sessionId = resumeSessionId || `s-${Math.random().toString(36).slice(2)}`;
+    onSessionReady?.(sessionId, { stop: () => Promise.resolve(true) });
+    return { result: "ok", sessionId };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+  const delegate = (args) =>
+    client.callTool({ name: "delegate", arguments: { spec: "x", workspace: process.cwd(), ...args } });
+  try {
+    await delegate({ resumeSessionId: "hot" });
+    for (let i = 0; i < 400; i++) await delegate({});
+    // The resume is the use that should count. Everything after it is younger than "hot".
+    await delegate({ resumeSessionId: "hot" });
+    for (let i = 0; i < 200; i++) await delegate({});
+
+    const res = payload(await client.callTool({ name: "cancel", arguments: { sessionId: "hot" } }));
+    assert.equal(res.status, "not-running", "a resumed session must not age out on insertion order");
+  } finally {
+    await client.close();
+  }
+});
