@@ -365,13 +365,22 @@ if (process.argv[1]) {
 }
 
 // Kill what is still running, then exit, on any way the host has of going away.
-export function installSignalCleanup(map, { exit = (code) => process.exit(code), stdin = process.stdin } = {}) {
+export function installSignalCleanup(map, {
+  exit = (code) => process.exit(code),
+  setExitCode = (code) => { process.exitCode = code; },
+  schedule = (fn) => setImmediate(fn),
+  stdin = process.stdin,
+} = {}) {
   let shuttingDown = false;
   const shutdown = (code) => {
     // A second trigger skips the wait below: the kills are already dispatched, and a caller
     // that has asked twice wants out now.
     if (shuttingDown) return exit(code);
     shuttingDown = true;
+    // Set in the handler, not left to the exit below: a loop that runs dry on its own still
+    // has to die with the code the signal asked for, and the scheduled exit may never get a
+    // turn to run.
+    setExitCode(code);
     const stops = [];
     for (const handles of map.values()) {
       for (const handle of handles) {
@@ -382,7 +391,10 @@ export function installSignalCleanup(map, { exit = (code) => process.exit(code),
     // orphans everything below the shell wrapper — the ps1 launcher and the versioned agent
     // were measured surviving the server's exit. stop() bounds itself (observed exit or its
     // own deadline), so this wait is short and finite on every platform.
-    Promise.all(stops).then(() => exit(code), () => exit(code));
+    // Scheduled rather than called from the kill's own continuation, so the exit runs on a
+    // clean loop turn instead of on the settlement stack.
+    const leave = () => schedule(() => exit(code));
+    Promise.all(stops).then(leave, leave);
   };
   // Each agent runs in its own process group on POSIX, so a signal aimed at this process no
   // longer reaches it the way it did when the two shared a group. Installing a handler replaces

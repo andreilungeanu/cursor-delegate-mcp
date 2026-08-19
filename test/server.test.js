@@ -703,6 +703,10 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
 
 // A detached agent no longer dies with a terminal signal to this process, so the handler is what
 // keeps Ctrl-C from leaking one. win32 keeps the shared console group and installs nothing.
+// Two turns: one for the settled kill's continuation, one for the exit it schedules off that
+// continuation so the exit does not run on the settlement stack.
+const flushExit = () => new Promise((r) => setImmediate(() => setImmediate(r)));
+
 test("installSignalCleanup stops registered agents, then exits", { skip: process.platform === "win32" }, async () => {
   const stopped = [];
   const exited = [];
@@ -712,7 +716,7 @@ test("installSignalCleanup stops registered agents, then exits", { skip: process
     installSignalCleanup(map, { exit: (code) => exited.push(code) });
     process.emit("SIGINT");
     assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
-    await new Promise((r) => setImmediate(r));
+    await flushExit();
     assert.deepEqual(exited, [130], "the handler must exit rather than swallow the signal");
   } finally {
     for (const signal of ["SIGINT", "SIGTERM"]) {
@@ -741,7 +745,7 @@ test("installSignalCleanup waits for the kill to settle before exiting", async (
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(order, ["stop"], "exit must not land while the kill is still in flight");
     settle(true);
-    await new Promise((r) => setImmediate(r));
+    await flushExit();
     assert.deepEqual(order, ["stop", "exit"], "exit must follow the settled kill");
     assert.deepEqual(exited, [0]);
   } finally {
@@ -814,7 +818,7 @@ test("installSignalCleanup stops registered agents and exits when stdin closes",
     installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
     stdin.emit("end");
     assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
-    await new Promise((r) => setImmediate(r));
+    await flushExit();
     assert.deepEqual(exited, [0], "stdin EOF must exit rather than linger");
   } finally {
     for (const signal of ["SIGINT", "SIGTERM"]) {
@@ -853,5 +857,41 @@ test("a session still being resumed outlives an equally old one that was seen on
     assert.equal(res.status, "not-running", "a resumed session must not age out on insertion order");
   } finally {
     await client.close();
+  }
+});
+
+test("shutdown records the exit code before it waits, and leaves the kill's own stack to exit", async () => {
+  // Two separate facts. The code is set in the handler because a loop that runs dry on its own
+  // still has to die with what the signal asked for, and the scheduled exit may never get a
+  // turn. The exit is scheduled because running it on the settled kill's continuation puts
+  // process teardown on that stack.
+  const codes = [];
+  const order = [];
+  let settle;
+  const stop = new Promise((r) => { settle = r; });
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => stop } }])]]);
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(map, {
+      exit: () => order.push("exit"),
+      setExitCode: (code) => codes.push(code),
+      schedule: (fn) => { order.push("scheduled"); setImmediate(fn); },
+      stdin,
+    });
+    stdin.emit("end");
+    // Synchronously, while the kill is still in flight.
+    assert.deepEqual(codes, [0], "the exit code must be recorded before the wait, not after it");
+    assert.deepEqual(order, [], "nothing may exit while the kill is outstanding");
+
+    settle(true);
+    await flushExit();
+    assert.deepEqual(order, ["scheduled", "exit"], "the exit must go through the scheduler");
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
   }
 });
