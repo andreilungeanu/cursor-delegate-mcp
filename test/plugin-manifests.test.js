@@ -147,3 +147,48 @@ test("the SessionStart hook can spawn npm on this platform", async () => {
     assert.ok(importable(root, name), `${name} must be installed once the hook returns`);
   }
 });
+
+// npm writes a lockfile when it runs, so its absence is the observable proof the hook
+// skipped and its presence the proof it did not.
+const installRan = (root) => existsSync(join(root, "package-lock.json"));
+const placeDep = async (root, name, complete) => {
+  await mkdir(join(root, "node_modules", name), { recursive: true });
+  if (complete) await writeFile(join(root, "node_modules", name, "package.json"), JSON.stringify({ name }), "utf8");
+};
+
+test("the dependency sentinel repairs every incomplete install", async () => {
+  // A half-finished install leaves directories behind. Skipping on their bare existence keeps
+  // the plugin broken on every later session, with the server still failing to import. Asserted
+  // by running the hook rather than by reading it: the source can name a path in a comment and
+  // still skip wrong.
+  const complete = await buildProbe(async (root) => {
+    for (const name of Object.keys(FIXTURES)) await placeDep(root, name, true);
+  });
+  await runHook(complete);
+  assert.ok(!installRan(complete), "a complete install must be left alone");
+
+  const bare = await buildProbe(async (root) => {
+    await mkdir(join(root, "node_modules"), { recursive: true });
+  });
+  await runHook(bare);
+  assert.ok(installRan(bare), "an empty node_modules must still install");
+
+  // The SDK is only one of the names the server imports; an install that died after it and
+  // before zod satisfies a check that names the SDK alone.
+  const partialTree = await buildProbe(async (root) => {
+    await placeDep(root, "@modelcontextprotocol/sdk", true);
+  });
+  await runHook(partialTree);
+  assert.ok(installRan(partialTree), "a dependency missing beside the SDK must still install");
+  assert.ok(importable(partialTree, "zod"), "the repair must land the missing dependency");
+
+  // npm extracts into the package directory, so an interrupted unpack leaves the directory
+  // present and its package.json absent.
+  const partialPackage = await buildProbe(async (root) => {
+    await placeDep(root, "@modelcontextprotocol/sdk", false);
+    await placeDep(root, "zod", true);
+  });
+  await runHook(partialPackage);
+  assert.ok(installRan(partialPackage), "a half-extracted dependency must still install");
+  assert.ok(importable(partialPackage, "@modelcontextprotocol/sdk"), "the repair must complete the extraction");
+});
