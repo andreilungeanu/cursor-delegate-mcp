@@ -36,6 +36,10 @@ export class JsonRpcPeer {
     this._recording = this._logSize > 0 && Number(process.env.CURSOR_DELEGATE_TRANSCRIPT) > 0;
     this._log = [];
     this.rl = readline.createInterface({ input });
+    // The interface re-emits the input stream's error as its own, so the handler acp-client.js
+    // puts on the child's stdout does not cover this one: an unhandled 'error' here is an
+    // uncaught exception, which takes down the server and every concurrent delegation with it.
+    this.rl.on("error", () => {});
     this.rl.on("line", (line) => this._onLine(line));
   }
 

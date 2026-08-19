@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import process from "node:process";
+import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { JsonRpcPeer } from "../src/jsonrpc.js";
 
 function lines(buf) { return buf.split("\n").filter(Boolean).map((l) => JSON.parse(l)); }
@@ -294,4 +297,18 @@ test("rejectAllPending rejects and clears in-flight requests", async () => {
   await assert.rejects(p, (e) => e === err);
   assert.equal(peer.pending.size, 0);
   peer.close();
+});
+
+test("an error on the agent's stdout does not take the server down", async () => {
+  // readline re-emits the input stream's error as its own, so the handler on the child's stdout
+  // does not cover it. Unhandled, it is an uncaught exception: the whole server, and every
+  // concurrent delegation with it. Spawned, because that outcome is a process-level one.
+  const fixture = fileURLToPath(new URL("./fixtures/peer-input-error.js", import.meta.url));
+  const { code, stderr } = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [fixture], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (c) => { stderr += c.toString(); });
+    child.once("exit", (code) => resolve({ code, stderr }));
+  });
+  assert.equal(code, 0, `peer died on an input error: ${stderr.trim() || "<no stderr>"}`);
 });
