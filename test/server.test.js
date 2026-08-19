@@ -895,3 +895,60 @@ test("shutdown records the exit code before it waits, and leaves the kill's own 
     }
   }
 });
+
+test("a shutdown during the handshake still kills the agent it spawned", async () => {
+  // The agent process exists from client.start(); its session id arrives about 3.4s later. A
+  // host going away inside that window used to exit with the agent running and nothing holding
+  // it — it is registered by session id, and there is no session id yet. Real stub agent, real
+  // process, and the assertion is that the pid is gone.
+  const inFlight = new Map();
+  const pending = new Set();
+  let child;
+  const started = new Promise((resolve) => {
+    // The stub answers nothing, so the delegation sits in initialize for the whole test.
+    setTimeout(function poll() {
+      if (child?.pid) resolve();
+      else setTimeout(poll, 20);
+    }, 20);
+  });
+
+  const delegation = runDelegateTool({
+    args: { spec: "x", mode: "agent", workspace: process.cwd(), model: "composer-2.5", fast: false },
+    extra: {},
+    runDelegate: (opts) => realRunDelegate({
+      ...opts,
+      handshakeMs: 30000,
+      clientFactory: (o) => {
+        const client = stubClientFactory("handshake-hang-stub.js")(o);
+        const start = client.start.bind(client);
+        client.start = async () => { const r = await start(); child = client.child; return r; };
+        return client;
+      },
+    }),
+    inFlight,
+    pending,
+  });
+
+  await started;
+  const pid = child.pid;
+  assert.equal(inFlight.size, 0, "no session id yet, so the map cannot hold it");
+  assert.equal(pending.size, 1, "the handshake-stage delegation must still be reachable");
+
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    installSignalCleanup(inFlight, { pending, exit: () => {}, setExitCode: () => {}, stdin });
+    stdin.emit("end");
+    const deadline = Date.now() + 8000;
+    const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    while (Date.now() < deadline && alive()) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(alive(), false, "the agent spawned during the handshake outlived the shutdown");
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
+    await delegation.catch(() => {});
+  }
+});

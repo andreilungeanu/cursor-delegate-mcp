@@ -37,6 +37,12 @@ function unregisterInFlight(map, sessionId, handle) {
   handles.delete(handle);
   if (handles.size === 0) map.delete(sessionId);
 }
+// Delegations whose session has not opened yet. inFlight is keyed by session id, and that id
+// arrives about 3.4s after the agent process does — so between client.start() and session/new
+// there is a live, auto-approved agent that the map cannot name. Shutdown walks this too.
+// cancel deliberately does not: an id the caller has never been given is not one it can pass.
+const pendingDelegations = new Set();
+
 // Session ids seen this process, kept after the turn ends so cancel can tell a finished
 // session (resumable, only the turn is over) from an id that never existed. Bounded so a
 // long-lived server does not grow without limit.
@@ -175,7 +181,7 @@ export const delegateInputSchema = z.object({
  * }} deps
  * @returns {Promise<import("@modelcontextprotocol/sdk/types.js").CallToolResult>}
  */
-export async function runDelegateTool({ args, extra, runDelegate, inFlight, seenSessions = new Set() }) {
+export async function runDelegateTool({ args, extra, runDelegate, inFlight, pending = new Set(), seenSessions = new Set() }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, effort, context, contextFiles } = args;
 
   const progressToken = extra?._meta?.progressToken;
@@ -210,9 +216,16 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
       contextFiles,
       onProgress,
       signal: extra?.signal,
+      onClientReady: (client) => {
+        handle = { client, cancelRequested: false };
+        pending.add(handle);
+      },
       onSessionReady: (sessionId, client) => {
         capturedSessionId = sessionId;
-        handle = { client, cancelRequested: false };
+        // The same handle moves across, so a shutdown racing this boundary finds it on exactly
+        // one side of it rather than on neither.
+        handle ??= { client, cancelRequested: false };
+        pending.delete(handle);
         registerInFlight(inFlight, sessionId, handle);
         rememberSession(seenSessions, sessionId);
         // Emit the id the moment the session opens, before the turn finishes, so a host that
@@ -233,7 +246,9 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
     };
   } finally {
     // Drops only this delegation's own handle; the id stays registered while another turn
-    // is still running on it.
+    // is still running on it. A delegation that failed before its session opened is only ever
+    // in pending, and one that opened is only ever in the map — the delete covers both.
+    if (handle) pending.delete(handle);
     if (capturedSessionId) unregisterInFlight(inFlight, capturedSessionId, handle);
   }
 }
@@ -267,7 +282,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: true,
       },
     },
-    async (args, extra) => runDelegateTool({ args, extra, runDelegate, inFlight, seenSessions })
+    async (args, extra) => runDelegateTool({ args, extra, runDelegate, inFlight, pending: pendingDelegations, seenSessions })
   );
 
   server.registerTool(
@@ -366,6 +381,7 @@ if (process.argv[1]) {
 
 // Kill what is still running, then exit, on any way the host has of going away.
 export function installSignalCleanup(map, {
+  pending = new Set(),
   exit = (code) => process.exit(code),
   setExitCode = (code) => { process.exitCode = code; },
   schedule = (fn) => setImmediate(fn),
@@ -382,11 +398,13 @@ export function installSignalCleanup(map, {
     // turn to run.
     setExitCode(code);
     const stops = [];
-    for (const handles of map.values()) {
-      for (const handle of handles) {
-        try { stops.push(Promise.resolve(handle.client.stop()).catch(() => {})); } catch {}
-      }
-    }
+    const dispatch = (handle) => {
+      try { stops.push(Promise.resolve(handle.client.stop()).catch(() => {})); } catch {}
+    };
+    for (const handles of map.values()) for (const handle of handles) dispatch(handle);
+    // Delegations still inside their handshake. The agent is already running for these, and this
+    // is the only place it is reachable from — they have no session id to be keyed under yet.
+    for (const handle of pending) dispatch(handle);
     // On Windows the kill is a separate taskkill process: exiting before it walks the tree
     // orphans everything below the shell wrapper — the ps1 launcher and the versioned agent
     // were measured surviving the server's exit. stop() bounds itself (observed exit or its
@@ -399,8 +417,8 @@ export function installSignalCleanup(map, {
   // Each agent runs in its own process group on POSIX, so a signal aimed at this process no
   // longer reaches it the way it did when the two shared a group. Installing a handler replaces
   // Node's default, and a server that swallows Ctrl-C would be a worse bug than the agent it
-  // leaks. Delegations still in their handshake are not in the map yet, so this covers the turn,
-  // not the first few seconds of it.
+  // leaks. Delegations still inside their handshake are reached through `pending`, so this
+  // covers the agent from the moment it is spawned, not from the moment its session opens.
   if (DETACHED) {
     const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143]]);
     for (const [signal, code] of signals) process.on(signal, () => shutdown(code));
@@ -422,7 +440,7 @@ if (isMain) {
     console.log(readPackageVersion());
   } else {
     const server = buildServer();
-    installSignalCleanup(inFlight);
+    installSignalCleanup(inFlight, { pending: pendingDelegations });
     await server.connect(new StdioServerTransport());
   }
 }
