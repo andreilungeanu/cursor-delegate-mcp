@@ -1032,6 +1032,20 @@ test("runDelegate includes the tool location in running: progress when present",
   assert.ok(progress.includes("running: grep"), "bare label when the agent sends no location");
 });
 
+test("a multi-line tool title is reported as one line", async () => {
+  // A terminal tool's title is the command the agent sent, and it sends a multi-line script
+  // verbatim. Both readers of this take one line: the progress notification, and the "last tool
+  // call" line a stall error carries.
+  const title = ["npm run build", "  --workspace=api", "", "  --silent"].join("\n");
+  const progress = await collectProgress([
+    { sessionUpdate: "tool_call", toolCallId: "t1", title, kind: "execute", status: "pending" },
+  ]);
+  const line = progress.find((m) => m.startsWith("running: "));
+  assert.ok(line, "the tool call must be reported");
+  assert.ok(!/[\r\n]/.test(line), `the reported command must be one line, got ${JSON.stringify(line)}`);
+  assert.equal(line, "running: npm run build --workspace=api --silent");
+});
+
 test("runDelegate returns the complete stream when the turn uses no tools", async () => {
   const out = await replayResult([msgChunk("Code:\n"), msgChunk("```js\nrun();\n```")]);
   assert.equal(out.result, "Code:\n```js\nrun();\n```");

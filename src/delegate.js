@@ -397,7 +397,10 @@ export async function runDelegate({
       state.startTool(up.toolCallId, up.status);
       const label = up.title || up.kind || "tool";
       const path = up.locations?.[0]?.path;
-      state.lastToolLabel = String(label) + (path ? " — " + path : "");
+      // Collapsed onto one line the way both readers of this take it: a progress notification
+      // and the "last tool call" line in a stall error. A terminal tool's title is the command
+      // the agent sent, which it sends verbatim — a multi-line script arrives with its newlines.
+      state.lastToolLabel = (String(label) + (path ? " — " + path : "")).replace(/\s+/g, " ").trim();
       try { onProgress?.(("running: " + state.lastToolLabel).slice(0, 200)); } catch {}
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
