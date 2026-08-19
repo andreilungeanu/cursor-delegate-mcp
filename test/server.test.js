@@ -109,7 +109,7 @@ test('delegate tool rejects empty model before runDelegate is called', async () 
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const res = await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent", model: "" } });
+    const res = await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "x", mode: "agent", model: "" } });
     assert.equal(res.isError, true);
     assert.match(res.content[0].text, /model must be a non-empty string/);
     assert.equal(called, false);
@@ -130,7 +130,7 @@ test('delegate tool trims whitespace from model before runDelegate', async () =>
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent", model: "  composer-2.5  " } });
+    await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "x", mode: "agent", model: "  composer-2.5  " } });
     assert.equal(captured.length, 1);
     assert.equal(captured[0].model, "composer-2.5");
   } finally {
@@ -150,7 +150,7 @@ test('delegate tool defaults model to composer-2.5 when omitted', async () => {
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent" } });
+    await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "x", mode: "agent" } });
     assert.equal(captured.length, 1);
     assert.equal(captured[0].model, "composer-2.5");
   } finally {
@@ -170,7 +170,7 @@ test('delegate tool defaults fast to false end-to-end when the caller omits it',
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    await client.callTool({ name: "delegate", arguments: { spec: "x", mode: "agent", model: "composer-2.5" } });
+    await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "x", mode: "agent", model: "composer-2.5" } });
     assert.equal(captured.length, 1);
     assert.equal(captured[0].fast, false);
   } finally {
@@ -202,8 +202,12 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.match(tools.delegate.description, /Clarifying questions arrive as prose.*resumeSessionId/i);
     assert.ok(!/uses MCP elicitation/i.test(tools.delegate.description));
     assert.ok(tools.delegate.description.includes(DEFAULT_MODEL));
-    assert.equal(delegateInputSchema.parse({ spec: "x" }).model, DEFAULT_MODEL);
-    assert.equal(delegateInputSchema.parse({ spec: "x", effort: "  xhigh  " }).effort, "xhigh");
+    assert.equal(delegateInputSchema.parse({ spec: "x", workspace: "." }).model, DEFAULT_MODEL);
+    assert.equal(delegateInputSchema.parse({ spec: "x", workspace: ".", effort: "  xhigh  " }).effort, "xhigh");
+    // Required, not defaulted: the server's own cwd under npx or a plugin launch is a cache
+    // directory or the user's home, and a defaulted workspace sent the agent there.
+    assert.ok(!delegateInputSchema.safeParse({ spec: "x" }).success);
+    assert.ok(!delegateInputSchema.safeParse({ spec: "x", workspace: "   " }).success);
     const effortDescription = tools.delegate.inputSchema.properties.effort.description;
     assert.match(effortDescription, /Exact Cursor thinking-effort value/);
     assert.match(effortDescription, /invalid values fail before the prompt/);
@@ -360,7 +364,7 @@ test("cancel tool cancels an in-flight delegation and cleans up", async () => {
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "long task" } });
     await ready;
     const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-live" } });
     assert.deepEqual(payload(cancelRes), { status: "cancelled", sessionId: "sess-live" });
@@ -398,7 +402,7 @@ test("cancel tool with force kills the agent when delegation does not settle", a
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "long task" } });
     await ready;
     const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-kill", force: true } });
     assert.equal(payload(cancelRes).status, "killed");
@@ -435,7 +439,7 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "long task" } });
     await ready;
     const first = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-escalate" } });
     assert.equal(payload(first).status, "cancelled");
@@ -472,7 +476,7 @@ test("force cancel reports cancelled and keeps the handle when no exit follows t
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "long task" } });
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "long task" } });
     await ready;
     const first = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-stubborn", force: true } });
     assert.equal(payload(first).status, "cancelled");
@@ -507,7 +511,7 @@ test("cancel tool with force returns cancelled when delegation settles during gr
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "task" } });
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
     await ready;
     const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-settle", force: true } });
     assert.equal(payload(cancelRes).status, "cancelled");
@@ -538,7 +542,7 @@ test("cancel force kills a real stub agent whose prompt never finishes", async (
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { spec: "stream forever" } });
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "stream forever" } });
     // Poll a plain cancel until the session registers (not-found → cancelled).
     const started = Date.now();
     let registered = false;
@@ -575,7 +579,7 @@ test("delegate output omits cancelRequested when no cancel was requested", async
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const res = await client.callTool({ name: "delegate", arguments: { spec: "short task" } });
+    const res = await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "short task" } });
     assert.notEqual(res.isError, true);
     assert.equal("cancelRequested" in payload(res), false);
   } finally {
@@ -611,7 +615,7 @@ test("cancel distinguishes a finished session (not-running) from an unknown id (
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const delegateRes = await client.callTool({ name: "delegate", arguments: { spec: "task" } });
+    const delegateRes = await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
     assert.notEqual(delegateRes.isError, true);
 
     const finished = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-finished" } });
@@ -685,7 +689,7 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
   const client = new Client({ name: "malformed-plan-e2e", version: "1.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const res = await client.callTool({ name: "delegate", arguments: { spec: "do the thing" } });
+    const res = await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "do the thing" } });
     assert.equal(res.isError ?? false, false, "completed work must not become an MCP error");
     const out = payload(res);
     assert.equal(out.result, "implemented");

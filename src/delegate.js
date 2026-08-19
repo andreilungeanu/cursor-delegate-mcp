@@ -44,10 +44,15 @@ function assertSpec(spec) {
   }
 }
 
-// Without this, the agent's first write creates the directory: a typo'd workspace spawns a
-// parallel empty tree and every layer reports success. Same check contextFiles applies.
+// Named, never defaulted: under npx or a plugin launch the server's own cwd is a cache directory
+// or the user's home, so a defaulted workspace put an auto-approved agent to work on a tree
+// nobody asked about while every layer reported success. And without the existence check the
+// agent's first write creates the directory, so a typo spawns a parallel empty tree. Same check
+// contextFiles applies.
 function assertWorkspace(workspace) {
-  if (workspace === undefined || workspace === null) return;
+  if (typeof workspace !== "string" || workspace.trim() === "") {
+    throw makeError("invalid-workspace", "workspace is required. Name the directory the agent should work in.");
+  }
   let stat;
   try {
     stat = statSync(workspace);

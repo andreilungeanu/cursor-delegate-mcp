@@ -82,7 +82,7 @@ function malformedContentFactory() {
 // throw escapes the readline callback, so the end_turn reply on the next line is never read and
 // the turn runs to the cap — an hour on the default.
 test("a tool_call_update whose content is an object is ignored, not fatal", async () => {
-  const out = await runDelegate({
+  const out = await runDelegate({ workspace: process.cwd(),
     spec: "task",
     clientFactory: malformedContentFactory,
     hardCapMs: 8000,
@@ -108,7 +108,7 @@ function malformedPlanFactory() {
 }
 
 test("a plan frame whose entries is not an array is reported, not fatal", async () => {
-  const out = await runDelegate({ spec: "task", clientFactory: malformedPlanFactory });
+  const out = await runDelegate({ workspace: process.cwd(), spec: "task", clientFactory: malformedPlanFactory });
   // The sanitizer exists so a malformed plan frame cannot fail the call after the work is done.
   // A non-array entries defeated it by throwing before it could report anything.
   assert.equal(out.result, "done");
@@ -2153,7 +2153,7 @@ test("a non-positive hard cap falls back to the default instead of firing instan
   const prev = process.env.CURSOR_DELEGATE_HARD_CAP_MS;
   process.env.CURSOR_DELEGATE_HARD_CAP_MS = "0";
   try {
-    const out = await runDelegate({ spec: "hi", clientFactory: thinkingFactory(), heartbeatMs: 0 });
+    const out = await runDelegate({ workspace: process.cwd(), spec: "hi", clientFactory: thinkingFactory(), heartbeatMs: 0 });
     assert.equal(out.result, "done");
   } finally {
     if (prev === undefined) delete process.env.CURSOR_DELEGATE_HARD_CAP_MS;
@@ -2190,4 +2190,19 @@ test("frames arriving after the prompt settles do not mutate the finished turn",
   });
   assert.equal(out.result, "answer");
   assert.equal(out.filesReportedByEditTools, undefined, "a frame after the turn belongs to no turn");
+});
+
+test("a delegation without a workspace is refused before anything is spawned", async () => {
+  // The server's own cwd under npx or a plugin launch is a cache directory or the user's home,
+  // so a defaulted workspace put an auto-approved agent to work on a tree nobody asked about
+  // while every layer reported success.
+  let spawned = false;
+  const clientFactory = () => { spawned = true; return {}; };
+  for (const workspace of [undefined, "", "   "]) {
+    await assert.rejects(
+      () => runDelegate({ spec: "task", workspace, clientFactory }),
+      (err) => err.reason === "invalid-workspace" && /workspace is required/.test(err.message)
+    );
+  }
+  assert.equal(spawned, false, "the workspace check must run before the agent is spawned");
 });

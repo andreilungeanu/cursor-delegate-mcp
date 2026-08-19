@@ -151,7 +151,7 @@ export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
   resumeSessionId: z.string().optional().describe("Continue an existing ACP session."),
-  workspace: z.string().optional().describe("The agent's working directory, not a limit. Defaults to the server process cwd, which under npx is often not your project root — pass it explicitly. Must already exist; never create one for the call."),
+  workspace: z.string().trim().min(1, "workspace must not be blank").describe("The agent's working directory, not a limit. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
   fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
   // Which values a model offers is only knowable after selecting it, so this stays an open
@@ -197,7 +197,7 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, seen
       spec,
       mode,
       resumeSessionId,
-      workspace: workspace || process.cwd(),
+      workspace,
       model,
       fast,
       effort,

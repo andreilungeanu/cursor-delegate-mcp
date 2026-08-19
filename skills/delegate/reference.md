@@ -10,7 +10,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | `mode` | `agent` | `agent`, `plan`, or `ask`. |
 | `model` | `composer-2.5` | Bare ACP family id (`composer-2.5`, `grok-4.5`, `gpt-5.4`). Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Cursor keeps the tier per model across sessions; the bridge sends it unless the session already opened on that model at that tier. |
-| `workspace` | server cwd | Working directory for the agent. The default is the **MCP server process's** cwd, which for `npx`/plugin launches is not necessarily your project root — pass it explicitly. |
+| `workspace` | required | Working directory for the agent. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call. |
 | `resumeSessionId` | — | Resume an existing ACP session. |
 | `effort` | — | Exact thinking-effort value, sent under whichever option id the selected model declares. Values are case-sensitive and model-specific; some models expose no effort option. |
 | `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
@@ -91,7 +91,7 @@ Errors come back as `delegate failed [<reason>]: …`.
 | Reason | Meaning | Action |
 | ------ | ------- | ------ |
 | `invalid-spec` | `spec` was blank. Nothing was spawned. | Fix the argument. |
-| `invalid-workspace` | `workspace` does not exist or is not a directory. Nothing was spawned. | Fix the argument. |
+| `invalid-workspace` | `workspace` was omitted, blank, does not exist, or is not a directory. Nothing was spawned. | Fix the argument. |
 | `unknown-model` | `model` is not offered by this agent; the message names the valid ids. | Fix the argument. |
 | `invalid-effort` | `effort` is not an exact value advertised by the selected model, or that model advertises no configurable effort. No prompt was sent. | Retry the named session with the complete original `spec` and an accepted value; when the message says `Accepted: none`, omit the `effort` field entirely and do not send the string `"none"`. |
 | `effort-options-unavailable` | The selected model did not report a usable effort option list, or rejected an option it had just advertised. No prompt was sent. | Retry the named session once with the complete original `spec`; if it repeats, run `doctor` and report the capability failure rather than guessing. |
