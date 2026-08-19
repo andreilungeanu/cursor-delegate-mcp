@@ -34,6 +34,7 @@ try {
     "PRIVACY.md",
     "SECURITY.md",
     "TERMS.md",
+    "CHANGELOG.md",
   ]) {
     assert.ok(existsSync(join(installed, rel)), `packed artifact is missing ${rel}`);
   }

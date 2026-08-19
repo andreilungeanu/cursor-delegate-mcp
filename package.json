@@ -44,7 +44,8 @@
     "PRIVACY.md",
     "SECURITY.md",
     "TERMS.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
