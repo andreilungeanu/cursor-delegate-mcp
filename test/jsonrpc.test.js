@@ -4,7 +4,7 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { JsonRpcPeer } from "../src/jsonrpc.js";
+import { JsonRpcPeer, transcriptFrames } from "../src/jsonrpc.js";
 
 function lines(buf) { return buf.split("\n").filter(Boolean).map((l) => JSON.parse(l)); }
 
@@ -233,6 +233,35 @@ test("a malformed ACP_LOG_SIZE keeps the default instead of disabling recording"
     if (prev === undefined) delete process.env.ACP_LOG_SIZE;
     else process.env.ACP_LOG_SIZE = prev;
   }
+});
+
+// "true" is the most natural value to set, and Number("true") > 0 is false — the flag used to
+// disable exactly what the setter was asking for.
+test("a non-numeric CURSOR_DELEGATE_TRANSCRIPT records instead of disabling", () => {
+  const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "true";
+  try {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const peer = new JsonRpcPeer(input, output, {});
+    peer.notify("ping", {});
+    assert.equal(peer.getLog().length, 1, "a boolean-ish value must enable recording, not disable it");
+    peer.close();
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
+  }
+});
+
+test("transcriptFrames parses the env forms", () => {
+  assert.equal(transcriptFrames(undefined), 0);
+  assert.equal(transcriptFrames(""), 0);
+  assert.equal(transcriptFrames("  "), 0);
+  assert.equal(transcriptFrames("0"), 0);
+  assert.equal(transcriptFrames("-3"), 0);
+  assert.equal(transcriptFrames("12"), 12);
+  assert.equal(transcriptFrames("7.9"), 7);
+  assert.equal(transcriptFrames("true"), 2000, "an unparseable value reads as on at the default depth");
 });
 
 test("per-frame size is capped at FRAME_CAP", () => {

@@ -13,6 +13,7 @@ import { makeTurnState } from "./turn-state.js";
 import { makeError } from "./errors.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 import { optionsFrom, resolveEffort, unsupportedWarning } from "./model-options.js";
+import { transcriptFrames } from "./jsonrpc.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
 // The one advertised id the agent resolves to a different model ("Auto"), so it is the one id
@@ -612,7 +613,7 @@ export async function runDelegate({
     }
     // Opt-in: the frames land in the caller's context and nothing there is actionable — the
     // forensics above already carry that. Raw frames only help someone debugging the bridge.
-    const frames = Number(process.env.CURSOR_DELEGATE_TRANSCRIPT);
+    const frames = transcriptFrames();
     if (frames > 0) {
       try {
         const transcript = client.getTranscript?.(frames);

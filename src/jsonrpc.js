@@ -10,6 +10,17 @@ function readLogSize(raw) {
   return Math.floor(n);
 }
 
+// Frames of transcript CURSOR_DELEGATE_TRANSCRIPT asks for. Unset or blank means none and a
+// number is the count (0 = none); anything unparseable reads as on at the default depth, the
+// same policy readLogSize applies to ACP_LOG_SIZE — "true" and "yes" are natural things to set,
+// and silently disabling the transcript on them is the opposite of what the setter wanted.
+export function transcriptFrames(raw = process.env.CURSOR_DELEGATE_TRANSCRIPT) {
+  if (raw === undefined || raw.trim() === "") return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_LOG_SIZE;
+  return Math.max(0, Math.floor(n));
+}
+
 export class JsonRpcPeer {
   /**
    * @param {import("node:stream").Readable} input
@@ -33,7 +44,7 @@ export class JsonRpcPeer {
     // The failure transcript is the only thing that reads these frames, and it is opt-in, so
     // recording by default retained up to _logSize × FRAME_CAP bytes per delegation that nothing
     // would ever ask for. ACP_LOG_SIZE still bounds retention and still disables at 0.
-    this._recording = this._logSize > 0 && Number(process.env.CURSOR_DELEGATE_TRANSCRIPT) > 0;
+    this._recording = this._logSize > 0 && transcriptFrames() > 0;
     this._log = [];
     this.rl = readline.createInterface({ input });
     // The interface re-emits the input stream's error as its own, so the handler acp-client.js
