@@ -6,6 +6,85 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-21
+
+One thing changes on upgrade: pass `workspace` on every call, resumes included.
+
+### Changed
+
+- **Breaking: `workspace` is required on every call** — `agent`, `plan`, `ask`, and every
+  resume. An omitted `workspace` used to mean the server's own working directory, which under
+  `npx` or a plugin install is a cache folder or your home directory, so a defaulted call put
+  an auto-approved agent to work on a tree nobody named.
+- **Breaking: `result` comes back at full length.** The 10MB cap and its
+  `[output truncated at 10MB]` marker are gone. The stream is the model's own message, bounded
+  by its output limit; a byte cap here handed back a partial answer as if it were the whole one.
+- An `agent-exit` failure carries the whole captured `stderr` rather than its last 2000
+  characters. This is the one string that says why the agent died, and the part naming the
+  rejected model, the exhausted quota or the expired login can sit anywhere in it. The 64KB
+  ring buffer is the bound.
+- `CHANGELOG.md` ships in the npm artifact.
+
+### Added
+
+- `-v` is accepted alongside `--version`.
+- A `logo` field on the Claude and Agent plugin manifests, pointing at `assets/logo-light.png`.
+  With no `.cursor-plugin/` directory in the repository, those are the manifests Cursor reads, and
+  `logo` is the field its marketplace tile draws an icon from.
+
+### Fixed
+
+- **The Claude Code plugin installs its dependencies on Windows.** `npm` is a shell script
+  there, so the bootstrap spawn could not find it and a fresh plugin install had no working
+  delegation at all.
+- The bootstrap install runs unless every declared dependency is present. It used to skip on
+  finding the first one, leaving a partial `node_modules` in place.
+- An error on the readline interface reading the agent is handled. Unhandled, it was an
+  uncaught exception that took down the MCP server and every concurrent delegation with it.
+- A malformed ACP frame is dropped and reported in `protocolWarnings`. A non-array `content`
+  threw inside the readline callback — the whole server, not one turn, and the reply on the
+  next line went unread so the turn hung to its cap. A non-array plan `entries` threw in the
+  sanitizer after the turn's work was done.
+- A permission request that offers no allow option is answered `cancelled`. The router used to
+  fall back to the first option offered, returning a reject id under a `selected` outcome,
+  which the agent reads as approval of the denial.
+- A router bug is reported as `-32603`. It used to send `-32000`, which ACP assigns to
+  `auth_required`, sending the agent down a recovery path that cannot work.
+- The host going away — `SIGINT`, `SIGTERM`, or stdin closing — kills in-flight delegations and
+  gives them time to land before the server exits. A delegation still inside its handshake is
+  reached too: the agent process exists about 3.4s before its session id does.
+- The signal handler records the exit code as it runs and schedules the exit off the kill's
+  settlement stack, so a loop that runs dry on its own still dies with the code the signal
+  asked for.
+- On Windows the kill runs only while the child is alive. `taskkill /T` walks parent links an
+  exited leader no longer has, and a reaped pid can already belong to somebody else.
+- Only a parsed ACP frame counts as agent activity. A launcher writing to stderr used to hold
+  the idle guard open and made "Last ACP frame Ns ago" report a stderr byte.
+- The version probe drains the agent's stderr, so a launcher noisy enough to fill the pipe
+  reports its version instead of reading out as a timeout.
+- A resumed session moves back to the recent end of the session history, so `cancel` no longer
+  answers `not-found` for a live, resumable session that aged out on insertion order.
+- A multi-line tool title is reported as one line. A terminal tool's title is the command the
+  agent sent, and a multi-line script arrives with its newlines.
+- A non-numeric `CURSOR_DELEGATE_TRANSCRIPT` reads as on at 50 frames rather than off.
+  `Number("true")` is `NaN`, so the most natural way to ask for a transcript disabled the one
+  thing it was asking for — in the recorder and again where the frames are appended.
+- A stale non-terminal update for a finished tool call is ignored. It used to restart result
+  collection, so the turn's final message came back as `discardedResult` under
+  `resultSource: "pre-tool-fallback"` — a clean answer labelled an unreliable preamble.
+
+### Documentation
+
+- The delegate reference records that `effectiveModel` reports no model for `default` (Auto).
+- The Codex plugin manifest and the host-compatibility issue template drop their remaining
+  read-only claims.
+
+### Internal
+
+- The release workflow is gated on the full test workflow rather than one `npm test` leg.
+- Coverage for the `allow_once` fallback, the doctor option list, the peer error frame, the
+  bare-`{}` ack methods, and the stderr ring-buffer trim driven through a real spawn.
+
 ## [1.22.0] - 2026-08-13
 
 ### Added
