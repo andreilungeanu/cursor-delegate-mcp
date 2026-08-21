@@ -253,15 +253,25 @@ test("a non-numeric CURSOR_DELEGATE_TRANSCRIPT records instead of disabling", ()
   }
 });
 
+// The no-argument case falls through to the default parameter, which reads the ambient
+// environment: with CURSOR_DELEGATE_TRANSCRIPT exported for a debugging session it answered
+// that value, not 0, and the assertion below failed for reasons that had nothing to do with it.
 test("transcriptFrames parses the env forms", () => {
-  assert.equal(transcriptFrames(undefined), 0);
-  assert.equal(transcriptFrames(""), 0);
-  assert.equal(transcriptFrames("  "), 0);
-  assert.equal(transcriptFrames("0"), 0);
-  assert.equal(transcriptFrames("-3"), 0);
-  assert.equal(transcriptFrames("12"), 12);
-  assert.equal(transcriptFrames("7.9"), 7);
-  assert.equal(transcriptFrames("true"), 50, "an unparseable value reads as on at the default depth");
+  const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  try {
+    assert.equal(transcriptFrames(undefined), 0);
+    assert.equal(transcriptFrames(""), 0);
+    assert.equal(transcriptFrames("  "), 0);
+    assert.equal(transcriptFrames("0"), 0);
+    assert.equal(transcriptFrames("-3"), 0);
+    assert.equal(transcriptFrames("12"), 12);
+    assert.equal(transcriptFrames("7.9"), 7);
+    assert.equal(transcriptFrames("true"), 50, "an unparseable value reads as on at the default depth");
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
+  }
 });
 
 test("per-frame size is capped at FRAME_CAP", () => {
