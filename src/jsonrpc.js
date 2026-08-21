@@ -10,14 +10,20 @@ function readLogSize(raw) {
   return Math.floor(n);
 }
 
+// Depth an unparseable CURSOR_DELEGATE_TRANSCRIPT reads as. Deliberately not DEFAULT_LOG_SIZE:
+// that one bounds what the log retains in memory, this one is how much lands in the caller's
+// context. 1.10.0 removed a 40-frame always-on dump from failure text; opt-in is what buys this
+// budget, so keep it in that neighbourhood.
+const TRANSCRIPT_DEFAULT_FRAMES = 50;
+
 // Frames of transcript CURSOR_DELEGATE_TRANSCRIPT asks for. Unset or blank means none and a
-// number is the count (0 = none); anything unparseable reads as on at the default depth, the
-// same policy readLogSize applies to ACP_LOG_SIZE — "true" and "yes" are natural things to set,
-// and silently disabling the transcript on them is the opposite of what the setter wanted.
+// number is the count (0 = none); anything unparseable reads as on at the default depth —
+// "true" and "yes" are natural things to set, and silently disabling the transcript on them is
+// the opposite of what the setter wanted.
 export function transcriptFrames(raw = process.env.CURSOR_DELEGATE_TRANSCRIPT) {
   if (raw === undefined || raw.trim() === "") return 0;
   const n = Number(raw);
-  if (!Number.isFinite(n)) return DEFAULT_LOG_SIZE;
+  if (!Number.isFinite(n)) return TRANSCRIPT_DEFAULT_FRAMES;
   return Math.max(0, Math.floor(n));
 }
 

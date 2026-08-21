@@ -261,7 +261,7 @@ test("transcriptFrames parses the env forms", () => {
   assert.equal(transcriptFrames("-3"), 0);
   assert.equal(transcriptFrames("12"), 12);
   assert.equal(transcriptFrames("7.9"), 7);
-  assert.equal(transcriptFrames("true"), 2000, "an unparseable value reads as on at the default depth");
+  assert.equal(transcriptFrames("true"), 50, "an unparseable value reads as on at the default depth");
 });
 
 test("per-frame size is capped at FRAME_CAP", () => {

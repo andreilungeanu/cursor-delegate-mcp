@@ -1616,7 +1616,7 @@ test("runDelegate appends the transcript when CURSOR_DELEGATE_TRANSCRIPT is a no
         clientFactory: failingPromptFactory(),
       }),
       (err) => {
-        assert.match(err.message, /--- recent ACP transcript \(last 2000 frames\) ---/);
+        assert.match(err.message, /--- recent ACP transcript \(last 50 frames\) ---/);
         return true;
       }
     );
