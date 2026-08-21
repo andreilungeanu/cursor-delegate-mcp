@@ -177,6 +177,7 @@ export const delegateInputSchema = z.object({
  *   args: any, extra?: any,
  *   runDelegate: (opts: any) => Promise<any>,
  *   inFlight: Map<string, Set<any>>,
+ *   pending?: Set<any>,
  *   seenSessions?: Set<string>,
  * }} deps
  * @returns {Promise<import("@modelcontextprotocol/sdk/types.js").CallToolResult>}
