@@ -20,7 +20,7 @@ Cursor Delegate is the MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot 
 
 <br clear="left">
 
-![Demo](demo.gif)
+![Demo](assets/demo.gif)
 
 ## 🧠 Frontier quality, kept
 
