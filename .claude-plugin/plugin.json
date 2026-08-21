@@ -11,6 +11,7 @@
   "homepage": "https://github.com/andreilungeanu/cursor-delegate-mcp",
   "repository": "https://github.com/andreilungeanu/cursor-delegate-mcp",
   "license": "MIT",
+  "logo": "assets/logo-light.png",
   "mcpServers": "./.claude-plugin/mcp.json",
   "hooks": "./.claude-plugin/hooks.json",
   "keywords": [

@@ -56,6 +56,7 @@ test("marketplaces and Copilot plugin point at the intended package", () => {
 
   const copilot = read("plugin.json");
   assert.equal(copilot.name, pluginName);
+  assert.equal(copilot.logo, read(".claude-plugin/plugin.json").logo);
   assert.ok(existsSync(resolve(ROOT, copilot.skills)));
   assert.ok(existsSync(resolve(ROOT, copilot.mcpServers)));
   const copilotMcp = read(".mcp.copilot.json");
@@ -77,6 +78,14 @@ test("Claude plugin launches bundled code and bootstraps its runtime dependencie
   assert.notEqual(marketplace.plugins[0].name, marketplace.name);
   assert.equal(manifest.mcpServers, "./.claude-plugin/mcp.json");
   assert.equal(manifest.hooks, "./.claude-plugin/hooks.json");
+
+  // With no .cursor-plugin/ directory in the repo, Cursor reads this manifest, and `logo` is what
+  // puts an icon on its marketplace tile. The relative path resolves against the installed commit
+  // on raw.githubusercontent.com, so the asset has to be a committed image at that path.
+  assert.doesNotMatch(manifest.logo, /^[.\/]/, "logo must be a repo-root-relative path, not ./ or /");
+  const logo = resolve(ROOT, manifest.logo);
+  assert.ok(existsSync(logo), "logo asset must exist");
+  assert.deepEqual([...readFileSync(logo).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 
   const claudeMcp = read(".claude-plugin/mcp.json");
   const server = claudeMcp.mcpServers[serverName];
