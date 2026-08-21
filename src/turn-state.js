@@ -55,6 +55,10 @@ function freshFields() {
     sawToolCall: false,
     collectingPostToolResult: false,
     activeToolCalls: new Set(),
+    // Ids observed terminal, so a stale non-terminal re-send for one is recognized and dropped
+    // instead of restarting collection — which would demote an already-collected final message
+    // to discardedResult and mislabel it pre-tool-fallback.
+    finishedToolCalls: new Set(),
     planEntries: [],
     planOverview: undefined,
     planDetail: undefined,
@@ -103,18 +107,27 @@ export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
       state.sawToolCall = true;
       state.collectingPostToolResult = false;
       state.resetResult();
-      if (toolCallId != null && !isTerminalToolStatus(status)) state.activeToolCalls.add(toolCallId);
+      if (toolCallId != null && !isTerminalToolStatus(status)) {
+        state.activeToolCalls.add(toolCallId);
+        // A fresh tool_call frame for a finished id is the agent reusing it, not history.
+        state.finishedToolCalls.delete(toolCallId);
+      }
+      if (toolCallId != null && isTerminalToolStatus(status)) state.finishedToolCalls.add(toolCallId);
       if (isTerminalToolStatus(status) && state.activeToolCalls.size === 0) state.collectingPostToolResult = true;
     },
 
     updateToolStatus(toolCallId, status) {
       if (!status) return;
+      if (toolCallId != null && !isTerminalToolStatus(status) && state.finishedToolCalls.has(toolCallId)) return;
       if (!state.sawToolCall) {
         state.sawToolCall = true;
         state.resetResult();
       }
       if (isTerminalToolStatus(status)) {
-        if (toolCallId != null) state.activeToolCalls.delete(toolCallId);
+        if (toolCallId != null) {
+          state.activeToolCalls.delete(toolCallId);
+          state.finishedToolCalls.add(toolCallId);
+        }
         if (state.activeToolCalls.size === 0 && !state.collectingPostToolResult) {
           // Discard any message text emitted while tools were still running.
           // A duplicate or late terminal update must not wipe an already-collected final message.

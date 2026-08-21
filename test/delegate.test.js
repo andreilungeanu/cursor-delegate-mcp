@@ -119,6 +119,27 @@ test("a plan frame whose entries is not an array is reported, not fatal", async 
   assert.equal(out.plan, undefined);
 });
 
+// A stale non-terminal re-send for an already-completed tool call used to restart collection,
+// demoting the collected final message to discardedResult and mislabeling it pre-tool-fallback.
+function staleUpdateFactory() {
+  const client = stubClient("sess-stale");
+  client.prompt = async () => {
+    client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit File", kind: "edit", status: "pending" } });
+    client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" } });
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "final" } } });
+    client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "in_progress" } });
+    return { stopReason: "end_turn" };
+  };
+  return client;
+}
+
+test("a stale non-terminal update for a finished tool call keeps the final message", async () => {
+  const out = await runDelegate({ workspace: process.cwd(), spec: "task", clientFactory: staleUpdateFactory });
+  assert.equal(out.result, "final");
+  assert.equal(out.resultSource, undefined);
+  assert.equal(out.protocolWarnings, undefined);
+});
+
 function oversizedFactory() {
   const client = stubClient("sess-big");
   client.prompt = async () => {
@@ -1574,6 +1595,28 @@ test("runDelegate appends the transcript when CURSOR_DELEGATE_TRANSCRIPT is set"
         assert.match(err.message, /--- recent ACP transcript \(last 12 frames\) ---/);
         assert.match(err.message, / out /);
         assert.match(err.message, / in /);
+        return true;
+      }
+    );
+  } finally {
+    delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  }
+});
+
+// The same variable is read twice — recording in jsonrpc.js, attachment here. A non-numeric
+// value must read as on at the default depth in both places, not on in one and off in the other.
+test("runDelegate appends the transcript when CURSOR_DELEGATE_TRANSCRIPT is a non-numeric string", async () => {
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "true";
+  try {
+    await assert.rejects(
+      () => runDelegate({
+        spec: "do the thing",
+        mode: "agent",
+        workspace: process.cwd(),
+        clientFactory: failingPromptFactory(),
+      }),
+      (err) => {
+        assert.match(err.message, /--- recent ACP transcript \(last 2000 frames\) ---/);
         return true;
       }
     );
