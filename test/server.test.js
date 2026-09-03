@@ -490,6 +490,64 @@ test("force cancel reports cancelled and keeps the handle when no exit follows t
   }
 });
 
+test("force cancel does not untrack a resume that registers during stop()", async () => {
+  let calls = 0;
+  let firstReady, secondReady, firstRelease, secondRelease, enteredStop;
+  const ready1 = new Promise((r) => { firstReady = r; });
+  const ready2 = new Promise((r) => { secondReady = r; });
+  const gate1 = new Promise((r) => { firstRelease = r; });
+  const gate2 = new Promise((r) => { secondRelease = r; });
+  const inStop = new Promise((r) => { enteredStop = r; });
+  let resumeStopCalled = false;
+  const runDelegate = async ({ onSessionReady }) => {
+    calls++;
+    if (calls === 1) {
+      onSessionReady("sess-race", {
+        cancel: async () => {},
+        stop: async () => {
+          enteredStop();
+          await new Promise((r) => setTimeout(r, 80));
+          return true;
+        },
+      });
+      firstReady();
+      await gate1;
+      return { result: "one", sessionId: "sess-race" };
+    }
+    onSessionReady("sess-race", {
+      cancel: async () => {},
+      stop: async () => { resumeStopCalled = true; return true; },
+    });
+    secondReady();
+    await gate2;
+    return { result: "two", sessionId: "sess-race" };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 20 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const firstP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "first turn" } });
+    await ready1;
+    const cancelP = client.callTool({ name: "cancel", arguments: { sessionId: "sess-race", force: true } });
+    await inStop;
+    const secondP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "resume turn" } });
+    await ready2;
+    const killed = await cancelP;
+    assert.equal(payload(killed).status, "killed");
+    const still = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-race" } });
+    assert.equal(payload(still).status, "cancelled", "the resume must still be in flight");
+    assert.equal(resumeStopCalled, false);
+    firstRelease();
+    secondRelease();
+    await firstP;
+    await secondP;
+  } finally {
+    await client.close();
+  }
+});
+
 test("cancel tool with force returns cancelled when delegation settles during grace", async () => {
   let settleDuringGrace;
   const gate = new Promise((r) => { settleDuringGrace = r; });

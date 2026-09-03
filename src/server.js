@@ -325,13 +325,17 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       await new Promise((r) => setTimeout(r, forceGraceMs));
       const stillRunning = inFlight.get(sessionId);
       if (!stillRunning || stillRunning.size === 0) return cancelResult("cancelled", sessionId);
+      // Snapshot before awaiting stop. A resume that registers during teardown must not be
+      // swept out of the map — it was never killed, and inFlight.delete(sessionId) would
+      // hide it from cancel and shutdown.
+      const toKill = [...stillRunning];
       const observed = await Promise.all(
-        [...stillRunning].map((handle) => Promise.resolve(handle.client.stop()).catch(() => false))
+        toKill.map((handle) => Promise.resolve(handle.client.stop()).catch(() => false))
       );
       // "killed" claims the process is gone, so it needs the exit, not just a dispatched signal.
       // When one does not follow, the handles stay registered and force can be tried again.
       if (!observed.every(Boolean)) return cancelResult("cancelled", sessionId);
-      inFlight.delete(sessionId);
+      for (const handle of toKill) unregisterInFlight(inFlight, sessionId, handle);
       return cancelResult("killed", sessionId);
     }
   );
