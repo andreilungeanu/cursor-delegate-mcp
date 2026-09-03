@@ -103,11 +103,10 @@ test("stderr past the cap keeps a full newest-bytes window without retaining the
     assert.equal(client.stderrBuffer.length, STDERR_CAP, "the reported tail is exactly one cap window");
     assert.ok(!client.stderrBuffer.includes("FLOOD-START"), "the oldest stderr is gone from the tail");
     // An absolute bound rather than a comparison against the front chunk, which a single-chunk
-    // delivery would satisfy with the trim deleted. A pipe read cannot exceed the 64KB stream
-    // watermark — measured at exactly 65536 across Linux node 20/22/24 and Windows — so a live
-    // trim cannot hold two caps, while a dead one holds all 640KB the fixture wrote.
+    // delivery would satisfy with the trim deleted. Whole-chunk drops alone can leave almost two
+    // caps when a pipe read is larger than 64KB; the overflow slice keeps retained memory to one.
     assert.ok(
-      client._stderrLength < 2 * STDERR_CAP,
+      client._stderrLength <= STDERR_CAP,
       `retained ${client._stderrLength} bytes across ${client._stderrChunks.length} chunks`
     );
   } finally {

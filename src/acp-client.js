@@ -62,6 +62,14 @@ export class AcpClient extends EventEmitter {
         while (this._stderrChunks.length > 1 && this._stderrLength - this._stderrChunks[0].length >= STDERR_CAP) {
           this._stderrLength -= this._stderrChunks.shift().length;
         }
+        // Whole-chunk drops leave a remainder when one pipe read is itself larger than the cap
+        // (observed on GitHub Windows runners). Slice that first chunk so retained memory cannot
+        // grow with the flood; the public tail is still exactly one cap on read.
+        const overflow = this._stderrLength - STDERR_CAP;
+        if (overflow > 0) {
+          this._stderrChunks[0] = this._stderrChunks[0].slice(overflow);
+          this._stderrLength -= overflow;
+        }
       }
     });
     this.child.stderr.on("error", () => {});
