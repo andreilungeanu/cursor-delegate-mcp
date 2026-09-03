@@ -1334,6 +1334,23 @@ test("runDelegate deduplicates contextFiles that resolve to the same path", asyn
   assert.equal(out.protocolWarnings, undefined);
 });
 
+test("runDelegate deduplicates contextFiles that differ only by case", {
+  skip: process.platform === "win32" ? false : "case-insensitive fs",
+}, async () => {
+  const track = {};
+  const out = await runDelegate({
+    spec: "review these",
+    mode: "agent",
+    workspace: process.cwd(),
+    contextFiles: ["package.json", "PACKAGE.JSON"],
+    clientFactory: promptTextFactory(track),
+  });
+  const links = track.blocks.slice(1);
+  assert.equal(links.length, 1, "Win32 case variants must collapse to one link");
+  assert.match(links[0].uri, /package\.json$/i);
+  assert.equal(out.protocolWarnings, undefined);
+});
+
 test("runDelegate reports a missing contextFile instead of linking or failing", async () => {
   const track = {};
   const out = await runDelegate({

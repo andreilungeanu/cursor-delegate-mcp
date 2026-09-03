@@ -1,7 +1,7 @@
 import process from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { statSync } from "node:fs";
+import { statSync, realpathSync } from "node:fs";
 // Async: a sync read on the server's only thread stalls every other in-flight delegation and
 // its progress stream. The statSync calls below stay sync — they are argument validation and
 // run before the spawn.
@@ -87,14 +87,26 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   // per-entry — they are individually distinct and never arrive in bulk.
   const notFound = [];
   const root = path.resolve(workspace || process.cwd());
+  const identKey = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
   for (const entry of contextFiles || []) {
     if (typeof entry !== "string" || !entry.trim()) continue;
     const abs = path.resolve(workspace || process.cwd(), entry);
-    if (seen.has(abs)) continue;
-    seen.add(abs);
+    let canonical;
+    try {
+      canonical = realpathSync(abs);
+    } catch {
+      const missKey = identKey(abs);
+      if (seen.has(missKey)) continue;
+      seen.add(missKey);
+      notFound.push(entry);
+      continue;
+    }
+    const key = identKey(canonical);
+    if (seen.has(key)) continue;
+    seen.add(key);
     let stat;
     try {
-      stat = statSync(abs);
+      stat = statSync(canonical);
     } catch {
       notFound.push(entry);
       continue;
@@ -103,7 +115,7 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
       warnings.push(`contextFile ${entry} skipped: not a file`);
       continue;
     }
-    const mimeType = IMAGE_MIME[path.extname(abs).toLowerCase()];
+    const mimeType = IMAGE_MIME[path.extname(canonical).toLowerCase()];
     if (mimeType) {
       if (!client?.agentCapabilities?.promptCapabilities?.image) {
         warnings.push(`contextFile ${entry} skipped: this agent does not accept image prompts`);
@@ -113,10 +125,10 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
         warnings.push(`contextFile ${entry} skipped: ${Math.round(stat.size / 1024)}KB exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024}MB image limit`);
         continue;
       }
-      blocks.push({ type: "image", mimeType, data: (await readFile(abs)).toString("base64") });
+      blocks.push({ type: "image", mimeType, data: (await readFile(canonical)).toString("base64") });
       continue;
     }
-    blocks.push({ type: "resource_link", uri: pathToFileURL(abs).href, name: path.basename(abs) });
+    blocks.push({ type: "resource_link", uri: pathToFileURL(canonical).href, name: path.basename(canonical) });
   }
   if (notFound.length) {
     warnings.push(
