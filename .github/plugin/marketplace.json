@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Plugins for delegating coding work to Cursor through MCP.",
-    "version": "2.1.0"
+    "version": "2.1.1"
   },
   "plugins": [
     {
       "name": "cursor-delegate",
       "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "source": "./"
     }
   ]

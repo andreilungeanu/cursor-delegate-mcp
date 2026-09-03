@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-09-03
+
+### Fixed
+
+- Transitive `fast-uri` and `qs` advisories that failed `npm audit --audit-level=high`.
+- Stderr capture slices an oversized first pipe read so retained memory stays one cap.
+
 ## [2.1.0] - 2026-09-03
 
 ### Fixed

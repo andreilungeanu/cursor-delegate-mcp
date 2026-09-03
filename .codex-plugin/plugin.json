@@ -1,6 +1,6 @@
 {
   "name": "cursor-delegate",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
   "author": {
     "name": "Andrei Lungeanu",
@@ -15,7 +15,7 @@
   "mcpServers": {
     "cursor-delegate": {
       "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp@2.1.0"]
+      "args": ["-y", "cursor-delegate-mcp@2.1.1"]
     }
   },
   "interface": {
