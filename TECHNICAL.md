@@ -66,7 +66,7 @@ diagnostic, not fail the call.
   `effort` to validate, or the routable `default` id. An absent value reads as a mismatch and
   sends. Two delegations on the same model and tier therefore send neither.
 - `session/prompt` requires a content-block array `[{ type: "text", text }]`.
-- `session/request_permission` → the broadest allow option by `kind` (`allow_always`, else `allow_once`, else the first offered); the selected `optionId` goes back on the wire. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
+- `session/request_permission` → the broadest allow option by `kind` (`allow_always`, else `allow_once`); if neither is offered the request is answered `cancelled` rather than selecting a reject. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
 - **Cross-process resume** via `session/load`; unknown ids fall back to a fresh session.
 - **`filesReportedByEditTools`**: built solely from ACP `diff` content blocks in `tool_call_update`; no git inference.
 - **Long runs**: progress notifications reset client idle timeout; child exit fails fast with stderr.
