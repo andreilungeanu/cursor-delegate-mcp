@@ -1,6 +1,6 @@
 {
   "name": "cursor-delegate-mcp",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "mcpName": "io.github.andreilungeanu/cursor-delegate-mcp",
   "type": "module",
   "description": "Delegate multi-file coding work from Claude Code, Codex, Copilot, or any MCP client to Cursor's CLI agent — structured results, plan mode, and changed files.",

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-03
+
+### Added
+
+- Registry and protocol icons: `server.json` `icons[]` and the MCP `initialize` payload
+  advertise the light and dark logos as HTTPS URLs (SEP-973). Codex `interface.logoDark`.
+
+### Changed
+
+- README client list checked against vendor docs (3 Sep 2026): OpenCode and Google
+  Antigravity added; Kiro, Kilo Code, and Zed no longer share one portable snippet;
+  Visual Studio covers 2022 17.14+ and 2026. npm description/keywords and
+  `llms-install.md` match that list; OpenCode, Kilo Code, and Zed are called out
+  as not using `mcpServers`.
+
 ## [2.1.1] - 2026-09-03
 
 ### Fixed
