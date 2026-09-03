@@ -202,6 +202,21 @@ test("stop() is idempotent and reports the exit it observed", async () => {
   assert.equal(await client.stop(), true, "a later caller gets the same answer");
 });
 
+test("stop() retries teardown after a missed exit", async () => {
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  await client.start();
+  const child = client.child;
+  const reallyExited = new Promise((resolve) => child.once("exit", resolve));
+  client.child = { pid: child.pid, exitCode: null, signalCode: null, once: () => {} };
+  const first = client.stop({ timeoutMs: 25 });
+  assert.equal(await first, false, "an exit that never arrives is not observed");
+  assert.equal(client._stopping, null, "a missed exit must not stay memoized");
+  const second = client.stop({ timeoutMs: 25 });
+  assert.notEqual(second, first, "force-retry must dispatch a new teardown");
+  assert.equal(await second, false);
+  await reallyExited;
+});
+
 // A dispatched signal is not an exit, and cancel reports "killed" only for the second one. A real
 // agent cannot be made to swallow SIGKILL, so the exit event is withheld instead: the pid stays
 // real and is still killed, and only the notification this waits on goes missing.

@@ -140,12 +140,22 @@ export class AcpClient extends EventEmitter {
 
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
-  // Idempotent, so a force-cancel racing the delegation's own finally tears down once and both
-  // see the same answer. Resolves true when the child was observed to exit, false when the bound
-  // elapsed first: dispatching a signal is not the same fact as the process being gone, and
-  // cancel reports the difference rather than calling both "killed".
+  // Idempotent while a teardown is in flight and after a confirmed exit, so a force-cancel
+  // racing the delegation's own finally tears down once. A missed exit is not the same
+  // fact as the process being gone: that result is not memoized, and force can retry.
   stop({ timeoutMs = STOP_EXIT_TIMEOUT_MS } = {}) {
-    if (!this._stopping) this._stopping = this._teardown(timeoutMs);
+    if (!this._stopping) {
+      this._stopping = this._teardown(timeoutMs).then((observed) => {
+        // A missed exit must not poison later force-kills: the documented retry is a new
+        // treeKill, not the same false. A confirmed exit stays memoized so concurrent and
+        // later callers still join one teardown.
+        if (!observed) this._stopping = null;
+        return observed;
+      }, (err) => {
+        this._stopping = null;
+        throw err;
+      });
+    }
     return this._stopping;
   }
 
