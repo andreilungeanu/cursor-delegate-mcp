@@ -37,10 +37,12 @@ Every tool returns its payload as one compact JSON text block and declares no MC
 | `agent.found` | Whether the launcher could be spawned at all. |
 | `agent.command` | Resolved launcher command line, with `ACP_AGENT_COMMAND` / `ACP_AGENT_ARGS` applied. |
 | `agent.version` | `--version` output, or `null`. `found: false` means it is not installed; `found: true` with a `null` version means it exists but did not answer — `agent.error` says why. |
-| `agent.error` | Present only when `version` is `null` on a launcher that does exist, e.g. the probe timed out. |
+| `agent.error` | Present only when `version` is `null` on a launcher that does exist, e.g. the probe timed out or `--version` exited non-zero. |
 | `runtime` | Node version, platform, architecture, cwd, and stdio transport. |
 | `env.ACP_LOG_SIZE` | Flight recorder size (default `2000`). |
+| `env.ACP_AGENT_COMMAND` / `env.ACP_AGENT_ARGS` | Launcher overrides, or `null` when unset. |
 | `env.CURSOR_DELEGATE_TRANSCRIPT` | Transcript frame count, or `null` when unset. |
+| `env.CURSOR_DELEGATE_HANDSHAKE_MS` / `HARD_CAP_MS` / `IDLE_MS` | Timeout knobs, or `null` when unset. |
 
 Optional `deep: true` runs a bounded ACP handshake (15 s) and adds `agent.handshake`:
 `{ ok: false, error }` on failure — not logged in, or a timeout — or `{ ok: true,

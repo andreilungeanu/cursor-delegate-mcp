@@ -11,8 +11,24 @@ const VERSION_PROBE_TIMEOUT_MS = 10_000;
 const PROBE_STDOUT_CAP = 64 * 1024;
 const DEFAULT_LOG_SIZE = "2000";
 
+function formatArg(value) {
+  const s = String(value);
+  if (!/[\s"]/.test(s)) return s;
+  return `"${s.replace(/"/g, '\\"')}"`;
+}
+
 function formatCommand({ command, args }) {
-  return args?.length ? `${command} ${args.join(" ")}` : command;
+  const bits = [formatArg(command), ...(args || []).map(formatArg)];
+  return args?.length ? bits.join(" ") : formatArg(command);
+}
+
+function isJsLauncher(command) {
+  const trimmed = String(command || "").replace(/^["']|["']$/g, "");
+  return /\.(?:cjs|mjs|js)$/i.test(trimmed);
+}
+
+function envReport(name, fallback = null) {
+  return process.env[name] !== undefined ? process.env[name] : fallback;
 }
 
 // Time-boxed because a launcher that accepts --version and then never answers would hang doctor
@@ -20,9 +36,10 @@ function formatCommand({ command, args }) {
 // exactly the case it must survive. Same guard the deep handshake has.
 export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
   const { command, options } = spawnSpec;
-  const isJsScript = /\.js$/i.test(command);
+  const launcher = String(command || "").replace(/^["']|["']$/g, "");
+  const isJsScript = isJsLauncher(launcher);
   const execCommand = isJsScript ? process.execPath : command;
-  const execArgs = isJsScript ? [command, "--version"] : ["--version"];
+  const execArgs = isJsScript ? [launcher, "--version"] : ["--version"];
   return new Promise((resolve) => {
     let settled = false;
     let stdout = "";
@@ -46,9 +63,11 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
     child.stderr?.on("error", () => {});
     child.on("error", () => finish({ found: false, version: null }));
     child.on("close", (code) => {
+      const version = code === 0 ? stdout.trim() || null : null;
       finish({
         found: true,
-        version: code === 0 ? stdout.trim() || null : null,
+        version,
+        ...(code !== 0 ? { error: `version probe exited ${code}` } : {}),
       });
     });
     timer = setTimeout(() => {
@@ -152,8 +171,13 @@ export async function runDoctor({
       transport: "stdio",
     },
     env: {
-      ACP_LOG_SIZE: process.env.ACP_LOG_SIZE !== undefined ? process.env.ACP_LOG_SIZE : DEFAULT_LOG_SIZE,
-      CURSOR_DELEGATE_TRANSCRIPT: process.env.CURSOR_DELEGATE_TRANSCRIPT ?? null,
+      ACP_LOG_SIZE: envReport("ACP_LOG_SIZE", DEFAULT_LOG_SIZE),
+      ACP_AGENT_COMMAND: envReport("ACP_AGENT_COMMAND"),
+      ACP_AGENT_ARGS: envReport("ACP_AGENT_ARGS"),
+      CURSOR_DELEGATE_TRANSCRIPT: envReport("CURSOR_DELEGATE_TRANSCRIPT"),
+      CURSOR_DELEGATE_HANDSHAKE_MS: envReport("CURSOR_DELEGATE_HANDSHAKE_MS"),
+      CURSOR_DELEGATE_HARD_CAP_MS: envReport("CURSOR_DELEGATE_HARD_CAP_MS"),
+      CURSOR_DELEGATE_IDLE_MS: envReport("CURSOR_DELEGATE_IDLE_MS"),
     },
   };
 

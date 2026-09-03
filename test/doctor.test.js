@@ -70,6 +70,28 @@ test("runDoctor times out a launcher that never answers --version", async () => 
   assert.match(out.agent.error, /version probe timed out after 250ms/);
 });
 
+test("runDoctor reports agent.error when --version exits non-zero", async () => {
+  const failPath = fileURLToPath(new URL("./fixtures/version-exit-one.js", import.meta.url));
+  const out = await runDoctor({
+    spawnSpec: { command: failPath, args: ["acp"], options: { shell: false } },
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.equal(out.agent.found, true);
+  assert.equal(out.agent.version, null);
+  assert.match(out.agent.error, /version probe exited 1/);
+});
+
+test("runDoctor probes a .mjs launcher with node", async () => {
+  const mjsPath = fileURLToPath(new URL("./fixtures/agent-stub.mjs", import.meta.url));
+  const out = await runDoctor({
+    spawnSpec: { command: mjsPath, args: ["acp"], options: { shell: false } },
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.equal(out.agent.found, true);
+  assert.equal(out.agent.version, "fake-agent-mjs 2.0.0");
+  assert.equal(out.agent.error, undefined);
+});
+
 // The probe opens stderr as a pipe. With no reader on it the launcher cannot drain its own
 // write buffer and never exits, so a merely noisy launcher gets diagnosed as one that spawned
 // and never answered — the same output as a wedged agent, for a healthy one.
@@ -237,6 +259,11 @@ test("runDoctor reports plugin version and ACP_LOG_SIZE default", async () => {
     });
     assert.equal(out.plugin.version, VERSION);
     assert.equal(out.env.ACP_LOG_SIZE, "2000");
+    assert.ok("ACP_AGENT_COMMAND" in out.env);
+    assert.ok("ACP_AGENT_ARGS" in out.env);
+    assert.ok("CURSOR_DELEGATE_HANDSHAKE_MS" in out.env);
+    assert.ok("CURSOR_DELEGATE_HARD_CAP_MS" in out.env);
+    assert.ok("CURSOR_DELEGATE_IDLE_MS" in out.env);
   } finally {
     if (prev === undefined) delete process.env.ACP_LOG_SIZE;
     else process.env.ACP_LOG_SIZE = prev;
