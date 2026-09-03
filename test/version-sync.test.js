@@ -25,10 +25,18 @@ test("package and plugin manifest versions stay in sync", () => {
   assert.equal(registry.packages[0].version, pkg.version);
 
   const pin = `cursor-delegate-mcp@${pkg.version}`;
-  for (const path of ["../.mcp.copilot.json"]) {
-    assert.ok(JSON.stringify(read(path)).includes(pin), `${path} must pin ${pin}`);
-  }
+  assert.ok(JSON.stringify(read("../.mcp.copilot.json")).includes(pin), `../.mcp.copilot.json must pin ${pin}`);
   assert.ok(JSON.stringify(manifests[1].mcpServers).includes(pin), "Codex inline MCP config must pin the package version");
+
+  const iconTag = `/v${pkg.version}/assets/`;
+  for (const icon of registry.icons) {
+    assert.match(icon.src, new RegExp(`^https://raw\\.githubusercontent\\.com/andreilungeanu/cursor-delegate-mcp${iconTag}`));
+    assert.ok(icon.src.length <= 255, "registry Icon.src maxLength is 255");
+  }
+  assert.deepEqual(
+    registry.icons.map((icon) => icon.theme),
+    ["light", "dark"]
+  );
 
   // The Codex marketplace clones this ref for the skill while the manifest above pins the server
   // to a published version. On `main` the two describe different builds, so the ref moves with

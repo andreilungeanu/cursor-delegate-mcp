@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -185,6 +186,13 @@ test("server advertises instructions, output schemas, and conservative tool anno
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
+    // SEP-973 icons on initialize must match the registry listing — HTTPS URLs, not file://.
+    const registry = JSON.parse(readFileSync(new URL("../server.json", import.meta.url), "utf8"));
+    assert.deepEqual(client.getServerVersion(), {
+      name: "cursor-delegate-mcp",
+      version: registry.version,
+      icons: registry.icons,
+    });
     // Assert the invariants a host cannot infer, not the prose carrying them: hosts that
     // never load the skill see only this string.
     const instructions = client.getInstructions();

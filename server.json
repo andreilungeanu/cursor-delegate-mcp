@@ -5,6 +5,20 @@
   "description": "Bridge AI coding hosts to cursor-agent over the Agent Client Protocol.",
   "version": "2.1.1",
   "websiteUrl": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/andreilungeanu/cursor-delegate-mcp/v2.1.1/assets/logo-light.png",
+      "mimeType": "image/png",
+      "sizes": ["1024x1024"],
+      "theme": "light"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/andreilungeanu/cursor-delegate-mcp/v2.1.1/assets/logo-dark.png",
+      "mimeType": "image/png",
+      "sizes": ["1024x1024"],
+      "theme": "dark"
+    }
+  ],
   "repository": {
     "url": "https://github.com/andreilungeanu/cursor-delegate-mcp",
     "source": "github"
