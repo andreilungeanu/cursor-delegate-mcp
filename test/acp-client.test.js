@@ -229,6 +229,42 @@ test("stop() reports false when no exit lands within the bound", async () => {
   await reallyExited;
 });
 
+// The missed-exit tests above still let emitExit run on the real child, so they cannot see a
+// hung prompt: the live process dies and the exit handler settles the RPC. This one drops
+// those listeners first, which is the kill-failed path — stop() times out, the child is
+// still treated as alive, and nothing else will reject session/prompt.
+test("stop() rejects in-flight RPCs when the child does not exit", async () => {
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  await client.start();
+  await client.initialize();
+  const session = await client.newSession(process.cwd());
+  const prompt = client.prompt(session.sessionId, [{ type: "text", text: "hang" }]);
+  prompt.catch(() => {});
+  const real = client.child;
+  for (const evt of ["exit", "close"]) real.removeAllListeners(evt);
+  const reallyExited = new Promise((resolve) => real.once("exit", resolve));
+  client.child = { pid: real.pid, exitCode: null, signalCode: null, once: () => {} };
+  try {
+    assert.equal(client.peer.pending.size, 1, "session/prompt must still be in flight");
+    assert.equal(await client.stop({ timeoutMs: 50 }), false, "an exit that never arrives is not observed");
+    const err = await Promise.race([
+      prompt.then(
+        () => { throw new Error("session/prompt resolved after a missed exit"); },
+        (e) => e
+      ),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("session/prompt still pending after stop()")), 200);
+      }),
+    ]);
+    assert.equal(err.reason, "agent-exit");
+    assert.match(err.message, /did not exit after stop/);
+    assert.equal(client.peer.pending.size, 0, "the missed exit must not leave the RPC pending");
+  } finally {
+    try { client.peer?.rejectAllPending(new Error("test cleanup")); } catch {}
+    await reallyExited;
+  }
+});
+
 test("cancel sends session/cancel as a notification without id", async () => {
   const written = [];
   const client = new AcpClient({ spawnSpec: fakeSpawn() });

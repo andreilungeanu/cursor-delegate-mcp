@@ -189,8 +189,15 @@ export class AcpClient extends EventEmitter {
     }));
     const observed = await Promise.race([exited, bounded]);
     clearTimeout(timer);
-    // Pending RPCs are left to the exit handler, which rejects them with agent-exit. Rejecting
-    // them here too would settle the same promises twice for no new information.
+    // The exit handler rejects in-flight RPCs with stderr. Doing that here on a confirmed
+    // exit would race it and the first settlement would drop the forensics. A stop that
+    // did not see the child die never gets that handler, so settle those RPCs only when
+    // the process is still alive and emitExit has not run.
+    if (!observed && !this._exitEmitted && isChildAlive(child)) {
+      try {
+        this.peer?.rejectAllPending(makeError("agent-exit", "agent process did not exit after stop"));
+      } catch {}
+    }
     try { this.peer?.close(); } catch {}
     return observed;
   }
