@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-03
+
+### Fixed
+
+- `cancel` with `force: true` can be retried after a kill that did not observe an exit. `stop()`
+  no longer memoizes that `false`, which had made every later force a no-op.
+- Force-kill unregisters only the handles it actually stopped, so a resume that registers during
+  teardown stays cancellable instead of running untracked.
+- Todo `cancelled` is kept and counted in `todoProgress.cancelled` instead of being stripped.
+- `contextFiles` aliases (Win32 case, `realpath`) are sent once.
+- `doctor` reports `agent.error` when `--version` exits non-zero, probes `.mjs`/`.cjs` launchers
+  with Node, quotes the resolved command, and includes launcher/timeout env knobs.
+
+### Changed
+
+- Permission notes in `TECHNICAL.md` match the router: no allow option → `cancelled`, never the
+  first offered reject.
+
 ## [2.0.0] - 2026-08-21
 
 One thing changes on upgrade: pass `workspace` on every call, resumes included.
