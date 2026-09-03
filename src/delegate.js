@@ -331,6 +331,7 @@ export async function runDelegate({
         completed: count("completed"),
         inProgress: count("in_progress"),
         pending: count("pending"),
+        cancelled: count("cancelled"),
       },
     };
   };

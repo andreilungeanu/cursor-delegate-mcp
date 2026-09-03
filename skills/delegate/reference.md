@@ -52,14 +52,17 @@ Both fields are **omitted entirely** when the agent tracked no todos, rather tha
 zeros. Most correct, complete turns emit no todo frames at all — short tasks especially. When
 todos were tracked, `todoProgress` is always returned; the full `todos` list is returned
 **only when `completed < total`** — on a fully-completed turn it would just restate the
-counts entry by entry. So:
+counts entry by entry. Cancelled items count toward `total` but not `completed`, so they
+keep the list. So:
 
-- `todoProgress` present with `completed < total` is direct evidence of unfinished work, and
-  `todos` is present alongside it naming exactly what remains — read it before resuming.
+- `todoProgress` present with `completed < total` is direct evidence of unfinished or
+  cancelled work, and `todos` is present alongside it naming exactly what remains — read it
+  before resuming.
 - `todoProgress` present and complete means everything tracked was done; no list follows.
 - Both absent is **not** evidence of anything, and must not be read as incompleteness.
 
-`todoProgress` is `{total, completed, inProgress, pending}`.
+`todoProgress` is `{total, completed, inProgress, pending, cancelled}`. `cancelled` is a
+separate bucket (Cursor todo arrays include that status); it is not folded into `pending`.
 
 ### `plan` object (agent mode only)
 

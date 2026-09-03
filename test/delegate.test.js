@@ -1792,7 +1792,7 @@ test("runDelegate reports a fully-completed todo stream as counts only", async (
   });
   // The full list on a 3/3 turn restates the counts entry by entry — counts carry it alone.
   assert.equal(out.todos, undefined);
-  assert.deepEqual(out.todoProgress, { total: 3, completed: 3, inProgress: 0, pending: 0 });
+  assert.deepEqual(out.todoProgress, { total: 3, completed: 3, inProgress: 0, pending: 0, cancelled: 0 });
   assert.equal(out.protocolWarnings, undefined);
 });
 
@@ -1803,7 +1803,7 @@ test("runDelegate reports a turn that ends with todos still pending", async () =
     clientFactory: todoFactory(MEASURED_TODO_FRAMES.slice(0, 2)),
   });
   assert.equal(out.stopReason, undefined);
-  assert.deepEqual(out.todoProgress, { total: 3, completed: 1, inProgress: 1, pending: 1 });
+  assert.deepEqual(out.todoProgress, { total: 3, completed: 1, inProgress: 1, pending: 1, cancelled: 0 });
   // Unfinished work is when the list earns its place: it names what remains.
   assert.equal(out.todos.length, 3);
   assert.deepEqual(out.todos.map((t) => t.status), ["completed", "in_progress", "pending"]);
@@ -1826,7 +1826,7 @@ test("runDelegate keeps merge:true entries whose id was never seen before", asyn
     clientFactory: todoFactory([{ merge: true, todos: [{ id: "9", content: "late arrival", status: "pending" }] }]),
   });
   assert.deepEqual(out.todos, [{ id: "9", content: "late arrival", status: "pending" }]);
-  assert.deepEqual(out.todoProgress, { total: 1, completed: 0, inProgress: 0, pending: 1 });
+  assert.deepEqual(out.todoProgress, { total: 1, completed: 0, inProgress: 0, pending: 1, cancelled: 0 });
 });
 
 test("runDelegate treats merge:false as a full replacement", async () => {
@@ -1859,6 +1859,27 @@ test("runDelegate sanitizes malformed todo entries instead of failing the call",
   assert.equal(out.protocolWarnings.length, 2);
   assert.match(out.protocolWarnings[0], /todo 1 dropped/);
   assert.match(out.protocolWarnings[1], /abandoned/);
+});
+
+test("runDelegate keeps cancelled todos and counts them separately", async () => {
+  const out = await runDelegate({
+    spec: "three steps",
+    workspace: process.cwd(),
+    clientFactory: todoFactory([{ merge: false, todos: [
+      { id: "1", content: "done", status: "completed" },
+      { id: "2", content: "skipped", status: "cancelled" },
+      { id: "3", content: "next", status: "pending" },
+    ] }]),
+  });
+  assert.deepEqual(out.todoProgress, {
+    total: 3, completed: 1, inProgress: 0, pending: 1, cancelled: 1,
+  });
+  assert.deepEqual(out.todos, [
+    { id: "1", content: "done", status: "completed" },
+    { id: "2", content: "skipped", status: "cancelled" },
+    { id: "3", content: "next", status: "pending" },
+  ]);
+  assert.equal(out.protocolWarnings, undefined);
 });
 
 test("runDelegate streams todo progress as it arrives", async () => {

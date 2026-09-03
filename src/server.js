@@ -104,6 +104,7 @@ export const delegateOutputShape = {
     completed: z.number(),
     inProgress: z.number(),
     pending: z.number(),
+    cancelled: z.number(),
   }).optional(),
 };
 

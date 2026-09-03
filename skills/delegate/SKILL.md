@@ -72,9 +72,9 @@ Scale effort to the task:
    - Review the git diff after **every** run before reporting a plan-only outcome, whatever
      mode you asked for: `plan` and `ask` are instructions to the agent, not enforced
      boundaries.
-   - If `todoProgress` is present and `completed < total`, the agent left work unfinished —
-     `todos` lists exactly what remains; resume rather than reporting done. Its **absence**
-     means nothing; most turns track no todos at all.
+   - If `todoProgress` is present and `completed < total`, the agent left work unfinished
+     or cancelled — `todos` lists exactly what remains; resume rather than reporting done.
+     Its **absence** means nothing; most turns track no todos at all.
    - If `effectiveModel` is present, the agent served a different model than you asked for.
    - If criteria fail: resume the **same session** with the specific failure
      ("tests X and Y fail with <error>; fix without changing the public API") — not a
