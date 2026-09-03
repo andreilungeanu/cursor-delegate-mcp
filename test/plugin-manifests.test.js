@@ -29,7 +29,7 @@ test("Codex plugin manifest references real portable components", () => {
   }
   assert.equal(manifest.mcpServers[serverName].command, "npx");
   assert.deepEqual(manifest.mcpServers[serverName].args, ["-y", pin]);
-  for (const field of ["composerIcon", "logo"]) {
+  for (const field of ["composerIcon", "logo", "logoDark"]) {
     const target = resolve(dirname(manifestPath), "..", manifest.interface[field]);
     assert.ok(existsSync(target), `${field} asset must exist`);
     assert.deepEqual([...readFileSync(target).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
@@ -79,9 +79,9 @@ test("Claude plugin launches bundled code and bootstraps its runtime dependencie
   assert.equal(manifest.mcpServers, "./.claude-plugin/mcp.json");
   assert.equal(manifest.hooks, "./.claude-plugin/hooks.json");
 
-  // With no .cursor-plugin/ directory in the repo, Cursor reads this manifest, and `logo` is what
-  // puts an icon on its marketplace tile. The relative path resolves against the installed commit
-  // on raw.githubusercontent.com, so the asset has to be a committed image at that path.
+  // Claude Code marketplace tiles use `logo` on this manifest. The relative path resolves
+  // against the installed commit on raw.githubusercontent.com, so the asset has to be a
+  // committed image at that path.
   assert.doesNotMatch(manifest.logo, /^[.\/]/, "logo must be a repo-root-relative path, not ./ or /");
   const logo = resolve(ROOT, manifest.logo);
   assert.ok(existsSync(logo), "logo asset must exist");
