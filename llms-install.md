@@ -1,6 +1,6 @@
 # Installing cursor-delegate-mcp
 
-Instructions for an AI agent (Cline, Claude Code, …) setting this server up on the user's machine.
+Instructions for an AI agent setting this server up on the user's machine.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ The server itself needs no install step; `npx` fetches it on first run.
 
 ## Configuration
 
-Add to the MCP settings file (`cline_mcp_settings.json` for Cline):
+Add a local stdio server. Many hosts use a top-level `mcpServers` object (Claude Desktop, Cline, Windsurf, Kiro, Antigravity, …):
 
 ```json
 {
@@ -24,6 +24,8 @@ Add to the MCP settings file (`cline_mcp_settings.json` for Cline):
   }
 }
 ```
+
+Host-specific files and shapes — including OpenCode and Kilo Code (`mcp` + `type: "local"` + `command` as one array) and Zed (`context_servers`) — are in the README. Do not paste `mcpServers` into those three.
 
 No API keys and no environment variables are required. Auth is Cursor's own CLI session.
 

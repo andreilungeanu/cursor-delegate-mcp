@@ -46,7 +46,7 @@ Composer and Grok run on their **own usage allowance** on every Cursor plan — 
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
 - 🔍 **Ask anything** — `ask` mode: Q&A over your codebase.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
-- 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, and more.
+- 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, OpenCode, Antigravity, and more.
 
 `plan` and `ask` are instructions to the agent, and `workspace` is its working directory — [Security](SECURITY.md) and the [delegate reference](skills/delegate/reference.md) spell out what the bridge enforces and what it reports back.
 
@@ -145,7 +145,7 @@ Heads-up: Cascade caps you at 100 tools across all servers.
 </details>
 
 <details>
-<summary><strong>Visual Studio 2022</strong> — <code>%USERPROFILE%\.mcp.json</code></summary>
+<summary><strong>Visual Studio 2022 / 2026</strong> — <code>%USERPROFILE%\.mcp.json</code></summary>
 
 ```json
 {
@@ -159,14 +159,103 @@ Heads-up: Cascade caps you at 100 tools across all servers.
 }
 ```
 
-Requires 17.14+. Note the top-level key is `servers`, not `mcpServers`.
+Requires Visual Studio 2026, or 2022 17.14+. Note the top-level key is `servers`, not `mcpServers`. Visual Studio also discovers `.mcp.json` next to the solution, plus `.vscode/mcp.json`.
 
 </details>
 
 <details>
-<summary><strong>Kiro, Kilo Code, Zed</strong> — and any other stdio MCP client</summary>
+<summary><strong>OpenCode</strong> — <code>~/.config/opencode/opencode.json</code> or project <code>opencode.json</code></summary>
 
-Use the portable definition above in the client's own MCP config file.
+OpenCode does **not** use `mcpServers`. Local servers go under `mcp`, with `type: "local"` and `command` as one array:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cursor-delegate": {
+      "type": "local",
+      "command": ["npx", "-y", "cursor-delegate-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Google Antigravity</strong> — <code>~/.gemini/config/mcp_config.json</code> or workspace <code>.agents/mcp_config.json</code></summary>
+
+```json
+{
+  "mcpServers": {
+    "cursor-delegate": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"]
+    }
+  }
+}
+```
+
+In the IDE: **…** on the agent panel → **MCP Servers** → **Manage MCP Servers** → **View raw config**. Antigravity 2.0, IDE, and CLI share the Gemini config file. You may need to approve the server's tools on first run.
+
+</details>
+
+<details>
+<summary><strong>Kiro</strong> — <code>.kiro/settings/mcp.json</code> or <code>~/.kiro/settings/mcp.json</code></summary>
+
+```json
+{
+  "mcpServers": {
+    "cursor-delegate": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"]
+    }
+  }
+}
+```
+
+Workspace file wins when both exist.
+
+</details>
+
+<details>
+<summary><strong>Kilo Code</strong> — <code>kilo.jsonc</code> (<code>mcp</code> key, not <code>mcpServers</code>)</summary>
+
+Same shape as OpenCode: `type: "local"` and `command` as one array.
+
+```json
+{
+  "mcp": {
+    "cursor-delegate": {
+      "type": "local",
+      "command": ["npx", "-y", "cursor-delegate-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+In the VS Code extension: **Settings → MCP → Add Server → Local (stdio)**. On Windows, if `npx` is not found, use command `cmd` with arguments `/c`, `npx`, `-y`, `cursor-delegate-mcp`.
+
+</details>
+
+<details>
+<summary><strong>Zed</strong> — Settings → AI → MCP Servers, or <code>context_servers</code> in Zed settings</summary>
+
+```json
+{
+  "context_servers": {
+    "cursor-delegate": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+Zed's native agent uses this. External ACP agents in Zed read their own MCP config unless you forward Zed's servers.
 
 </details>
 

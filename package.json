@@ -3,7 +3,7 @@
   "version": "2.1.1",
   "mcpName": "io.github.andreilungeanu/cursor-delegate-mcp",
   "type": "module",
-  "description": "Delegate multi-file coding work from Claude Code, Codex, or Copilot to Cursor's CLI agent — structured results, plan mode, and changed files.",
+  "description": "Delegate multi-file coding work from Claude Code, Codex, Copilot, or any MCP client to Cursor's CLI agent — structured results, plan mode, and changed files.",
   "license": "MIT",
   "author": "Andrei Lungeanu <andrei@lungeanu.ro>",
   "repository": {
@@ -25,6 +25,9 @@
     "chatgpt",
     "github-copilot",
     "vscode",
+    "opencode",
+    "antigravity",
+    "windsurf",
     "composer",
     "composer-2.5",
     "delegation",
