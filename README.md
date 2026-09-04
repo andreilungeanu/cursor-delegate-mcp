@@ -129,37 +129,14 @@ Under **Settings → Tools → AI Assistant → Model Context Protocol (MCP)**, 
 <details>
 <summary><strong>Windsurf</strong> — <code>~/.codeium/windsurf/mcp_config.json</code></summary>
 
-```json
-{
-  "mcpServers": {
-    "cursor-delegate": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
-
-Heads-up: Cascade caps you at 100 tools across all servers.
+Same `mcpServers` block as the generic snippet above. Cascade caps you at 100 tools across all servers.
 
 </details>
 
 <details>
 <summary><strong>Visual Studio 2022 / 2026</strong> — <code>%USERPROFILE%\.mcp.json</code></summary>
 
-```json
-{
-  "servers": {
-    "cursor-delegate": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
-
-Requires Visual Studio 2026, or 2022 17.14+. Note the top-level key is `servers`, not `mcpServers`. Visual Studio also discovers `.mcp.json` next to the solution, plus `.vscode/mcp.json`.
+Same `servers` + `type: "stdio"` shape as VS Code. Requires Visual Studio 2026, or 2022 17.14+. Note the top-level key is `servers`, not `mcpServers`. Visual Studio also discovers `.mcp.json` next to the solution, plus `.vscode/mcp.json`.
 
 </details>
 
@@ -186,57 +163,21 @@ OpenCode does **not** use `mcpServers`. Local servers go under `mcp`, with `type
 <details>
 <summary><strong>Google Antigravity</strong> — <code>~/.gemini/config/mcp_config.json</code> or workspace <code>.agents/mcp_config.json</code></summary>
 
-```json
-{
-  "mcpServers": {
-    "cursor-delegate": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
-
-In the IDE: **…** on the agent panel → **MCP Servers** → **Manage MCP Servers** → **View raw config**. Antigravity 2.0, IDE, and CLI share the Gemini config file. You may need to approve the server's tools on first run.
+Same `mcpServers` block as the generic snippet above. In the IDE: **…** on the agent panel → **MCP Servers** → **Manage MCP Servers** → **View raw config**. Antigravity 2.0, IDE, and CLI share the Gemini config file. You may need to approve the server's tools on first run.
 
 </details>
 
 <details>
 <summary><strong>Kiro</strong> — <code>.kiro/settings/mcp.json</code> or <code>~/.kiro/settings/mcp.json</code></summary>
 
-```json
-{
-  "mcpServers": {
-    "cursor-delegate": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"]
-    }
-  }
-}
-```
-
-Workspace file wins when both exist.
+Same `mcpServers` block as the generic snippet above. Workspace file wins when both exist.
 
 </details>
 
 <details>
 <summary><strong>Kilo Code</strong> — <code>kilo.jsonc</code> (<code>mcp</code> key, not <code>mcpServers</code>)</summary>
 
-Same shape as OpenCode: `type: "local"` and `command` as one array.
-
-```json
-{
-  "mcp": {
-    "cursor-delegate": {
-      "type": "local",
-      "command": ["npx", "-y", "cursor-delegate-mcp"],
-      "enabled": true
-    }
-  }
-}
-```
-
-In the VS Code extension: **Settings → MCP → Add Server → Local (stdio)**. On Windows, if `npx` is not found, use command `cmd` with arguments `/c`, `npx`, `-y`, `cursor-delegate-mcp`.
+Same shape as OpenCode: `type: "local"` and `command` as one array. In the VS Code extension: **Settings → MCP → Add Server → Local (stdio)**. On Windows, if `npx` is not found, use command `cmd` with arguments `/c`, `npx`, `-y`, `cursor-delegate-mcp`.
 
 </details>
 
