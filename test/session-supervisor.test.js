@@ -26,7 +26,7 @@ function stubFactory(stubFile) {
   });
 }
 
-test("idle timeout rejects promptly without waiting for escalation grace periods", async () => {
+test("idle timeout fires on a silent stub without waiting for escalation", async () => {
   const start = Date.now();
   await assert.rejects(
     () => runDelegate({
@@ -39,32 +39,13 @@ test("idle timeout rejects promptly without waiting for escalation grace periods
     }),
     (err) => {
       assert.equal(err.reason, "idle-timeout");
+      assert.match(err.message, /idle timeout/i);
       return true;
     }
   );
   // Generous bound: this only rules out multi-second escalation sleeps, and the elapsed time
   // includes a cold subprocess spawn that a slow CI runner can stretch to hundreds of ms.
   assert.ok(Date.now() - start < 2000, "expected prompt rejection, not blocked by escalation sleeps");
-});
-
-test("idle timeout fires on a silent stub", async () => {
-  const start = Date.now();
-  await assert.rejects(
-    () => runDelegate({
-      spec: "hang",
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: stubFactory("silent-stub.js"),
-      ...TIMING,
-      hardCapMs: 10000,
-    }),
-    (err) => {
-      assert.equal(err.reason, "idle-timeout");
-      assert.match(err.message, /idle timeout/i);
-      return true;
-    }
-  );
-  assert.ok(Date.now() - start < 2000, "expected idle timeout within 2s");
 });
 
 test("idle timeout does not fire while stub streams updates faster than idleMs", async () => {
