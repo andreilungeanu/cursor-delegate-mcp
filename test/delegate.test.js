@@ -143,10 +143,9 @@ test("a stale non-terminal update for a finished tool call keeps the final messa
 function oversizedFactory() {
   const client = stubClient("sess-big");
   client.prompt = async () => {
-    const chunk = "x".repeat(1024 * 1024);
-    for (let i = 0; i < 12; i++) {
-      client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: chunk } } });
-    }
+    // One byte over the former 10MB cap — the stream is unbounded here, so this must arrive whole.
+    const OVER_CAP = 10 * 1024 * 1024 + 1;
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "x".repeat(OVER_CAP) } } });
     return { stopReason: "end_turn" };
   };
   return client;
@@ -212,9 +211,14 @@ test("runDelegate returns assembled result for a fresh session", async () => {
   assert.equal(out.sessionId, "sess-1");
   assert.equal(out.result, "done");
   assert.equal(out.resultSource, undefined);
-  assert.equal(out.finalMessageAvailable, undefined);
   assert.equal(out.resumed, undefined);
   assert.equal(out.plan, undefined);
+  assert.deepEqual(out.filesReportedByEditTools, ["hello.txt"]);
+});
+
+test("runDelegate omits filesReportedByEditTools in plan mode when no diff events arrive", async () => {
+  const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
+  assert.equal(out.filesReportedByEditTools, undefined, "absence, not an empty list, means nothing was reported");
 });
 
 test("runDelegate offers the fast toggle to every model", async () => {
@@ -915,21 +919,6 @@ test("runDelegate keeps plan.detail in agent mode alongside the implementation r
   assert.equal(out.plan.overview, "ov");
 });
 
-test("runDelegate plan-mode filesReportedByEditTools is omitted (no diff events)", async () => {
-  const out = await runDelegate({ spec: "draft a plan", mode: "plan", workspace: process.cwd(), clientFactory: fakeFactory });
-  assert.equal(out.filesReportedByEditTools, undefined, "absence, not an empty list, means nothing was reported");
-});
-
-test("runDelegate omits plan when no plan was emitted", async () => {
-  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
-  assert.equal(out.plan, undefined);
-});
-
-test("runDelegate populates filesReportedByEditTools from a tool_call_update diff (real-agent shape)", async () => {
-  const out = await runDelegate({ spec: "do the thing", mode: "agent", workspace: process.cwd(), clientFactory: fakeFactory });
-  assert.deepEqual(out.filesReportedByEditTools, ["hello.txt"]);
-});
-
 test("runDelegate does not fold reasoning (thinking) into the result", async () => {
   const progress = [];
   const out = await runDelegate({
@@ -1071,7 +1060,6 @@ test("runDelegate returns the complete stream when the turn uses no tools", asyn
   const out = await replayResult([msgChunk("Code:\n"), msgChunk("```js\nrun();\n```")]);
   assert.equal(out.result, "Code:\n```js\nrun();\n```");
   assert.equal(out.resultSource, undefined);
-  assert.equal(out.finalMessageAvailable, undefined);
 });
 
 test("runDelegate returns only text emitted after the final tool completes", async () => {
@@ -1084,7 +1072,6 @@ test("runDelegate returns only text emitted after the final tool completes", asy
   ]);
   assert.equal(out.result, "Updated `sbin/setup-llm` and validated it.");
   assert.equal(out.resultSource, undefined);
-  assert.equal(out.finalMessageAvailable, undefined);
 });
 
 test("runDelegate discards text that is followed by another tool call", async () => {
@@ -1124,7 +1111,6 @@ test("runDelegate falls back to the last message when a tool call ends the turn"
   ]);
   assert.equal(out.result, "I will make the edit.");
   assert.equal(out.resultSource, "pre-tool-fallback");
-  assert.equal(out.finalMessageAvailable, undefined);
   assert.ok(out.protocolWarnings.some((w) => /never spoke again/.test(w)), "the fallback is disclosed");
 });
 
@@ -1145,7 +1131,6 @@ test("runDelegate warns rather than returning a bare empty success", async () =>
   const out = await replayResult([toolCall("edit-1"), toolUpdate("edit-1", "completed")]);
   assert.equal(out.result, "");
   assert.equal(out.resultSource, "none");
-  assert.equal(out.finalMessageAvailable, undefined);
   assert.ok(out.protocolWarnings.some((w) => /without emitting any message/.test(w)));
 });
 
@@ -1170,7 +1155,6 @@ test("runDelegate keeps the final message when a duplicate terminal tool update 
   ]);
   assert.equal(out.result, "Fixed the parser and added a regression test.");
   assert.equal(out.resultSource, undefined);
-  assert.equal(out.finalMessageAvailable, undefined);
 });
 
 test("runDelegate preserves a legitimate code-only final response", async () => {
@@ -1566,9 +1550,9 @@ test("runDelegate returns output above the former 10MB cap verbatim", async () =
     workspace: process.cwd(),
     clientFactory: () => oversizedFactory(),
   });
-  // 12 one-megabyte chunks: over the former ceiling, delivered whole — model output
-  // is bounded by the model's own token limit, so there is nothing left to guard against.
-  assert.equal(out.result.length, 12 * 1024 * 1024);
+  // One byte over the former ceiling, delivered whole — model output is bounded by the
+  // model's own token limit, so there is nothing left to guard against.
+  assert.equal(out.result.length, 10 * 1024 * 1024 + 1);
   assert.ok(!out.result.includes("[output truncated"));
 });
 
