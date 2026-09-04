@@ -95,7 +95,7 @@ export class AcpClient extends EventEmitter {
     };
     this.child.once("exit", emitExit);
     this.child.once("close", emitExit);
-    this.router = null; // set before first stdout line
+    this.router = null;
     this.peer = new JsonRpcPeer(this.child.stdout, this.child.stdin, {
       onNotification: (method, params) => { if (method === "session/update") this.emit("update", params); },
       // The router is async and its result discarded, so a throw from its own catch would reject
@@ -148,15 +148,11 @@ export class AcpClient extends EventEmitter {
 
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
-  // Idempotent while a teardown is in flight and after a confirmed exit, so a force-cancel
-  // racing the delegation's own finally tears down once. A missed exit is not the same
-  // fact as the process being gone: that result is not memoized, and force can retry.
+  // Idempotent while teardown is in flight and after a confirmed exit. A missed exit is not
+  // memoized — force retries with a new treeKill. A confirmed exit stays so later callers join.
   stop({ timeoutMs = STOP_EXIT_TIMEOUT_MS } = {}) {
     if (!this._stopping) {
       this._stopping = this._teardown(timeoutMs).then((observed) => {
-        // A missed exit must not poison later force-kills: the documented retry is a new
-        // treeKill, not the same false. A confirmed exit stays memoized so concurrent and
-        // later callers still join one teardown.
         if (!observed) this._stopping = null;
         return observed;
       }, (err) => {

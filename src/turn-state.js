@@ -87,7 +87,6 @@ export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
       state.messages.reset();
     },
 
-    // The result text as it stands.
     text() {
       return state.resultChunks.join("");
     },

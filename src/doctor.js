@@ -100,7 +100,6 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
       // session/new already returned these. currentModel only — any other model needs a set_model
       // first, which this handshake does not send.
       details.currentModelOptions = (client.configOptions ?? [])
-        // model and mode are already reported as their own fields.
         .filter((o) => typeof o?.id === "string" && o.id !== "model" && o.id !== "mode")
         .map((o) => ({ id: o.id, values: allowedValues(o) }));
     })();

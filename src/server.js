@@ -77,15 +77,10 @@ const planEntrySchema = z.object({
   status: z.enum(PLAN_STATUSES).optional(),
 }).passthrough();
 
-// No tool declares an outputSchema: declaring one obliges the server to also return
-// structuredContent, and a host that reads both it and the text block — Codex does — puts the
-// payload in the model's context twice. Every tool returns one compact JSON text block instead.
-// So this is an in-repo contract, enforced by the .strict() copy in delegate.test.js, which
-// fails when a field added in delegate.js is forgotten here. cancel's status vocabulary is
-// published in its tool description, which is now its only schema.
-//
-// Types only. What each field means, and what its absence means, is documented once in
-// skills/delegate/reference.md.
+// No outputSchema: that also requires structuredContent, and a host that reads both (Codex)
+// puts the payload in context twice. One JSON text block; the .strict() copy is in
+// delegate.test.js. Field meanings: skills/delegate/reference.md. cancel status lives on
+// its tool description.
 export const delegateOutputShape = {
   result: z.string(),
   resultSource: z.enum(["pre-tool-fallback", "none"]).optional(),
@@ -115,16 +110,9 @@ export const delegateOutputShape = {
   }).optional(),
 };
 
-// What doctor reports about the launcher — the same in-repo contract as delegateOutputShape.
-//
-// Fields this bridge computes are typed; fields relayed verbatim from the agent are left unknown
-// on purpose. doctor runs when the agent is already misbehaving, so a schema tight enough to
-// reject a weird protocolVersion would fail on the agent's output rather than on ours.
-// doctor.test.js parses every result against a strict copy of this shape.
-//
-// Types only; what the fields mean is documented once, in TECHNICAL.md.
-// Split out so the drift guard can make it strict on its own: a .strict() on agent does not look
-// inside handshake, which is the level this schema has drifted at twice.
+// Same in-repo contract as delegateOutputShape. Relayed agent fields stay unknown so a
+// weird protocolVersion is a diagnostic, not a failed call. doctor.test.js holds the
+// strict copy. Handshake is its own shape: a .strict() on agent does not look inside it.
 export const doctorHandshakeShape = {
   ok: z.boolean(),
   error: z.string().optional(),
@@ -145,9 +133,7 @@ export const doctorAgentShape = {
   handshake: z.object(doctorHandshakeShape).passthrough().optional(),
 };
 
-// Exported as a shape for the same reason as delegateOutputShape, and with agent split out
-// because a top-level .strict() does not look inside a nested object — which is exactly where
-// this schema drifted.
+// agent is split out because a top-level .strict() does not look inside a nested object.
 export const doctorOutputShape = {
   plugin: z.object({ version: z.string() }).passthrough(),
   client: z.object({
@@ -428,10 +414,8 @@ export function installSignalCleanup(map, {
     Promise.all(stops).then(leave, leave);
   };
   // Each agent runs in its own process group on POSIX, so a signal aimed at this process no
-  // longer reaches it the way it did when the two shared a group. Installing a handler replaces
-  // Node's default, and a server that swallows Ctrl-C would be a worse bug than the agent it
-  // leaks. Delegations still inside their handshake are reached through `pending`, so this
-  // covers the agent from the moment it is spawned, not from the moment its session opens.
+  // longer reaches it. Installing a handler replaces Node's default; swallowing Ctrl-C would
+  // leak the agent. shutdown() already walks pending, so this covers spawn through session/new.
   if (DETACHED) {
     const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143]]);
     for (const [signal, code] of signals) process.on(signal, () => shutdown(code));
