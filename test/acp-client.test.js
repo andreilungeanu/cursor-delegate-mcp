@@ -201,6 +201,8 @@ test("stop() is idempotent and reports the exit it observed", async () => {
   assert.equal(await client.stop(), true, "a later caller gets the same answer");
 });
 
+// A real agent cannot swallow SIGKILL, so the exit event is withheld: the pid stays real and
+// is still killed; only the notification this waits on goes missing. A missed exit is not memoized.
 test("stop() retries teardown after a missed exit", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
@@ -213,19 +215,6 @@ test("stop() retries teardown after a missed exit", async () => {
   const second = client.stop({ timeoutMs: 25 });
   assert.notEqual(second, first, "force-retry must dispatch a new teardown");
   assert.equal(await second, false);
-  await reallyExited;
-});
-
-// A dispatched signal is not an exit, and cancel reports "killed" only for the second one. A real
-// agent cannot be made to swallow SIGKILL, so the exit event is withheld instead: the pid stays
-// real and is still killed, and only the notification this waits on goes missing.
-test("stop() reports false when no exit lands within the bound", async () => {
-  const client = new AcpClient({ spawnSpec: silentStub() });
-  await client.start();
-  const child = client.child;
-  const reallyExited = new Promise((resolve) => child.once("exit", resolve));
-  client.child = { pid: child.pid, exitCode: null, signalCode: null, once: () => {} };
-  assert.equal(await client.stop({ timeoutMs: 25 }), false, "an exit that never arrives is not observed");
   await reallyExited;
 });
 
@@ -247,18 +236,23 @@ test("stop() rejects in-flight RPCs when the child does not exit", async () => {
   try {
     assert.equal(client.peer.pending.size, 1, "session/prompt must still be in flight");
     assert.equal(await client.stop({ timeoutMs: 50 }), false, "an exit that never arrives is not observed");
-    const err = await Promise.race([
-      prompt.then(
-        () => { throw new Error("session/prompt resolved after a missed exit"); },
-        (e) => e
-      ),
-      new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("session/prompt still pending after stop()")), 200);
-      }),
-    ]);
-    assert.equal(err.reason, "agent-exit");
-    assert.match(err.message, /did not exit after stop/);
-    assert.equal(client.peer.pending.size, 0, "the missed exit must not leave the RPC pending");
+    let timeoutId;
+    try {
+      const err = await Promise.race([
+        prompt.then(
+          () => { throw new Error("session/prompt resolved after a missed exit"); },
+          (e) => e
+        ),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("session/prompt still pending after stop()")), 200);
+        }),
+      ]);
+      assert.equal(err.reason, "agent-exit");
+      assert.match(err.message, /did not exit after stop/);
+      assert.equal(client.peer.pending.size, 0, "the missed exit must not leave the RPC pending");
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } finally {
     try { client.peer?.rejectAllPending(new Error("test cleanup")); } catch {}
     await reallyExited;
