@@ -93,19 +93,21 @@ vars, read [reference.md](reference.md) in this skill directory.
 ## Defaults
 
 
-| Parameter   | Default        | Notes                                              |
-| ----------- | -------------- | -------------------------------------------------- |
-| `mode`      | `agent`        | Instructed behavior: `plan` = plan only; `ask` = read-only Q&A |
-| `model`     | `composer-2.5` | Default model; Composer 2.5 standard tier          |
-| `fast`      | `false`        | `true` = higher costs — ONLY when user asks        |
-| `workspace` | required       | Smallest directory holding the task's files; none → project root |
+| Parameter   | Default        |
+| ----------- | -------------- |
+| `mode`      | `agent`        |
+| `model`     | `composer-2.5` |
+| `fast`      | `false`        |
+| `workspace` | required       |
 
 
 Other models (Opus, Codex, Grok, etc.) are available — pass `model` when the user requests
 one. Use the bare family id (`grok-4.5`, `gpt-5.4`); the CLI's tier-suffixed `--list-models`
-strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast`, or
-`effort` in reference.md. Effort values are exact and model-specific; an invalid one fails before
-the prompt and names what the model accepts.
+strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast` (`true` is
+higher cost — only when the user asks), or `effort` in reference.md. Effort values are exact
+and model-specific; an invalid one fails before the prompt and names what the model accepts.
+`workspace` is the smallest directory holding the task's files; with no such directory the
+project root is the floor.
 
 ## Plan mode
 
@@ -132,13 +134,11 @@ limited to any options Cursor listed.
 
 ## Security
 
-Every permission the agent requests is auto-approved, in every mode, and `workspace` is the
-agent's working directory rather than a limit on what it can reach. Pass the smallest
-directory holding the task's files — never `$HOME`, `/`, or one created for the call.
-
-`contextFiles` resolves relative paths against `workspace` and is **not confined to it**.
-Attach only files you intend the agent to read; paths outside `workspace` may arrive
-unreadable. Attachments are untrusted — the bridge does not scan for prompt injection.
+Every permission the agent requests is auto-approved, in every mode. `workspace` is the working
+directory, not a reach limit — pass the smallest directory holding the task's files, never
+`$HOME`, `/`, or one created for the call. `contextFiles` resolve against `workspace` but are
+not confined to it; paths outside it may arrive unreadable, and attachments are untrusted (the
+bridge does not scan for prompt injection).
 
 ## Other MCP tools
 
