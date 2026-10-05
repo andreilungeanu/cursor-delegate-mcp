@@ -123,7 +123,13 @@ export const doctorHandshakeShape = {
   currentModel: z.unknown().optional(),
   modes: z.array(z.unknown()).optional(),
   // Built here rather than relayed, so it gets a real type where its neighbours get z.unknown().
-  currentModelOptions: z.array(z.object({ id: z.string(), values: z.array(z.string()) })).optional(),
+  currentModelOptions: z.array(z.object({
+    id: z.string(),
+    name: z.string().optional(),
+    category: z.string().optional(),
+    values: z.array(z.string()),
+    currentValue: z.string().optional(),
+  })).optional(),
 };
 
 export const doctorAgentShape = {

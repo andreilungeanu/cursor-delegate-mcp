@@ -4,7 +4,7 @@ import { AcpClient } from "./acp-client.js";
 import { resolveAcpSpawn } from "./spawn.js";
 import { DETACHED, treeKill } from "./proc.js";
 import { readPackageVersion } from "./version.js";
-import { allowedValues } from "./model-options.js";
+import { describeOptions } from "./model-options.js";
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const VERSION_PROBE_TIMEOUT_MS = 10_000;
@@ -98,10 +98,9 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
       details.currentModel = client.sessionModels?.currentModelId ?? null;
       details.modes = (client.sessionModes?.availableModes ?? []).map((m) => m?.id).filter(Boolean);
       // session/new already returned these. currentModel only — any other model needs a set_model
-      // first, which this handshake does not send.
-      details.currentModelOptions = (client.configOptions ?? [])
-        .filter((o) => typeof o?.id === "string" && o.id !== "model" && o.id !== "mode")
-        .map((o) => ({ id: o.id, values: allowedValues(o) }));
+      // first, which this handshake does not send. name and category are what tell an effort
+      // option apart when its id is unfamiliar; currentValue is the level saved for the model.
+      details.currentModelOptions = describeOptions(client.configOptions);
     })();
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {

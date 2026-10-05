@@ -28,8 +28,8 @@ export function allowedValues(opt) {
     .filter((v) => typeof v === "string");
 }
 
-// What a model offers besides the model and mode selectors, as an unrecognized effort names it.
-// Optional metadata appears only when the agent sent a string.
+// What a model offers besides the model and mode selectors, as doctor reports it and as an
+// unrecognized effort names it. Optional metadata appears only when the agent sent a string.
 export function describeOptions(options) {
   return (Array.isArray(options) ? options : [])
     .filter((o) => typeof o?.id === "string" && !SELECTOR_IDS.has(o.id))

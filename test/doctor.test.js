@@ -212,6 +212,38 @@ test("runDoctor deep:true reports currentModelOptions without the model and mode
   ]);
 });
 
+// An unfamiliar id is recognizable as effort only by its name and category, and currentValue is
+// the level Cursor saved for the model. Each is kept only as a string.
+test("runDoctor deep:true reports option name, category and current value when sent", async () => {
+  const clientFactory = () => ({
+    start: async () => {},
+    initialize: async () => {},
+    newSession: async () => ({ sessionId: "s" }),
+    stop: () => {},
+    configOptions: [
+      {
+        id: "reasoning_effort", name: "Effort", category: "thought_level", currentValue: "high",
+        options: [{ value: "low" }, { value: "medium" }, { value: "high" }, { value: "xhigh" }],
+      },
+      { id: "fast", name: 7, category: null, currentValue: false, options: [{ value: "false" }, { value: "true" }] },
+    ],
+  });
+  const out = await runDoctor({
+    deep: true,
+    spawnSpec: stubSpawnSpec(),
+    clientFactory,
+    workspace: process.cwd(),
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.deepEqual(out.agent.handshake.currentModelOptions, [
+    {
+      id: "reasoning_effort", name: "Effort", category: "thought_level",
+      values: ["low", "medium", "high", "xhigh"], currentValue: "high",
+    },
+    { id: "fast", values: ["false", "true"] },
+  ]);
+});
+
 test("runDoctor deep:true reports handshake error without throwing", async () => {
   const clientFactory = () => ({
     start: async () => { throw new Error("not logged in"); },
