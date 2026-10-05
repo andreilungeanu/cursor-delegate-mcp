@@ -107,7 +107,27 @@ jobs:
           curl -sSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz" \
             | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
+      # npm accepts a publish a minute or two before it serves the new version, and the
+      # registry validates against npm, so publishing straight after rejects the version as
+      # not found. Retry that one error until npm catches up; anything else fails at once.
       - name: Publish to the MCP Registry
+        timeout-minutes: 15
+        shell: bash
         run: |
-          mcp-publisher login github-oidc
-          mcp-publisher publish
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            mcp-publisher login github-oidc
+            if out=$(mcp-publisher publish 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            if ! grep -q "was not found" <<<"$out"; then
+              exit 1
+            fi
+            if [ "$attempt" -lt 10 ]; then
+              echo "::warning::npm does not serve this version yet (attempt $attempt/10); retrying in 30s."
+              sleep 30
+            fi
+          done
+          echo "::error::MCP Registry publish failed after 10 attempts: npm never served this version."
+          exit 1

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Internal
+
+- The release workflow retries the MCP Registry publish while npm is still processing
+  the new version, instead of failing the run. npm serves a new version a minute or two
+  after accepting it, and the registry validates against npm.
+
 ## [2.4.0] - 2026-10-05
 
 ### Added
