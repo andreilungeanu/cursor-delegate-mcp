@@ -230,11 +230,13 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
         + " the selected model did not report a usable effort option list."
     );
   }
-  if (resolved.status === "unsupported") {
+  if (resolved.status === "unrecognized") {
     throw makeError(
       "invalid-effort",
-      `Model ${JSON.stringify(model)} does not advertise configurable effort.`
-        + ` Accepted: none. Omit effort; do not send ${JSON.stringify("none")}.`
+      `Model ${JSON.stringify(model)} advertised no option the bridge recognizes as effort.`
+        + ` Advertised: ${JSON.stringify(resolved.advertised)}.`
+        + ` If none of these is an effort setting, omit effort; do not send ${JSON.stringify("none")}.`
+        + " If one is, the bridge failed to recognize it — report that rather than retrying."
     );
   }
   if (resolved.status === "invalid") {

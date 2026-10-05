@@ -23,10 +23,14 @@ lists the ids this agent offers.
 
 Config option ids and values differ per model and are known only once one is selected. The bridge
 matches `effort` exactly against the selected model's live options and sends it under the id that
-advertised that value (`effort`, `reasoning`, `thinking`, or another thought-level id). A bad
-value or a model with no effort knob fails as `invalid-effort`; a missing or unusable option list
-fails as `effort-options-unavailable`. Both happen before `session/prompt`. For `invalid-effort`,
-retry with the returned `resumeSessionId`, the complete original `spec`, and a corrected value.
+advertised that value. An option counts as effort when the agent marks it with ACP's
+`thought_level` category, or, for an agent that sends no category, when its id or name says so
+(`effort`, `reasoning`, `reasoning_effort`, `thinking`, `thought_level`). A value the effort
+option does not advertise, or a model with no option recognized as effort, fails as
+`invalid-effort`; a missing or unusable option list fails as `effort-options-unavailable`. Both
+happen before `session/prompt`. For `invalid-effort` with `Accepted`, retry with the returned
+`resumeSessionId`, the complete original `spec`, and a corrected value. With `Advertised`, no
+option was recognized as effort, and the message lists what the model offers instead.
 For `effort-options-unavailable`, keep the same session and complete spec but do not guess a value.
 Do not pass `context` speculatively.
 
@@ -96,7 +100,7 @@ Errors come back as `delegate failed [<reason>]: …`.
 | `invalid-spec` | `spec` was blank. Nothing was spawned. | Fix the argument. |
 | `invalid-workspace` | `workspace` was omitted, blank, does not exist, or is not a directory. Nothing was spawned. | Fix the argument. |
 | `unknown-model` | `model` is not offered by this agent; the message names the valid ids. | Fix the argument. |
-| `invalid-effort` | `effort` is not an exact value advertised by the selected model, or that model advertises no configurable effort. No prompt was sent. | Retry the named session with the complete original `spec` and an accepted value; when the message says `Accepted: none`, omit the `effort` field entirely and do not send the string `"none"`. |
+| `invalid-effort` | `effort` is not an exact value the selected model's effort option advertises (`Accepted: [...]`), or no option the model advertises was recognized as effort (`Advertised: [...]`). No prompt was sent. | With `Accepted`, retry the named session with the complete original `spec` and one of those values. With `Advertised`, retrying will not help: if none of the listed options is an effort setting, omit the `effort` field entirely and do not send the string `"none"`; if one is, report that the bridge failed to recognize it. |
 | `effort-options-unavailable` | The selected model did not report a usable effort option list, or rejected an option it had just advertised. No prompt was sent. | Retry the named session once with the complete original `spec`; if it repeats, run `doctor` and report the capability failure rather than guessing. |
 | `resume-failed` | `resumeSessionId` could not be loaded for a reason other than the agent not having that session — no fresh session was started. | Retry; omit `resumeSessionId` to start fresh deliberately. A session the agent does not have is not this: it starts fresh and reports a `protocolWarnings` entry. |
 | `agent-error` | The agent rejected a request (JSON-RPC error, e.g. an invalid config value). | Fix the argument; retrying is pointless. |
