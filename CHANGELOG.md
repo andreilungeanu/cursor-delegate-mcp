@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Zod 4. The minimum supported `@modelcontextprotocol/sdk` is now 1.23.0, the first
+  release that accepts Zod 4 schemas; 1.22.x requires Zod 3.
+
 ### Internal
 
 - The release workflow retries the MCP Registry publish while npm is still processing

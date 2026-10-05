@@ -187,7 +187,7 @@ test("server advertises instructions, output schemas, and conservative tool anno
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
     // SEP-973 icons on initialize must match the registry listing — HTTPS URLs, not file://.
-    // SDK 1.22.0 (the declared minimum) strips `theme` when parsing initialize; newer SDKs keep it.
+    // SDK 1.23.0 (the declared minimum) strips `theme` when parsing initialize; newer SDKs keep it.
     const registry = JSON.parse(readFileSync(new URL("../server.json", import.meta.url), "utf8"));
     const advertised = client.getServerVersion();
     assert.equal(advertised.name, "cursor-delegate-mcp");
