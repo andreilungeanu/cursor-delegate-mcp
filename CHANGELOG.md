@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-05
+
 ### Added
 
 - `effectiveEffort` in the delegate result: the current value of each option recognized as
@@ -28,6 +30,15 @@ All notable changes to this project are documented here. The format follows
 - `invalid-effort` no longer says `Accepted: none` when no option is recognized as effort.
   Missing an option is not proof the model has none, so the error lists the options the
   model advertised, with their names, categories and values.
+
+### Security
+
+- Lockfile bump of `hono` to 4.13.7, clearing a moderate audit advisory.
+
+### Internal
+
+- Lockfile bumps of `@modelcontextprotocol/sdk` to 1.30.1 and the dev dependency
+  `@types/node` to 26.6.3.
 
 ## [2.3.0] - 2026-09-06
 
