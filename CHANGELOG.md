@@ -11,8 +11,15 @@ All notable changes to this project are documented here. The format follows
 - Zod 4. The minimum supported `@modelcontextprotocol/sdk` is now 1.23.0, the first
   release that accepts Zod 4 schemas; 1.22.x requires Zod 3.
 
+### Security
+
+- Lockfile bumps of `fast-uri` to 3.1.8 and `ip-address` to 10.7.3, clearing the two
+  moderate audit advisories in the MCP SDK's dependencies.
+
 ### Internal
 
+- Lockfile bumps of `@modelcontextprotocol/sdk` to 1.31.0 and the dev dependency
+  `@types/node` to 26.6.4.
 - The release workflow retries the MCP Registry publish while npm is still processing
   the new version, instead of failing the run. npm serves a new version a minute or two
   after accepting it, and the registry validates against npm.
