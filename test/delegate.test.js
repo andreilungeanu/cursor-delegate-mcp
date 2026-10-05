@@ -669,6 +669,124 @@ test("runDelegate sends exact boolean effort to a boolean-only thinking option",
   assert.deepEqual(seen, [["model", "claude-haiku-4-5"], ["thinking", "true"]]);
 });
 
+// Opens on `openedOn` reporting `opensWith`, then answers every set with `options`, the set value
+// written into its currentValue as a real reply echoes it. A set named in `bare` succeeds with no
+// list; one named in `refuse` is the unknown-option rejection.
+function effortReportFactory({ openedOn, opensWith, options, bare = [], refuse = [], onSet }) {
+  return () => {
+    const client = stubClient("sess-eff");
+    let current = options;
+    client.newSession = async () => {
+      // No model list: validation is not under test, and an empty list skips it.
+      client.sessionModels = { currentModelId: openedOn, availableModels: [] };
+      client.configOptions = opensWith;
+      return { sessionId: "sess-eff" };
+    };
+    client.setConfigOption = async (_sid, configId, value) => {
+      if (refuse.includes(configId)) throw rpcError(-32602, `Invalid params: Unknown model config option: ${configId}`);
+      onSet?.(configId, value);
+      current = current.map((o) => (o.id === configId ? { ...o, currentValue: String(value) } : o));
+      return bare.includes(configId) ? {} : { configOptions: current };
+    };
+    return client;
+  };
+}
+// grok-4.7 as a session opens on it: standard tier, effort saved at high.
+const GROK_47_OPENED = GROK_47_OPTIONS.map((o) => (o.id === "fast" ? { ...o, currentValue: "false" } : o));
+
+// The case that misled a host into calling a run "default effort": nothing was sent, and the
+// model ran at the level Cursor had saved for it.
+test("runDelegate reports the saved effort when effort is omitted, without a config request", async () => {
+  const seen = [];
+  const out = await runDelegate({
+    spec: "task", model: "grok-4.7", workspace: process.cwd(),
+    clientFactory: effortReportFactory({
+      openedOn: "grok-4.7", opensWith: GROK_47_OPENED, options: GROK_47_OPENED,
+      onSet: (id, v) => seen.push([id, v]),
+    }),
+  });
+  assert.deepEqual(seen, []);
+  assert.deepEqual(out.effectiveEffort, { reasoning_effort: "high" });
+});
+
+test("runDelegate reports the effort value the agent echoes after setting it", async () => {
+  const seen = [];
+  const out = await runDelegate({
+    spec: "task", model: "grok-4.7", effort: "xhigh", workspace: process.cwd(),
+    clientFactory: effortReportFactory({
+      openedOn: "grok-4.7", opensWith: GROK_47_OPENED, options: GROK_47_OPENED,
+      onSet: (id, v) => seen.push([id, v]),
+    }),
+  });
+  assert.deepEqual(seen, [["fast", false], ["reasoning_effort", "xhigh"]]);
+  assert.deepEqual(out.effectiveEffort, { reasoning_effort: "xhigh" });
+});
+
+// The fast reply said high; the effort reply confirmed nothing. Neither the stale high nor the
+// requested xhigh is a fact about the turn.
+test("runDelegate omits effectiveEffort when the effort reply carries no list", async () => {
+  const out = await runDelegate({
+    spec: "task", model: "grok-4.7", effort: "xhigh", workspace: process.cwd(),
+    clientFactory: effortReportFactory({
+      openedOn: "grok-4.7", opensWith: GROK_47_OPENED, options: GROK_47_OPENED, bare: ["reasoning_effort"],
+    }),
+  });
+  assert.equal(out.effectiveEffort, undefined);
+});
+
+test("runDelegate drops the opening snapshot's effort after a model switch", async () => {
+  const composer = [
+    { id: "model", currentValue: "composer-2.5" },
+    { id: "effort", currentValue: "low", options: vals("low", "high") },
+    { id: "fast", currentValue: "false", options: vals("true", "false") },
+  ];
+  const unconfirmed = await runDelegate({
+    spec: "task", model: "grok-4.7", workspace: process.cwd(),
+    clientFactory: effortReportFactory({
+      openedOn: "composer-2.5", opensWith: composer, options: GROK_47_OPENED, bare: ["fast"],
+    }),
+  });
+  assert.equal(unconfirmed.effectiveEffort, undefined, "composer's low says nothing about grok");
+
+  const confirmed = await runDelegate({
+    spec: "task", model: "grok-4.7", workspace: process.cwd(),
+    clientFactory: effortReportFactory({ openedOn: "composer-2.5", opensWith: composer, options: GROK_47_OPENED }),
+  });
+  assert.deepEqual(confirmed.effectiveEffort, { reasoning_effort: "high" });
+});
+
+// A refused set changed nothing on the agent, so what the session opened with still holds.
+test("runDelegate keeps the opening snapshot when the model refuses fast", async () => {
+  const haiku = [
+    { id: "model", currentValue: "claude-haiku-4-5" },
+    { id: "thinking", currentValue: "true", options: vals("true", "false") },
+  ];
+  const out = await runDelegate({
+    spec: "task", model: "claude-haiku-4-5", fast: true, workspace: process.cwd(),
+    clientFactory: effortReportFactory({
+      openedOn: "claude-haiku-4-5", opensWith: haiku, options: haiku, refuse: ["fast"],
+    }),
+  });
+  assert.deepEqual(out.effectiveEffort, { thinking: "true" });
+});
+
+// A toggle beside a level: reporting only the level would read "high" for a turn whose thinking
+// is off. Only recognized options with a string value are reported.
+test("runDelegate reports every recognized effort option with a string value", async () => {
+  const options = [
+    { id: "model", currentValue: "claude-sonnet-5" },
+    { id: "thinking", currentValue: "false", options: vals("true", "false") },
+    { id: "effort", currentValue: "high", options: vals("low", "medium", "high") },
+    { id: "reasoning", currentValue: 3, options: vals("low") },
+    { id: "context", currentValue: "200k", options: vals("200k") },
+  ];
+  const out = await runDelegate({
+    spec: "task", model: "claude-sonnet-5", workspace: process.cwd(),
+    clientFactory: effortReportFactory({ openedOn: "claude-sonnet-5", opensWith: options, options }),
+  });
+  assert.deepEqual(out.effectiveEffort, { thinking: "false", effort: "high" });
+});
+
 // The grok-4.7 regression: reasoning_effort was neither a known id nor a matching name, so the
 // bridge reported that the model had no effort setting and never sent it.
 test("runDelegate sends grok-4.7 effort under the reasoning_effort id it advertises", async () => {

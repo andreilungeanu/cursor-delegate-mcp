@@ -42,6 +42,19 @@ export function describeOptions(options) {
     }));
 }
 
+// The current value of every recognized effort option, keyed by id. All of them rather than one
+// picked: a model can declare a thinking toggle beside a level, and either alone can mislead.
+// Undefined when no recognized option reports a string value.
+export function effortSettings(options) {
+  const settings = {};
+  for (const o of Array.isArray(options) ? options : []) {
+    if (isThoughtLevel(o) && typeof o?.id === "string" && typeof o.currentValue === "string") {
+      settings[o.id] = o.currentValue;
+    }
+  }
+  return Object.keys(settings).length > 0 ? settings : undefined;
+}
+
 // Resolve only values the selected model advertised. This keeps future vocabularies working
 // without aliases or a ranking table: xhigh, extra-high, max and ultra are just exact tokens.
 // No list, an empty list, or a thought-level option with no usable id/values is unavailable. A
