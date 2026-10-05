@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `effectiveEffort` in the delegate result: the current value of each option recognized as
+  effort, keyed by option id, as the agent reported it when the prompt went out. It is
+  present even when `effort` is omitted, because the model then runs at the level Cursor
+  saved for it, and absent when no reply confirmed a value. Read from replies the bridge
+  already receives, so it adds no ACP requests.
+
 ### Fixed
 
 - `effort` reaches a model that advertises it under an unfamiliar id. An option the agent

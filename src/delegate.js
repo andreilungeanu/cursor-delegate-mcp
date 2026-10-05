@@ -12,7 +12,7 @@ import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 import { makeTurnState } from "./turn-state.js";
 import { makeError } from "./errors.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
-import { optionsFrom, resolveEffort, unsupportedWarning } from "./model-options.js";
+import { effortSettings, optionsFrom, resolveEffort, unsupportedWarning } from "./model-options.js";
 import { transcriptFrames } from "./jsonrpc.js";
 
 export const DEFAULT_MODEL = "composer-2.5";
@@ -458,6 +458,7 @@ export async function runDelegate({
   let resumeError;
   const unsupportedOptions = [];
   let servedModel;
+  let effectiveEffort;
   const contextWarnings = [];
   try {
     const res = await supervisor.supervise(async () => {
@@ -475,6 +476,11 @@ export async function runDelegate({
       // (same model twice running) hits this.
       const openedOnModel = client.sessionModels?.currentModelId === model;
       if (!openedOnModel) await client.setModel(sessionId, model);
+      // The selected model's options as the agent last reported them, read for effectiveEffort.
+      // After a switch the opening snapshot describes the model we left, so it is dropped. A set
+      // that succeeds replaces the snapshot with its reply, which may carry none, and then nothing
+      // is known; a refused set changed nothing, so the snapshot stands.
+      let observedOptions = openedOnModel ? client.configOptions : undefined;
       // fast is an instruction, not a probe. Cursor persists the tier, and persists it per model —
       // both measured: one fast:true turn leaves the next fresh session reporting fast=true, and a
       // set_model to another model reports that model's own tier. So the opening snapshot only
@@ -489,6 +495,7 @@ export async function runDelegate({
         const fastResult = await applyConfig(client, sessionId, "fast", fast);
         if (fastResult.unsupported && fast) unsupportedOptions.push({ arg: "fast" });
         else servedModel = servedModelFrom(fastResult.res) ?? servedModel;
+        if (!fastResult.unsupported) observedOptions = optionsFrom(fastResult.res);
         modelOptions = optionsFrom(fastResult.res);
       }
       // A model that refuses fast leaves no list. Re-asserting the model just set is inert, and
@@ -496,18 +503,26 @@ export async function runDelegate({
       if (modelOptions === undefined && effort !== undefined) {
         const reasserted = await applyConfig(client, sessionId, "model", model);
         modelOptions = optionsFrom(reasserted.res);
+        if (!reasserted.unsupported) observedOptions = modelOptions;
         servedModel = servedModelFrom(reasserted.res) ?? servedModel;
       }
       if (effort !== undefined) {
         const r = await applyEffort(client, sessionId, model, effort, modelOptions);
+        observedOptions = optionsFrom(r);
         servedModel = servedModelFrom(r) ?? servedModel;
       }
       if (context !== undefined) {
         const r = await applyConfig(client, sessionId, "context", context);
         if (r.unsupported) unsupportedOptions.push({ arg: "context" });
-        else servedModel = servedModelFrom(r.res) ?? servedModel;
+        else {
+          observedOptions = optionsFrom(r.res);
+          servedModel = servedModelFrom(r.res) ?? servedModel;
+        }
       }
       await client.setMode(sessionId, mode);
+      // What the agent reported in force as the prompt goes out — never the requested value
+      // standing in for a reply that did not confirm it.
+      effectiveEffort = effortSettings(observedOptions);
       // Everything a session/load replay may have written belongs to the previous turn.
       state.reset();
       supervisor.promptStarted();
@@ -568,6 +583,9 @@ export async function runDelegate({
     // Only when the agent served a different model than asked — e.g. "default" routing to a
     // concrete id, or a cross-model resume. Silence means the request was honored.
     if (servedModel !== undefined && servedModel !== model) out.effectiveModel = servedModel;
+    // Unlike effectiveModel, present whenever known: an omitted effort runs at whatever Cursor
+    // saved for the model, and this is the only place the caller can see what that was.
+    if (effectiveEffort !== undefined) out.effectiveEffort = effectiveEffort;
     if (stopReason !== undefined) out.stopReason = stopReason;
     // sessionTitle stays out of the result: it is a live label (progress) and a forensic one
     // (timeout errors), not a fact about the finished turn.

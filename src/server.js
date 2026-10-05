@@ -85,6 +85,7 @@ export const delegateOutputShape = {
   result: z.string(),
   resultSource: z.enum(["pre-tool-fallback", "none"]).optional(),
   effectiveModel: z.string().optional(),
+  effectiveEffort: z.record(z.string()).optional(),
   stopReason: z.string().optional(),
   sessionId: z.string(),
   filesReportedByEditTools: z.array(z.string()).optional(),
