@@ -85,7 +85,7 @@ export const delegateOutputShape = {
   result: z.string(),
   resultSource: z.enum(["pre-tool-fallback", "none"]).optional(),
   effectiveModel: z.string().optional(),
-  effectiveEffort: z.record(z.string()).optional(),
+  effectiveEffort: z.record(z.string(), z.string()).optional(),
   stopReason: z.string().optional(),
   sessionId: z.string(),
   filesReportedByEditTools: z.array(z.string()).optional(),
@@ -146,7 +146,7 @@ export const doctorOutputShape = {
   client: z.object({
     name: z.string().nullable(),
     version: z.string().nullable(),
-    capabilities: z.record(z.unknown()),
+    capabilities: z.record(z.string(), z.unknown()),
   }).passthrough(),
   agent: z.object(doctorAgentShape).passthrough(),
   runtime: z.object({
@@ -156,7 +156,7 @@ export const doctorOutputShape = {
     cwd: z.string(),
     transport: z.literal("stdio"),
   }),
-  env: z.record(z.unknown()),
+  env: z.record(z.string(), z.unknown()),
 };
 
 export const delegateInputSchema = z.object({
