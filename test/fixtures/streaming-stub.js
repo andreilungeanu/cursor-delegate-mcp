@@ -1,4 +1,4 @@
-// Completes handshake; during prompt streams session/update every 50ms until end_turn.
+// Completes handshake; during prompt streams session/update every 50ms for 1.2s, then end_turn.
 import readline from "node:readline";
 
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
@@ -34,6 +34,6 @@ rl.on("line", (line) => {
     setTimeout(() => {
       clearInterval(streamTimer);
       out({ jsonrpc: "2.0", id: m.id, result: { stopReason: "end_turn" } });
-    }, 500);
+    }, 1200);
   }
 });

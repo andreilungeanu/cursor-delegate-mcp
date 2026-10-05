@@ -48,6 +48,9 @@ test("idle timeout fires on a silent stub without waiting for escalation", async
   assert.ok(Date.now() - start < 2000, "expected prompt rejection, not blocked by escalation sleeps");
 });
 
+// Ticks every 50ms against a 400ms window, so a frame gap has 350ms of slack: at 200ms, a shared
+// macOS runner stalled past the 150ms that left and tripped the guard mid-stream. The 1.2s turn
+// still outlasts the window three times over, so a guard that ignored activity would trip.
 test("idle timeout does not fire while stub streams updates faster than idleMs", async () => {
   const out = await runDelegate({
     spec: "stream",
@@ -55,6 +58,7 @@ test("idle timeout does not fire while stub streams updates faster than idleMs",
     workspace: process.cwd(),
     clientFactory: stubFactory("streaming-stub.js"),
     ...TIMING,
+    idleMs: 400,
     hardCapMs: 10000,
   });
   assert.equal(out.stopReason, undefined);
