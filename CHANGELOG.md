@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   present even when `effort` is omitted, because the model then runs at the level Cursor
   saved for it, and absent when no reply confirmed a value. Read from replies the bridge
   already receives, so it adds no ACP requests.
+- `doctor` with `deep: true` reports each `currentModelOptions` entry's `name`, ACP
+  `category` and `currentValue` when the agent sends them as strings. The id and values
+  alone could not show that grok-4.7's `reasoning_effort` is its effort setting, or which
+  level Cursor had saved for it.
 
 ### Fixed
 

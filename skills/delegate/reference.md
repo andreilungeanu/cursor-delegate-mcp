@@ -177,8 +177,8 @@ launcher resolution and `agent.found`, plus runtime info. With
 `deep: true` it adds `agent.handshake`: `{ok, protocolVersion, agentCapabilities, models,
 currentModel, currentModelOptions, modes}`, or `{ok: false, error}` — not logged in, or a
 timeout. `agent.handshake.models` is the authoritative list to check after an `unknown-model`
-failure; `currentModelOptions` is `{id, values}[]` for `currentModel` only, not for a `model`
-you are about to pass; `protocolVersion` and `currentModel` are `null` when the agent reported
+failure; `currentModelOptions` is `{id, name?, category?, values, currentValue?}[]` for
+`currentModel` only, not for a `model` you are about to pass; `protocolVersion` and `currentModel` are `null` when the agent reported
 none.
 
 `agent.version` is the launcher's `--version` output, or `null`. `found: false` means it is not
