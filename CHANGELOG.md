@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `effort` reaches a model that advertises it under an unfamiliar id. An option the agent
+  marks with ACP's `thought_level` category counts as effort whatever its id or name, and
+  the fallback for agents that send no category also knows `reasoning_effort` and names
+  containing "effort". grok-4.7 declares `reasoning_effort` ("Effort"), which was missed, so
+  `effort: "high"` failed with `invalid-effort` claiming the model had no effort setting.
+- `invalid-effort` no longer says `Accepted: none` when no option is recognized as effort.
+  Missing an option is not proof the model has none, so the error lists the options the
+  model advertised, with their names, categories and values.
+
 ## [2.3.0] - 2026-09-06
 
 ### Fixed

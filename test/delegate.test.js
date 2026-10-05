@@ -463,6 +463,15 @@ const COMPOSER_OPTIONS = [
   { id: "model", currentValue: "composer-2.5" },
   { id: "fast", options: vals("true", "false") },
 ];
+// Captured from grok-4.7: the id, name, category and values its effort option reported.
+const GROK_47_OPTIONS = [
+  { id: "model", currentValue: "grok-4.7" },
+  {
+    id: "reasoning_effort", name: "Effort", category: "thought_level", currentValue: "high",
+    options: vals("low", "medium", "high", "xhigh"),
+  },
+  { id: "fast", options: vals("true", "false") },
+];
 
 function configFactory({ onSet, onPrompt, refuse = [], invalid = [], options = GPT_OPTIONS, noOptions = false, opensWith }) {
   return () => {
@@ -660,7 +669,58 @@ test("runDelegate sends exact boolean effort to a boolean-only thinking option",
   assert.deepEqual(seen, [["model", "claude-haiku-4-5"], ["thinking", "true"]]);
 });
 
-test("runDelegate rejects explicit effort for Composer and names no accepted value", async () => {
+// The grok-4.7 regression: reasoning_effort was neither a known id nor a matching name, so the
+// bridge reported that the model had no effort setting and never sent it.
+test("runDelegate sends grok-4.7 effort under the reasoning_effort id it advertises", async () => {
+  for (const effort of ["high", "xhigh"]) {
+    const seen = [];
+    let prompts = 0;
+    const out = await runDelegate({
+      spec: "task", model: "grok-4.7", effort, workspace: process.cwd(),
+      clientFactory: configFactory({
+        options: GROK_47_OPTIONS, onSet: (id, v) => seen.push([id, v]), onPrompt: () => { prompts++; },
+      }),
+    });
+    assert.deepEqual(seen, [["fast", false], ["reasoning_effort", effort]]);
+    assert.equal(prompts, 1);
+    assert.deepEqual(configWarnings(out), []);
+  }
+});
+
+test("runDelegate recognizes a thought_level option by its category alone", async () => {
+  const options = [
+    { id: "model", currentValue: "future-model" },
+    { id: "depth", name: "Depth", category: "thought_level", options: vals("shallow", "deep") },
+  ];
+  const seen = [];
+  await runDelegate({
+    spec: "task", model: "future-model", effort: "deep", workspace: process.cwd(),
+    clientFactory: configFactory({ options, onSet: (id, v) => seen.push([id, v]) }),
+  });
+  assert.deepEqual(seen, [["fast", false], ["depth", "deep"]]);
+});
+
+// Categories are optional in ACP, so an agent that sends none is still classified by id or name.
+test("runDelegate falls back to the id or the name when the agent sends no category", async () => {
+  for (const option of [
+    { id: "reasoning_effort", name: "Level", options: vals("low", "high") },
+    { id: "budget", name: "Effort", options: vals("low", "high") },
+  ]) {
+    const seen = [];
+    await runDelegate({
+      spec: "task", model: "future-model", effort: "high", workspace: process.cwd(),
+      clientFactory: configFactory({
+        options: [{ id: "model", currentValue: "future-model" }, option],
+        onSet: (id, v) => seen.push([id, v]),
+      }),
+    });
+    assert.deepEqual(seen, [["fast", false], [option.id, "high"]]);
+  }
+});
+
+// Not recognizing an option is not evidence that the model has none, so the error shows what the
+// model did advertise instead of claiming an empty accepted set.
+test("runDelegate names what a model advertised when no option is recognized as effort", async () => {
   let prompts = 0;
   await assert.rejects(
     runDelegate({
@@ -669,14 +729,40 @@ test("runDelegate rejects explicit effort for Composer and names no accepted val
     }),
     (err) => {
       assert.equal(err.reason, "invalid-effort");
-      assert.match(err.message, /Model "composer-2.5" does not advertise configurable effort/);
-      assert.match(err.message, /Accepted: none/);
-      assert.match(err.message, /Omit effort; do not send "none"/);
+      assert.match(err.message, /Model "composer-2.5" advertised no option the bridge recognizes as effort/);
+      assert.match(err.message, /Advertised: \[\{"id":"fast","values":\["true","false"\]\}\]/);
+      assert.match(err.message, /omit effort; do not send "none"/);
+      assert.match(err.message, /report that rather than retrying/);
+      assert.doesNotMatch(err.message, /Accepted: none/);
       assert.match(err.message, /Resume with resumeSessionId sess-cfg/);
       return true;
     }
   );
   assert.equal(prompts, 0);
+});
+
+// ACP categories are UX metadata, so a fully categorized list without thought_level is reported
+// the same way, with each option's category shown.
+test("runDelegate reports categorized options without claiming the model has no effort", async () => {
+  const options = [
+    { id: "model", category: "model", currentValue: "future-model" },
+    { id: "speed", name: "Speed", category: "model_config", currentValue: "normal", options: vals("normal", "turbo") },
+  ];
+  await assert.rejects(
+    runDelegate({
+      spec: "task", model: "future-model", effort: "high", workspace: process.cwd(),
+      clientFactory: configFactory({ options }),
+    }),
+    (err) => {
+      assert.equal(err.reason, "invalid-effort");
+      assert.match(
+        err.message,
+        /Advertised: \[\{"id":"speed","name":"Speed","category":"model_config","values":\["normal","turbo"\],"currentValue":"normal"\}\]/
+      );
+      assert.doesNotMatch(err.message, /Accepted: none/);
+      return true;
+    }
+  );
 });
 
 // Last resort: fast refused and re-asserting the model carried no option list either. That is a
