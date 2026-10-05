@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-05
+
 ### Changed
 
 - Zod 4. The minimum supported `@modelcontextprotocol/sdk` is now 1.23.0, the first
