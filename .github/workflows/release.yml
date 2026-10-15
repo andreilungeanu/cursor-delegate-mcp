@@ -109,7 +109,8 @@ jobs:
           sudo mv mcp-publisher /usr/local/bin/
       # npm accepts a publish a minute or two before it serves the new version, and the
       # registry validates against npm, so publishing straight after rejects the version as
-      # not found. Retry that one error until npm catches up; anything else fails at once.
+      # not found. Retry that error until npm catches up, and retry registry 5xx responses;
+      # anything else fails at once.
       - name: Publish to the MCP Registry
         timeout-minutes: 15
         shell: bash
@@ -121,13 +122,13 @@ jobs:
               exit 0
             fi
             echo "$out"
-            if ! grep -q "was not found" <<<"$out"; then
+            if ! grep -qE "was not found|status 5[0-9][0-9]" <<<"$out"; then
               exit 1
             fi
             if [ "$attempt" -lt 10 ]; then
-              echo "::warning::npm does not serve this version yet (attempt $attempt/10); retrying in 30s."
+              echo "::warning::MCP Registry publish not accepted yet (attempt $attempt/10); retrying in 30s."
               sleep 30
             fi
           done
-          echo "::error::MCP Registry publish failed after 10 attempts: npm never served this version."
+          echo "::error::MCP Registry publish failed after 10 attempts."
           exit 1
