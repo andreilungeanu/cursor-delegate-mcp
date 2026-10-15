@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-10-15
+
+2.5.1 was tagged but not published: its release run failed the dependency audit. Its fix
+ships in this release.
+
+### Security
+
+- Lockfile bump of `proxy-addr` to 2.0.8, clearing the critical audit advisory
+  GHSA-jqcg-44mw-7w3h in the MCP SDK's dependencies.
+
+### Internal
+
+- The release workflow also retries the MCP Registry publish on registry 5xx responses.
+  2.5.0 reached npm but not the MCP Registry after a 504.
+
 ## [2.5.1] - 2026-10-15
 
 ### Fixed
