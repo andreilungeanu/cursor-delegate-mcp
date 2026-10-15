@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-10-15
+
+### Fixed
+
+- Hooks run on Windows under a Git Bash host. cursor-agent writes hooks as PowerShell but ran
+  them in Git Bash when it inherited `MSYSTEM` or `SHELL`, so every hooked tool call failed as
+  blocked. On win32 both are dropped from the agent's environment; it uses PowerShell.
+
 ## [2.5.0] - 2026-10-05
 
 ### Changed
