@@ -6,24 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [2.5.4] - 2026-10-22
-
-2.5.3 was tagged but not published: its release run failed the dependency audit. Its fix ships in
-this release.
-
-### Security
-
-- Lockfile bumps of the MCP SDK to 1.32.1 and `hono` to 4.13.13, clearing the high advisories
-  GHSA-22jm-h49p-29qw and GHSA-46jr-4wx8-v453 and the moderate GHSA-6prh-2h8m-c8cw,
-  GHSA-rvq5-wwqv-78pq and GHSA-5r4p-p66f-jhc7.
-
-## [2.5.3] - 2026-10-22
+## [2.6.0] - 2026-10-22
 
 ### Fixed
 
 - `/cursor-delegate:delegate` loads the delegate skill. Claude Code loaded a slash command of the same
   name instead, and that command only pointed back to the skill, so the workflow never reached the
   caller. The command is removed; the skill takes the task as its argument.
+
+### Security
+
+- Lockfile bumps of the MCP SDK to 1.32.1 and `hono` to 4.13.13, clearing the high advisories
+  GHSA-22jm-h49p-29qw and GHSA-46jr-4wx8-v453 and the moderate GHSA-6prh-2h8m-c8cw,
+  GHSA-rvq5-wwqv-78pq and GHSA-5r4p-p66f-jhc7.
 
 ## [2.5.2] - 2026-10-15
 
