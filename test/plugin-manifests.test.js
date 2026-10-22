@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -117,6 +117,14 @@ test("Claude plugin launches bundled code and bootstraps its runtime dependencie
   const command = hooks.hooks.SessionStart[0].hooks[0].command;
   assert.match(command, /\.claude-plugin\/ensure-deps\.mjs/);
   assert.ok(existsSync(resolve(ROOT, ".claude-plugin/ensure-deps.mjs")));
+});
+
+test("no command shares a skill's name", () => {
+  // Claude Code lists both as /cursor-delegate:<name> and loads the command, so the
+  // skill's workflow never reaches the caller.
+  for (const name of readdirSync(resolve(ROOT, "skills"))) {
+    assert.ok(!existsSync(resolve(ROOT, "commands", `${name}.md`)), `commands/${name}.md hides skills/${name}`);
+  }
 });
 
 // Copilot CLI reads a root .mcp.json regardless of the manifest, and Codex
