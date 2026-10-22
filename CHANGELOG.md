@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.3] - 2026-10-22
+
+### Fixed
+
+- `/cursor-delegate:delegate` loads the delegate skill. Claude Code loaded a slash command of the same
+  name instead, and that command only pointed back to the skill, so the workflow never reached the
+  caller. The command is removed; the skill takes the task as its argument.
+
 ## [2.5.2] - 2026-10-15
 
 2.5.1 was tagged but not published: its release run failed the dependency audit. Its fix
