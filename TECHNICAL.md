@@ -106,7 +106,6 @@ diagnostic, not fail the call.
 | `src/version.js` | Version read from `package.json`. |
 | `.claude-plugin/hooks.json`, `.claude-plugin/ensure-deps.mjs` | Claude/VS Code SessionStart dependency bootstrap. |
 | `skills/` | Shared plugin skill for host orchestration. |
-| `commands/` | Slash command definition (legacy alias for delegate skill). |
 | `.mcp*.json` | Version-pinned host MCP server registrations. |
 | `.claude-plugin/`, `.codex-plugin/`, `plugin.json` | Claude, Codex, and Copilot plugin manifests. |
 | `.agents/plugins/`, `.github/plugin/` | Codex and Copilot marketplace catalogs. |
