@@ -62,6 +62,23 @@ test("concurrent state updates serialize and preserve a monotonic revision", asy
   assert.equal(state.revision, 21);
 });
 
+test("concurrent reads do not make Windows atomic state replacement fail", {
+  skip: process.platform !== "win32" ? "Windows sharing semantics" : false,
+}, async (t) => {
+  const root = await makeRoot(t);
+  const created = await createJob({ root, jobId, request: { spec: "work" } });
+  const readers = Array.from({ length: 20 }, async () => {
+    for (let index = 0; index < 20; index++) await readJobState(root, created.jobId);
+  });
+  const writers = Array.from({ length: 20 }, (_, index) => updateJobState(
+    root,
+    jobId,
+    (state) => ({ ...state, phase: `writer-${index}` })
+  ));
+  await Promise.all([...readers, ...writers]);
+  assert.equal((await readJobState(root, jobId)).revision, 21);
+});
+
 test("events are complete NDJSON lines and remain bounded", async (t) => {
   const root = await makeRoot(t);
   await createJob({ root, jobId, request: { spec: "work" } });

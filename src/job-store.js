@@ -24,6 +24,7 @@ export const EVENT_LOG_MAX_BYTES = 1_000_000;
 export const RUNNER_STDERR_MAX_BYTES = 256_000;
 export const LOCK_TIMEOUT_MS = 5_000;
 export const LOCK_STALE_MS = 30_000;
+const ATOMIC_RENAME_RETRY_MS = 1_000;
 
 /**
  * @param {string} reason
@@ -40,6 +41,34 @@ function makeJobStoreError(reason, message, filePath) {
 /** @param {() => string} [now] */
 function timestamp(now = () => new Date().toISOString()) {
   return now();
+}
+
+/**
+ * Windows can deny a rename while another process has the destination open for a short read.
+ * Retry that transient sharing violation without ever falling back to an in-place write, which
+ * would expose a half-written state file.
+ *
+ * @param {string} source
+ * @param {string} destination
+ */
+async function renameAtomic(source, destination) {
+  const deadline = Date.now() + ATOMIC_RENAME_RETRY_MS;
+  while (true) {
+    try {
+      await rename(source, destination);
+      return;
+    } catch (error) {
+      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+      if (
+        process.platform !== "win32"
+        || !["EPERM", "EACCES", "EBUSY"].includes(String(code))
+        || Date.now() >= deadline
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
 }
 
 /**
@@ -62,7 +91,7 @@ export async function writeJsonAtomic(filePath, value, options = {}) {
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporary, filePath);
+    await renameAtomic(temporary, filePath);
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     await rm(temporary, { force: true }).catch(() => {});
@@ -400,7 +429,7 @@ async function writeTextAtomic(filePath, body) {
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporary, filePath);
+    await renameAtomic(temporary, filePath);
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     await rm(temporary, { force: true }).catch(() => {});
