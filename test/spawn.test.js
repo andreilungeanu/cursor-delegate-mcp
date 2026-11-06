@@ -31,21 +31,53 @@ test("resolveAcpSpawn defaults to cursor-agent acp when env vars are unset", () 
   delete process.env.ACP_AGENT_ARGS;
   try {
     const spec = resolveAcpSpawn();
-    assert.equal(spec.command, "cursor-agent");
-    assert.deepEqual(spec.args, ["acp"]);
+    if (process.platform === "win32") {
+      assert.equal(spec.command, "powershell.exe");
+      assert.equal(spec.options.shell, false);
+      assert.equal(spec.options.windowsHide, true);
+      const encoded = spec.args.at(-1);
+      const script = Buffer.from(encoded, "base64").toString("utf16le");
+      assert.match(script, /cursor-agent(?:\.ps1)?/);
+      assert.match(script, /'acp'/);
+    } else {
+      assert.equal(spec.command, "cursor-agent");
+      assert.deepEqual(spec.args, ["acp"]);
+      assert.equal(spec.options.shell, false);
+    }
   } finally {
     if (prevCmd !== undefined) process.env.ACP_AGENT_COMMAND = prevCmd;
     if (prevArgs !== undefined) process.env.ACP_AGENT_ARGS = prevArgs;
   }
 });
 
+test("an explicit Windows executable is spawned directly without a shell", {
+  skip: process.platform !== "win32" ? "Windows launcher selection" : false,
+}, () => {
+  const prevCmd = process.env.ACP_AGENT_COMMAND;
+  process.env.ACP_AGENT_COMMAND = process.execPath;
+  try {
+    const spec = resolveAcpSpawn();
+    assert.equal(spec.command, process.execPath);
+    assert.deepEqual(spec.args, ["acp"]);
+    assert.equal(spec.options.shell, false);
+    assert.equal(spec.options.windowsHide, true);
+  } finally {
+    if (prevCmd !== undefined) process.env.ACP_AGENT_COMMAND = prevCmd;
+    else delete process.env.ACP_AGENT_COMMAND;
+  }
+});
+
 test("resolveAcpSpawn honors ACP_AGENT_ARGS with quoted segments", () => {
+  const prevCmd = process.env.ACP_AGENT_COMMAND;
   const prevArgs = process.env.ACP_AGENT_ARGS;
+  if (process.platform === "win32") process.env.ACP_AGENT_COMMAND = process.execPath;
   process.env.ACP_AGENT_ARGS = 'acp --workdir "dir with spaces"';
   try {
     const spec = resolveAcpSpawn();
     assert.deepEqual(spec.args, ["acp", "--workdir", "dir with spaces"]);
   } finally {
+    if (prevCmd !== undefined) process.env.ACP_AGENT_COMMAND = prevCmd;
+    else delete process.env.ACP_AGENT_COMMAND;
     if (prevArgs !== undefined) process.env.ACP_AGENT_ARGS = prevArgs;
     else delete process.env.ACP_AGENT_ARGS;
   }
