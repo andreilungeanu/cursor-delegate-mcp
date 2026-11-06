@@ -132,6 +132,7 @@ bounded stderr file; it does not construct a `cmd.exe` command.
 | `src/version.js` | Version read from `package.json`. |
 | `.claude-plugin/hooks.json`, `.claude-plugin/ensure-deps.mjs` | Claude/VS Code SessionStart dependency bootstrap. |
 | `skills/` | Shared plugin skill for host orchestration. |
+| `.mcp.json`, `.claude-plugin/install-on-import.mjs` | Codex-local MCP launch from bundled source with silent runtime dependency bootstrap. |
 | `.mcp*.json` | Version-pinned host MCP server registrations. |
 | `.claude-plugin/`, `.codex-plugin/`, `plugin.json` | Claude, Codex, and Copilot plugin manifests. |
 | `.agents/plugins/`, `.github/plugin/` | Codex and Copilot marketplace catalogs. |

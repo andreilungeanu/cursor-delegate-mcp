@@ -26,6 +26,9 @@ All notable changes to this project are documented here. The format follows
   compatible.
 - Runtime integration is validated against Cursor CLI `2026.10.22-27dcf5f`, including its
   documented ACP session and cancellation methods.
+- Codex plugins launch the bundled `src/server.js` from the installed plugin cache instead
+  of waiting for a separately published npm version. First start installs declared runtime
+  dependencies without writing npm output into the MCP protocol stream.
 - On Windows, the Cursor CLI launcher runs through PowerShell instead of an implicit
   `cmd.exe` shell. The detached job runner continues to use `process.execPath` with
   `shell: false`.

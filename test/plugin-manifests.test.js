@@ -27,8 +27,17 @@ test("Codex plugin manifest references real portable components", () => {
     assert.match(manifest[field], /^\.\//);
     assert.ok(existsSync(resolve(dirname(manifestPath), "..", manifest[field])), `${field} path must exist`);
   }
-  assert.equal(manifest.mcpServers[serverName].command, "npx");
-  assert.deepEqual(manifest.mcpServers[serverName].args, ["-y", pin]);
+  assert.equal(manifest.mcpServers, "./.mcp.json");
+  const codexMcp = read(".mcp.json");
+  const codexServer = codexMcp.mcpServers[serverName];
+  assert.equal(codexServer.command, "node");
+  assert.equal(codexServer.cwd, ".");
+  assert.deepEqual(codexServer.args, [
+    "--import",
+    "./.claude-plugin/install-on-import.mjs",
+    "./src/server.js",
+  ]);
+  assert.ok(existsSync(resolve(ROOT, ".claude-plugin/install-on-import.mjs")));
   for (const field of ["composerIcon", "logo", "logoDark"]) {
     const target = resolve(dirname(manifestPath), "..", manifest.interface[field]);
     assert.ok(existsSync(target), `${field} asset must exist`);
@@ -149,11 +158,14 @@ test("no command shares a skill's name", () => {
   }
 });
 
-// Copilot CLI reads a root .mcp.json regardless of the manifest, and Codex
-// auto-discovers hooks/hooks.json even when the Codex manifest omits hooks.
-// Claude-only config must therefore never live at those conventional paths.
+// Copilot can read a root .mcp.json, and Codex auto-discovers hooks/hooks.json even when the
+// Codex manifest omits hooks. A root MCP file is valid for Codex/plugin use, but it must not
+// contain Claude-only placeholders; hook config remains confined to the Claude manifest.
 test("no Claude-only config at paths other hosts auto-discover", () => {
-  assert.ok(!existsSync(resolve(ROOT, ".mcp.json")), ".mcp.json at the repo root leaks into Copilot installs");
+  if (existsSync(resolve(ROOT, ".mcp.json"))) {
+    const shared = readFileSync(resolve(ROOT, ".mcp.json"), "utf8");
+    assert.doesNotMatch(shared, /CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA/);
+  }
   assert.ok(!existsSync(resolve(ROOT, "hooks/hooks.json")), "hooks/hooks.json is auto-discovered by Codex");
 });
 

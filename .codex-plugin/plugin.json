@@ -12,12 +12,7 @@
   "license": "MIT",
   "keywords": ["mcp", "cursor", "codex", "delegation", "coding-agent"],
   "skills": "./skills/",
-  "mcpServers": {
-    "cursor-delegate": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp@2.7.0"]
-    }
-  },
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Cursor Delegate",
     "shortDescription": "Delegate coding to Cursor",

@@ -121,6 +121,10 @@ codex plugin marketplace add andreilungeanu/cursor-delegate-mcp
 codex plugin add cursor-delegate@cursor-delegate-mcp
 ```
 
+Git-installed Codex plugins run the bundled `src/server.js` from the plugin cache. On the
+first start, the launcher quietly installs declared runtime dependencies; npm output is kept
+off the MCP stdout protocol.
+
 ### GitHub Copilot CLI
 
 ```shell

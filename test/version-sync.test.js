@@ -26,7 +26,10 @@ test("package and plugin manifest versions stay in sync", () => {
 
   const pin = `cursor-delegate-mcp@${pkg.version}`;
   assert.ok(JSON.stringify(read("../.mcp.copilot.json")).includes(pin), `../.mcp.copilot.json must pin ${pin}`);
-  assert.ok(JSON.stringify(manifests[1].mcpServers).includes(pin), "Codex inline MCP config must pin the package version");
+  assert.equal(manifests[1].mcpServers, "./.mcp.json");
+  const codexMcp = read("../.mcp.json");
+  assert.equal(codexMcp.mcpServers["cursor-delegate"].command, "node");
+  assert.ok(codexMcp.mcpServers["cursor-delegate"].args.includes("./src/server.js"));
 
   const iconTag = `/v${pkg.version}/assets/`;
   for (const icon of registry.icons) {

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "cursor-delegate": {
+      "command": "node",
+      "args": [
+        "--import",
+        "./.claude-plugin/install-on-import.mjs",
+        "./src/server.js"
+      ],
+      "cwd": "."
+    }
+  }
+}
