@@ -134,7 +134,8 @@ export async function withJobLock(directory, operation, options = {}) {
       acquired = true;
       break;
     } catch (error) {
-      if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;
+      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+      if (code !== "EEXIST" && code !== "EPERM" && code !== "EBUSY") throw error;
     }
 
     let owner;

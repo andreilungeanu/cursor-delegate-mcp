@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_MODEL } from "./delegate.js";
 
 export const JOB_STATUSES = Object.freeze([
   "queued",
@@ -36,6 +37,18 @@ export const waitInputSchema = z.object({
   jobId: jobIdSchema,
   afterRevision: z.number().int().min(0).optional(),
   timeoutMs: z.number().int().min(0).max(30_000).default(20_000),
+});
+
+export const delegateInputSchema = z.object({
+  spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
+  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
+  resumeSessionId: z.string().optional().describe("Continue an existing ACP session."),
+  workspace: z.string().trim().min(1, "workspace must not be blank").describe("The agent's working directory, not a limit. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call."),
+  model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
+  fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
+  effort: z.string().trim().min(1).optional().describe("Exact Cursor thinking-effort value for the selected model. Values differ per model and some expose no effort option; invalid values fail before the prompt and name the accepted set. Pass only when the user asks for Cursor effort — the host's own reasoning setting is unrelated."),
+  context: z.string().trim().min(1).optional().describe("Context window size; gpt-5.x accepts 272k and 1m. Do not pass speculatively."),
+  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting contents into spec. Text becomes references the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against workspace but are not limited to it. Skips are reported in protocolWarnings, never fatal."),
 });
 
 export const JOB_SNAPSHOT_FIELDS = Object.freeze([

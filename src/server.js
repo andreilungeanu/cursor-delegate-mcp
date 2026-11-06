@@ -10,6 +10,7 @@ import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION, readPackageVersion } from "./version.js";
 import { DETACHED } from "./proc.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
+import { delegateInputSchema } from "./job-contract.js";
 
 const ICON_BASE = `https://raw.githubusercontent.com/andreilungeanu/cursor-delegate-mcp/v${VERSION}/assets`;
 /** @type {Array<{ src: string, mimeType: string, sizes: string[], theme: "light" | "dark" }>} */
@@ -159,19 +160,7 @@ export const doctorOutputShape = {
   env: z.record(z.string(), z.unknown()),
 };
 
-export const delegateInputSchema = z.object({
-  spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
-  mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
-  resumeSessionId: z.string().optional().describe("Continue an existing ACP session."),
-  workspace: z.string().trim().min(1, "workspace must not be blank").describe("The agent's working directory, not a limit. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call."),
-  model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
-  fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
-  // Which values a model offers is only knowable after selecting it, so this stays an open
-  // string and the bridge validates the exact token against the live option list.
-  effort: z.string().trim().min(1).optional().describe("Exact Cursor thinking-effort value for the selected model. Values differ per model and some expose no effort option; invalid values fail before the prompt and name the accepted set. Pass only when the user asks for Cursor effort — the host's own reasoning setting is unrelated."),
-  context: z.string().trim().min(1).optional().describe("Context window size; gpt-5.x accepts 272k and 1m. Do not pass speculatively."),
-  contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting contents into spec. Text becomes references the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against workspace but are not limited to it. Skips are reported in protocolWarnings, never fatal."),
-});
+export { delegateInputSchema };
 
 /**
  * @param {{
