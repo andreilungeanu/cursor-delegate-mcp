@@ -19,6 +19,7 @@ import {
 } from "./job-contract.js";
 import { findPersistentJobBySession } from "./job-locks.js";
 import { resolveJobRoot } from "./job-paths.js";
+import { reconcileJob as reconcileJobDefault } from "./job-reconcile.js";
 import {
   cancelPersistentJob,
   getJobResult,
@@ -310,6 +311,7 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, pend
  *   resultJob?: typeof getJobResult,
  *   cancelJob?: typeof cancelPersistentJob,
  *   jobRoot?: typeof resolveJobRoot,
+ *   reconcileJob?: typeof reconcileJobDefault,
  * }} [opts]
  */
 export function buildServer({
@@ -322,6 +324,7 @@ export function buildServer({
   resultJob = getJobResult,
   cancelJob = cancelPersistentJob,
   jobRoot = resolveJobRoot,
+  reconcileJob = reconcileJobDefault,
 } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
@@ -395,7 +398,9 @@ export function buildServer({
     },
     async ({ jobId }) => {
       try {
-        return jsonToolResult(await statusJob({ root: jobRoot(), jobId }));
+        const root = jobRoot();
+        await reconcileJob({ root, jobId });
+        return jsonToolResult(await statusJob({ root, jobId }));
       } catch (error) {
         return jobToolError(error, "status");
       }

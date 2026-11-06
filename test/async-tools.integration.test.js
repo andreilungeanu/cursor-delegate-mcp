@@ -60,6 +60,7 @@ test("start applies the delegate defaults and returns one JSON text block", asyn
 
 test("status, wait, and result expose their bounded contracts", async () => {
   const client = await connected({
+    reconcileJob: async () => ({ changed: false }),
     statusJob: async () => ({
       jobId,
       status: "running",
@@ -141,6 +142,9 @@ test("job tool failures are structured isError responses", async () => {
     statusJob: async () => {
       throw Object.assign(new Error("missing"), { reason: "job-not-found" });
     },
+    reconcileJob: async () => {
+      throw Object.assign(new Error("missing"), { reason: "job-not-found" });
+    },
     jobRoot: () => "C:\\state",
   });
   try {
@@ -154,6 +158,28 @@ test("job tool failures are structured isError responses", async () => {
     const status = await client.callTool({ name: "status", arguments: { jobId } });
     assert.equal(status.isError, true);
     assert.match(status.content[0].text, /\[job-not-found\]/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("status performs atomic reconcile before reading the snapshot", async () => {
+  const calls = [];
+  const client = await connected({
+    reconcileJob: async ({ jobId }) => {
+      calls.push(`reconcile:${jobId}`);
+      return { changed: true };
+    },
+    statusJob: async ({ jobId }) => {
+      calls.push(`status:${jobId}`);
+      return { jobId, status: "interrupted", revision: 9, health: "terminal" };
+    },
+    jobRoot: () => "C:\\state",
+  });
+  try {
+    const result = await client.callTool({ name: "status", arguments: { jobId } });
+    assert.equal(payload(result).status, "interrupted");
+    assert.deepEqual(calls, [`reconcile:${jobId}`, `status:${jobId}`]);
   } finally {
     await client.close();
   }
