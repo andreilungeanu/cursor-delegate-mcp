@@ -266,8 +266,10 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
  *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
  *   onClientReady?: (client: any) => void,
  *   onSessionReady?: (sessionId: string, client: any) => void,
+ *   beforePrompt?: (context: { sessionId: string, client: any }) => void | Promise<void>,
  *   onProgress?: (message: string) => void,
  *   progressThrottleMs?: number, heartbeatMs?: number, signal?: AbortSignal,
+ *   stopClientOnFinish?: boolean,
  * }} [opts]
  */
 export async function runDelegate({
@@ -276,7 +278,7 @@ export async function runDelegate({
   idleMs, handshakeMs, hardCapMs, timeoutMs,
   onClientReady, onSessionReady, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
-  signal,
+  signal, beforePrompt, stopClientOnFinish = true,
 } = {}) {
   // Nothing between here and the abort listener below may await: addEventListener does not
   // replay an abort that already fired, so an abort landing in that window would be lost. A
@@ -469,6 +471,7 @@ export async function runDelegate({
       resumeError = sess.resumeError;
       supervisor.setSessionId(sessionId);
       onSessionReady?.(sessionId, client);
+      await beforePrompt?.({ sessionId, client });
       assertKnownModel(client, model);
       // session/new and session/load both report the model the session opened on, and an id that
       // already matches is served without an explicit set — measured, so this round-trip has
@@ -670,6 +673,6 @@ export async function runDelegate({
     try { supervisor.finish(); } catch {}
     // Deliberately not awaited: stop() waits for the child to exit, and every turn — success as
     // much as failure — would pay that before returning. Nothing here reads whether it landed.
-    Promise.resolve(client.stop()).catch(() => {});
+    if (stopClientOnFinish) Promise.resolve(client.stop()).catch(() => {});
   }
 }

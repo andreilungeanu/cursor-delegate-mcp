@@ -135,6 +135,60 @@ test("a plan frame whose entries is not an array is reported, not fatal", async 
   assert.equal(out.plan, undefined);
 });
 
+test("beforePrompt gates model configuration and the prompt", async () => {
+  const events = [];
+  const client = stubClient("sess-gated");
+  client.setConfigOption = async () => { events.push("config"); };
+  client.setMode = async () => { events.push("mode"); };
+  client.prompt = async () => {
+    events.push("prompt");
+    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "done" } } });
+    return { stopReason: "end_turn" };
+  };
+  let releaseGate;
+  const gate = new Promise((resolve) => { releaseGate = resolve; });
+  const pending = runDelegate({
+    workspace: process.cwd(),
+    spec: "task",
+    clientFactory: () => client,
+    beforePrompt: async () => {
+      events.push("gate-start");
+      await gate;
+      events.push("gate-end");
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(events, ["gate-start"]);
+  releaseGate();
+  const out = await pending;
+  assert.equal(out.result, "done");
+  assert.deepEqual(events, ["gate-start", "gate-end", "config", "mode", "prompt"]);
+});
+
+test("a rejected beforePrompt sends no model configuration or prompt", async () => {
+  const events = [];
+  const client = stubClient("sess-gated-reject");
+  client.setConfigOption = async () => { events.push("config"); };
+  client.setMode = async () => { events.push("mode"); };
+  client.prompt = async () => { events.push("prompt"); return { stopReason: "end_turn" }; };
+
+  await assert.rejects(
+    runDelegate({
+      workspace: process.cwd(),
+      spec: "task",
+      clientFactory: () => client,
+      beforePrompt: async () => {
+        const error = new Error("session busy");
+        error.reason = "session-busy";
+        throw error;
+      },
+    }),
+    (error) => error?.reason === "session-busy"
+  );
+  assert.deepEqual(events, []);
+});
+
 // A stale non-terminal re-send for an already-completed tool call used to restart collection,
 // demoting the collected final message to discardedResult and mislabeling it pre-tool-fallback.
 function staleUpdateFactory() {
