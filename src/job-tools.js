@@ -20,11 +20,13 @@ import {
   claimJobSpawn,
   createJob,
   jobDirectory,
+  readJobState,
   updateJobState,
   writeJobResultOnce,
 } from "./job-store.js";
 
 const RUNNER_PATH = fileURLToPath(new URL("./job-runner.js", import.meta.url));
+const HEARTBEAT_STALE_MS = 30_000;
 
 /** @param {unknown} error */
 function reasonOf(error) {
@@ -193,5 +195,64 @@ export async function startPersistentJob(options) {
     }, now);
   } finally {
     await logHandle?.close().catch(() => {});
+  }
+}
+
+/**
+ * @param {{
+ *   root: string,
+ *   jobId: string,
+ *   now?: () => string,
+ *   nowMs?: number,
+ *   isPidAlive?: (pid: number) => boolean,
+ * }} options
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function getJobStatus(options) {
+  const state = await readJobState(options.root, options.jobId);
+  const nowMs = options.nowMs ?? Date.now();
+  const lastEvidence = Date.parse(state.heartbeatAt || state.updatedAt || state.createdAt);
+  let health = "ok";
+  if (isTerminalJobStatus(state.status)) health = "terminal";
+  else if (!Number.isFinite(lastEvidence) || nowMs - lastEvidence > HEARTBEAT_STALE_MS) {
+    health = "stale";
+  }
+  return { ...publicJobSnapshot(state), health };
+}
+
+/**
+ * Poll only the persisted revision. A timeout is a normal observation and never writes state,
+ * sends a prompt, or changes a session.
+ *
+ * @param {{
+ *   root: string,
+ *   jobId: string,
+ *   afterRevision?: number,
+ *   timeoutMs: number,
+ *   pollMs?: number,
+ *   now?: () => string,
+ *   nowMs?: () => number,
+ *   isPidAlive?: (pid: number) => boolean,
+ * }} options
+ */
+export async function waitForJob(options) {
+  const nowMs = options.nowMs ?? Date.now;
+  const pollMs = options.pollMs ?? 50;
+  const deadline = nowMs() + options.timeoutMs;
+  while (true) {
+    const job = await getJobStatus({
+      root: options.root,
+      jobId: options.jobId,
+      now: options.now,
+      nowMs: nowMs(),
+      isPidAlive: options.isPidAlive,
+    });
+    const changed = options.afterRevision === undefined
+      || job.revision > options.afterRevision
+      || isTerminalJobStatus(job.status);
+    if (changed) return { job, changed: true, timedOut: false };
+    const remaining = deadline - nowMs();
+    if (remaining <= 0) return { job, changed: false, timedOut: true };
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
   }
 }

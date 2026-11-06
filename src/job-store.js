@@ -322,33 +322,51 @@ async function writeTextAtomic(filePath, body) {
 }
 
 /**
+ * @param {string} directory
+ * @param {string} jobId
+ * @param {Record<string, unknown>} result
+ */
+async function writeResultFile(directory, jobId, result) {
+  const resultPath = path.join(directory, "result.json");
+  let descriptor;
+  try {
+    descriptor = openSync(resultPath, "wx", 0o600);
+    const body = `${JSON.stringify(result, null, 2)}\n`;
+    writeSync(descriptor, body, null, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+  } catch (error) {
+    if (descriptor != null) {
+      try { closeSync(descriptor); } catch {}
+    }
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
+      throw makeJobStoreError("result-exists", `job result already exists: ${jobId}`, resultPath);
+    }
+    throw error;
+  }
+  return result;
+}
+
+/**
+ * Write a result while the caller already owns the job lock.
+ *
+ * @param {string} root
+ * @param {string} jobId
+ * @param {Record<string, unknown>} result
+ */
+export async function writeJobResultWithoutLock(root, jobId, result) {
+  return writeResultFile(jobDirectory(root, jobId), jobId, result);
+}
+
+/**
  * @param {string} root
  * @param {string} jobId
  * @param {Record<string, unknown>} result
  */
 export async function writeJobResultOnce(root, jobId, result) {
   const directory = jobDirectory(root, jobId);
-  return withJobLock(directory, async () => {
-    const resultPath = path.join(directory, "result.json");
-    let descriptor;
-    try {
-      descriptor = openSync(resultPath, "wx", 0o600);
-      const body = `${JSON.stringify(result, null, 2)}\n`;
-      writeSync(descriptor, body, null, "utf8");
-      fsyncSync(descriptor);
-      closeSync(descriptor);
-      descriptor = undefined;
-    } catch (error) {
-      if (descriptor != null) {
-        try { closeSync(descriptor); } catch {}
-      }
-      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
-        throw makeJobStoreError("result-exists", `job result already exists: ${jobId}`, resultPath);
-      }
-      throw error;
-    }
-    return result;
-  });
+  return withJobLock(directory, () => writeResultFile(directory, jobId, result));
 }
 
 /**
