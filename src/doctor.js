@@ -34,12 +34,17 @@ function envReport(name, fallback = null) {
 // Time-boxed because a launcher that accepts --version and then never answers would hang doctor
 // forever — and doctor is what you run when delegation is already broken, so a wedged agent is
 // exactly the case it must survive. Same guard the deep handshake has.
-export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
+export function probeAgentVersion(
+  spawnSpec,
+  timeoutMs = VERSION_PROBE_TIMEOUT_MS,
+  versionArgs = ["--version"]
+) {
   const { command, options } = spawnSpec;
   const launcher = String(command || "").replace(/^["']|["']$/g, "");
   const isJsScript = isJsLauncher(launcher);
   const execCommand = isJsScript ? process.execPath : command;
-  const execArgs = isJsScript ? [launcher, "--version"] : ["--version"];
+  const argsToUse = versionArgs || spawnSpec.args || [];
+  const execArgs = isJsScript ? [launcher, ...argsToUse] : argsToUse;
   return new Promise((resolve) => {
     let settled = false;
     let stdout = "";
@@ -132,12 +137,14 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
  *   handshakeTimeoutMs?: number,
  *   versionTimeoutMs?: number,
  *   readVersion?: () => string,
+ *   versionSpawnSpec?: { command: string, args: string[], options?: object },
  * }} [opts]
  */
 export async function runDoctor({
   getClientInfo = () => ({ capabilities: {}, version: {} }),
   deep = false,
-  spawnSpec = resolveAcpSpawn(),
+  spawnSpec,
+  versionSpawnSpec,
   clientFactory = (opts) => new AcpClient(opts),
   workspace,
   handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS,
@@ -145,7 +152,13 @@ export async function runDoctor({
   readVersion = readPackageVersion,
 } = {}) {
   const { capabilities, version } = getClientInfo();
-  const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs);
+  const acpSpawnSpec = spawnSpec || resolveAcpSpawn();
+  const probeSpawnSpec = versionSpawnSpec || spawnSpec || resolveAcpSpawn(["--version"]);
+  const agentProbe = await probeAgentVersion(
+    probeSpawnSpec,
+    versionTimeoutMs,
+    spawnSpec ? ["--version"] : null
+  );
 
   /** @type {{ plugin: any, client: any, agent: any & { handshake?: any }, runtime: any, env: any }} */
   const out = {
@@ -157,7 +170,7 @@ export async function runDoctor({
     },
     agent: {
       found: agentProbe.found,
-      command: formatCommand(spawnSpec),
+      command: formatCommand(acpSpawnSpec),
       version: agentProbe.version,
       ...(agentProbe.error ? { error: agentProbe.error } : {}),
     },
@@ -181,7 +194,7 @@ export async function runDoctor({
 
   if (deep) {
     out.agent.handshake = await runDeepHandshake({
-      spawnSpec,
+      spawnSpec: acpSpawnSpec,
       clientFactory,
       workspace,
       timeoutMs: handshakeTimeoutMs,

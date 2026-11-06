@@ -67,6 +67,17 @@ test("an explicit Windows executable is spawned directly without a shell", {
   }
 });
 
+test("a Windows version probe keeps the PowerShell wrapper but replaces acp", {
+  skip: process.platform !== "win32" ? "Windows launcher selection" : false,
+}, () => {
+  const spec = resolveAcpSpawn(["--version"]);
+  assert.equal(spec.command, "powershell.exe");
+  assert.equal(spec.options.shell, false);
+  const script = Buffer.from(spec.args.at(-1), "base64").toString("utf16le");
+  assert.match(script, /'--version'/);
+  assert.doesNotMatch(script, /'acp'/);
+});
+
 test("resolveAcpSpawn honors ACP_AGENT_ARGS with quoted segments", () => {
   const prevCmd = process.env.ACP_AGENT_COMMAND;
   const prevArgs = process.env.ACP_AGENT_ARGS;

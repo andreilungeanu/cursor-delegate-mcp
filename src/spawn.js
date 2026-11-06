@@ -68,12 +68,15 @@ function defaultAgentCommand() {
 }
 
 // Windows uses an explicit PowerShell process so the launcher resolves without cmd.exe.
-export function resolveAcpSpawn() {
+/** @param {string[] | undefined} [launcherArgs] */
+export function resolveAcpSpawn(launcherArgs) {
   const configuredCommand = process.env.ACP_AGENT_COMMAND;
   const command = configuredCommand || defaultAgentCommand();
-  const args = process.env.ACP_AGENT_ARGS
-    ? splitArgs(process.env.ACP_AGENT_ARGS)
-    : ["acp"];
+  const args = launcherArgs || (
+    process.env.ACP_AGENT_ARGS
+      ? splitArgs(process.env.ACP_AGENT_ARGS)
+      : ["acp"]
+  );
   if (process.platform === "win32") {
     const isPowerShellScript = /\.ps1$/i.test(command);
     if (configuredCommand && !isPowerShellScript) {
