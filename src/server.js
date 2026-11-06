@@ -10,7 +10,10 @@ import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION, readPackageVersion } from "./version.js";
 import { DETACHED } from "./proc.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
-import { delegateInputSchema } from "./job-contract.js";
+import { delegateInputSchema, isTerminalJobStatus } from "./job-contract.js";
+import { findPersistentJobBySession } from "./job-locks.js";
+import { resolveJobRoot } from "./job-paths.js";
+import { cancelPersistentJob, getJobStatus } from "./job-tools.js";
 
 const ICON_BASE = `https://raw.githubusercontent.com/andreilungeanu/cursor-delegate-mcp/v${VERSION}/assets`;
 /** @type {Array<{ src: string, mimeType: string, sizes: string[], theme: "light" | "dark" }>} */
@@ -162,6 +165,14 @@ export const doctorOutputShape = {
 
 export { delegateInputSchema };
 
+export const cancelInputSchema = z.object({
+  jobId: z.string().optional().describe("Persistent job id returned by start."),
+  sessionId: z.string().optional().describe("Cursor ACP session id for the legacy in-process cancel mode."),
+  force: z.boolean().default(false).describe("Escalate a persistent job to forced local process termination after a short grace period."),
+}).refine((value) => Boolean(value.jobId || value.sessionId), {
+  message: "jobId or sessionId is required",
+});
+
 /**
  * @param {{
  *   args: any, extra?: any,
@@ -280,11 +291,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     "cancel",
     {
       description:
-        "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's recent session history).",
-      inputSchema: {
-        sessionId: z.string(),
-        force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
-      },
+        "Cancel by persistent jobId or legacy sessionId. A job request is durable and the runner reports local versus remote termination separately. session/cancel is advisory; force escalates to local process termination. Legacy session statuses remain cancelled, killed, not-running, and not-found.",
+      inputSchema: cancelInputSchema,
       annotations: {
         title: "Cancel Cursor delegation",
         readOnlyHint: false,
@@ -293,9 +301,45 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: false,
       },
     },
-    async ({ sessionId, force }) => {
+    async ({ jobId, sessionId, force }) => {
+      const root = resolveJobRoot();
+      if (jobId) {
+        try {
+          if (sessionId) {
+            const job = await getJobStatus({ root, jobId });
+            if (job.sessionId && job.sessionId !== sessionId) {
+              return {
+                content: [{ type: "text", text: "cancel failed [session-job-conflict]: sessionId does not belong to jobId" }],
+                isError: true,
+              };
+            }
+          }
+          const out = await cancelPersistentJob({ root, jobId, force });
+          return { content: [{ type: "text", text: JSON.stringify(out) }] };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: `cancel failed [${error?.reason || "job-cancel-failed"}]: ${error?.message || String(error)}`,
+            }],
+            isError: true,
+          };
+        }
+      }
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "cancel failed [invalid-input]: jobId or sessionId is required" }],
+          isError: true,
+        };
+      }
       const handles = inFlight.get(sessionId);
       if (!handles || handles.size === 0) {
+        const persistent = await findPersistentJobBySession(root, sessionId);
+        if (persistent) {
+          if (isTerminalJobStatus(persistent.status)) return cancelResult("not-running", sessionId);
+          await cancelPersistentJob({ root, jobId: persistent.jobId, force });
+          return cancelResult("cancelled", sessionId);
+        }
         // A finished session and a garbage id are both "not in flight". Reporting them alike
         // would read as "bad id" for a session that ran and is still resumable.
         const known = seenSessions.has(sessionId);

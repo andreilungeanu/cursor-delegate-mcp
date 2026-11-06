@@ -3,6 +3,7 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
@@ -259,4 +260,44 @@ export async function releaseSessionLock(root, sessionId, jobId) {
   if (existing.jobId !== jobId) return false;
   await unlink(lockPath).catch(() => {});
   return true;
+}
+
+/**
+ * Find the newest persistent job bearing a session id. The session lock handles active jobs;
+ * a bounded scan of job directories catches completed jobs after their lock was released.
+ *
+ * @param {string} root
+ * @param {string} sessionId
+ */
+export async function findPersistentJobBySession(root, sessionId) {
+  if (typeof sessionId !== "string" || !sessionId) return null;
+  const sessionHash = createHash("sha256").update(sessionId).digest("hex");
+  const lockPath = path.join(root, "locks", "sessions", `${sessionHash}.json`);
+  try {
+    const lock = await readJsonFile(lockPath);
+    return await readJobState(root, lock.jobId);
+  } catch (error) {
+    if (error?.reason !== "lock-not-found" && error?.reason !== "job-not-found") throw error;
+  }
+
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") return null;
+    throw error;
+  }
+  let newest = null;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !jobIdSchema.safeParse(entry.name).success) continue;
+    try {
+      const state = await readJobState(root, entry.name);
+      if (state.sessionId === sessionId) {
+        if (!newest || Date.parse(state.updatedAt) > Date.parse(newest.updatedAt)) newest = state;
+      }
+    } catch (error) {
+      if (error?.reason !== "job-not-found" && error?.reason !== "state-corrupt") throw error;
+    }
+  }
+  return newest;
 }

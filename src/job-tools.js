@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   isTerminalJobStatus,
+  jobIdSchema,
   publicJobSnapshot,
   startInputSchema,
 } from "./job-contract.js";
@@ -23,6 +24,7 @@ import {
   readJobResult,
   readJobState,
   updateJobState,
+  writeJobCancelRequest,
   writeJobResultOnce,
 } from "./job-store.js";
 
@@ -279,5 +281,28 @@ export async function getJobResult(options) {
     ready: true,
     status: value.status || job.status,
     value,
+  };
+}
+
+/**
+ * Persist a cancellation request for a durable job. The runner owns the ACP cancel and process
+ * stop; this short server call is safe to repeat and returns the current lifecycle snapshot.
+ *
+ * @param {{ root: string, jobId: string, force?: boolean, now?: () => string }} options
+ */
+export async function cancelPersistentJob(options) {
+  const jobId = jobIdSchema.parse(options.jobId);
+  const cancellation = await writeJobCancelRequest(options.root, jobId, {
+    force: options.force,
+    now: options.now,
+  });
+  const state = cancellation.state;
+  return {
+    jobId,
+    sessionId: state.sessionId ?? null,
+    status: state.status,
+    cancelRequested: Boolean(state.cancelRequested),
+    localTermination: state.localTermination ?? "unknown",
+    remoteTermination: state.remoteTermination ?? "unknown",
   };
 }

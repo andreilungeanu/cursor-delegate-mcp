@@ -7,6 +7,7 @@ import { canonicalDelegateRequest, claimSessionLock, releaseSessionLock } from "
 import {
   appendJobEvent,
   jobDirectory,
+  readJobCancelRequest,
   readJson,
   updateJobState,
   writeJobResultOnce,
@@ -35,6 +36,8 @@ function isoNow(now) {
  *   jobId: string,
  *   runDelegate?: (options: Record<string, any>) => Promise<any>,
  *   heartbeatMs?: number,
+ *   cancelPollMs?: number,
+ *   forceGraceMs?: number,
  *   now?: () => string,
  * }} options
  */
@@ -42,6 +45,8 @@ export async function runDelegationJob(options) {
   const jobId = jobIdSchema.parse(options.jobId);
   const runDelegate = options.runDelegate || runDelegateDefault;
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const cancelPollMs = options.cancelPollMs ?? 250;
+  const forceGraceMs = options.forceGraceMs ?? 500;
   const now = options.now ?? (() => new Date().toISOString());
   const directory = jobDirectory(options.root, jobId);
   const storedRequest = await readJson(path.join(directory, "request.json"));
@@ -71,6 +76,10 @@ export async function runDelegationJob(options) {
   let lastToolLabel = null;
   let todoProgress = null;
   let heartbeat;
+  let cancelPoll;
+  let cancelRequested = false;
+  let forceScheduled = false;
+  const cancellation = new AbortController();
 
   const queueStateUpdate = (updater) => {
     pendingUpdate = pendingUpdate.then(async () => {
@@ -110,12 +119,80 @@ export async function runDelegationJob(options) {
     heartbeat.unref?.();
   };
 
+  const applyCancellationRequest = async () => {
+    const request = await readJobCancelRequest(options.root, jobId);
+    if (!request) return null;
+    if (!cancelRequested) {
+      cancelRequested = true;
+      await queueStateUpdate((state) => ({
+        ...state,
+        status: "cancelling",
+        phase: request.force ? "force-cancel-requested" : "cancel-requested",
+        cancelRequested: true,
+      }));
+      if (client && sessionId) await Promise.resolve(client.cancel?.(sessionId)).catch(() => {});
+    }
+    if (request.force && !forceScheduled) {
+      forceScheduled = true;
+      const timer = setTimeout(() => {
+        void (async () => {
+          if (client && sessionId) await Promise.resolve(client.cancel?.(sessionId)).catch(() => {});
+          cancellation.abort();
+        })();
+      }, forceGraceMs);
+      timer.unref?.();
+    }
+    return request;
+  };
+
+  const earlyCancellation = await readJobCancelRequest(options.root, jobId);
+  if (earlyCancellation) {
+    cancelRequested = true;
+    const finishedAt = isoNow(now);
+    const outcome = {
+      status: "cancelled",
+      jobId,
+      reason: "cancel-requested",
+      message: "cancellation was requested before the runner started the agent",
+      sessionId: null,
+      clientRequestId: clientRequestId ?? null,
+      localTermination: "not-started",
+      remoteTermination: "not-applicable",
+      finishedAt,
+    };
+    await writeJobResultOnce(options.root, jobId, outcome);
+    await updateJobState(options.root, jobId, (state) => ({
+      ...state,
+      status: "cancelled",
+      phase: "cancelled",
+      finishedAt,
+      heartbeatAt: null,
+      lastActivityAt: finishedAt,
+      cancelRequested: true,
+      localTermination: "not-started",
+      remoteTermination: "not-applicable",
+      errorSummary: null,
+    }), { now });
+    await appendJobEvent(options.root, jobId, {
+      type: "job-cancelled",
+      at: finishedAt,
+      localTermination: "not-started",
+      remoteTermination: "not-applicable",
+    }, { now });
+    return outcome;
+  }
+
   startHeartbeat();
+  cancelPoll = setInterval(() => {
+    void applyCancellationRequest().catch(() => {});
+  }, cancelPollMs);
+  cancelPoll.unref?.();
   let delegateResult;
   let failure;
   try {
     delegateResult = await runDelegate({
       ...request,
+      signal: cancellation.signal,
       onClientReady: (readyClient) => {
         client = readyClient;
       },
@@ -149,15 +226,17 @@ export async function runDelegationJob(options) {
     failure = error;
   } finally {
     clearInterval(heartbeat);
+    clearInterval(cancelPoll);
   }
 
   await pendingUpdate.catch(() => {});
+  await applyCancellationRequest().catch(() => {});
   const cleanupAt = isoNow(now);
   await queueStateUpdate((state) => ({
     ...state,
     phase: "stopping-client",
     heartbeatAt: cleanupAt,
-    cancelRequested: false,
+    cancelRequested,
   }));
 
   let localTermination = client ? "unknown" : "not-started";
@@ -172,7 +251,24 @@ export async function runDelegationJob(options) {
   const finishedAt = isoNow(now);
 
   let outcome;
-  if (!failure && localTermination === "confirmed") {
+  if (cancelRequested && localTermination === "confirmed") {
+    outcome = {
+      status: "cancelled",
+      jobId,
+      reason: "cancel-requested",
+      message: failure
+        ? errorSummary(failure)
+        : "the agent completed while cancellation was in progress",
+      sessionId,
+      clientRequestId: clientRequestId ?? null,
+      todoProgress,
+      filesReportedByEditTools: files.size ? [...files] : null,
+      localTermination,
+      remoteTermination,
+      finishedAt,
+    };
+    if (delegateResult !== undefined) outcome.delegateResult = delegateResult;
+  } else if (!failure && localTermination === "confirmed") {
     todoProgress = delegateResult.todoProgress ?? null;
     if (delegateResult.filesReportedByEditTools) {
       for (const file of delegateResult.filesReportedByEditTools) files.add(file);
@@ -216,7 +312,7 @@ export async function runDelegationJob(options) {
   }
 
   await writeJobResultOnce(options.root, jobId, outcome);
-  const terminalStatus = outcome.status === "succeeded" ? "succeeded" : "failed";
+  const terminalStatus = outcome.status;
   await updateJobState(options.root, jobId, (state) => ({
     ...state,
     status: terminalStatus,
@@ -228,7 +324,7 @@ export async function runDelegationJob(options) {
     lastToolLabel,
     todoProgress,
     filesReportedByEditTools: files.size ? [...files] : null,
-    cancelRequested: false,
+    cancelRequested,
     localTermination,
     remoteTermination,
     errorSummary: terminalStatus === "failed"
@@ -236,7 +332,11 @@ export async function runDelegationJob(options) {
       : null,
   }), { now });
   await appendJobEvent(options.root, jobId, {
-    type: terminalStatus === "succeeded" ? "job-succeeded" : "job-failed",
+    type: terminalStatus === "succeeded"
+      ? "job-succeeded"
+      : terminalStatus === "cancelled"
+        ? "job-cancelled"
+        : "job-failed",
     at: finishedAt,
     reason: outcome.reason,
     localTermination,

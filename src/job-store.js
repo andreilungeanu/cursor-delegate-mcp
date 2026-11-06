@@ -274,6 +274,68 @@ export async function readJobResult(root, jobId) {
 }
 
 /**
+ * Read the optional runner cancellation request.
+ *
+ * @param {string} root
+ * @param {string} jobId
+ */
+export async function readJobCancelRequest(root, jobId) {
+  const cancelPath = path.join(jobDirectory(root, jobId), "cancel.json");
+  try {
+    return JSON.parse(await readFile(cancelPath, "utf8"));
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
+      return null;
+    }
+    if (error instanceof SyntaxError) {
+      throw makeJobStoreError("cancel-corrupt", `corrupt cancellation request: ${cancelPath}`, cancelPath);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Persist or escalate cancellation atomically. Repeating the same request is idempotent;
+ * `force: true` upgrades an earlier advisory request so an already-running poller notices it.
+ *
+ * @param {string} root
+ * @param {string} jobId
+ * @param {{ force?: boolean, now?: () => string }} [options]
+ */
+export async function writeJobCancelRequest(root, jobId, options = {}) {
+  const directory = jobDirectory(root, jobId);
+  const now = options.now ?? (() => new Date().toISOString());
+  return withJobLock(directory, async () => {
+    const current = await readJson(path.join(directory, "state.json"));
+    if (["succeeded", "failed", "cancelled", "interrupted"].includes(current.status)) {
+      return { changed: false, state: current, cancel: null };
+    }
+    const existing = await readJobCancelRequest(root, jobId);
+    const force = Boolean(options.force);
+    if (existing && (!force || existing.force)) {
+      return { changed: false, state: current, cancel: existing };
+    }
+    const requestedAt = timestamp(now);
+    const cancel = {
+      jobId,
+      force,
+      requestedAt,
+    };
+    await writeJsonAtomic(path.join(directory, "cancel.json"), cancel);
+    const next = {
+      ...current,
+      status: "cancelling",
+      phase: force ? "force-cancel-requested" : "cancel-requested",
+      cancelRequested: true,
+      revision: Number(current.revision || 0) + 1,
+      updatedAt: requestedAt,
+    };
+    await writeJsonAtomic(path.join(directory, "state.json"), next);
+    return { changed: true, state: next, cancel };
+  }, { now });
+}
+
+/**
  * Append a complete event line. When the bounded log is full, keep the newest whole lines and
  * one explicit truncation marker. Atomic replacement prevents a partial trailing line.
  *
