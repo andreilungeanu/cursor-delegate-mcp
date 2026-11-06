@@ -10,10 +10,22 @@ import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION, readPackageVersion } from "./version.js";
 import { DETACHED } from "./proc.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
-import { delegateInputSchema, isTerminalJobStatus } from "./job-contract.js";
+import {
+  delegateInputSchema,
+  isTerminalJobStatus,
+  jobIdSchema,
+  startInputSchema,
+  waitInputSchema,
+} from "./job-contract.js";
 import { findPersistentJobBySession } from "./job-locks.js";
 import { resolveJobRoot } from "./job-paths.js";
-import { cancelPersistentJob, getJobStatus } from "./job-tools.js";
+import {
+  cancelPersistentJob,
+  getJobResult,
+  getJobStatus,
+  startPersistentJob,
+  waitForJob,
+} from "./job-tools.js";
 
 const ICON_BASE = `https://raw.githubusercontent.com/andreilungeanu/cursor-delegate-mcp/v${VERSION}/assets`;
 /** @type {Array<{ src: string, mimeType: string, sizes: string[], theme: "light" | "dark" }>} */
@@ -173,6 +185,38 @@ export const cancelInputSchema = z.object({
   message: "jobId or sessionId is required",
 });
 
+export const statusInputSchema = z.object({
+  jobId: jobIdSchema,
+});
+
+export const resultInputSchema = z.object({
+  jobId: jobIdSchema,
+});
+
+/**
+ * @param {unknown} value
+ * @returns {import("@modelcontextprotocol/sdk/types.js").CallToolResult}
+ */
+function jsonToolResult(value) {
+  return { content: [{ type: "text", text: JSON.stringify(value) }] };
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} operation
+ * @returns {import("@modelcontextprotocol/sdk/types.js").CallToolResult}
+ */
+function jobToolError(error, operation) {
+  const failure = /** @type {any} */ (error);
+  return {
+    content: [{
+      type: "text",
+      text: `${operation} failed [${failure?.reason || "job-error"}]: ${failure?.message || String(error)}`,
+    }],
+    isError: true,
+  };
+}
+
 /**
  * @param {{
  *   args: any, extra?: any,
@@ -260,9 +304,25 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, pend
  *   runDelegate?: (opts: any) => Promise<any>,
  *   runDoctor?: (opts: any) => Promise<any>,
  *   forceGraceMs?: number,
+ *   startJob?: typeof startPersistentJob,
+ *   statusJob?: typeof getJobStatus,
+ *   waitJob?: typeof waitForJob,
+ *   resultJob?: typeof getJobResult,
+ *   cancelJob?: typeof cancelPersistentJob,
+ *   jobRoot?: typeof resolveJobRoot,
  * }} [opts]
  */
-export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000 } = {}) {
+export function buildServer({
+  runDelegate: runDelegateInjected,
+  runDoctor: runDoctorInjected,
+  forceGraceMs = 5000,
+  startJob = startPersistentJob,
+  statusJob = getJobStatus,
+  waitJob = waitForJob,
+  resultJob = getJobResult,
+  cancelJob = cancelPersistentJob,
+  jobRoot = resolveJobRoot,
+} = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
   const server = new McpServer(
@@ -288,6 +348,121 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
   );
 
   server.registerTool(
+    "start",
+    {
+      description:
+        "Start a durable Cursor delegation job and return a jobId in under five seconds. Use clientRequestId for an idempotent retry when the response may be lost. Long jobs should use start + repeated wait + result instead of one delegate call.",
+      inputSchema: startInputSchema,
+      annotations: {
+        title: "Start durable Cursor delegation",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      try {
+        const out = await startJob({ root: jobRoot(), args });
+        if (!out.ok) {
+          return jobToolError({
+            reason: out.reason,
+            message: out.message || out.reason,
+            jobId: out.jobId,
+            holderJobId: out.holderJobId,
+          }, "start");
+        }
+        return jsonToolResult(out.job);
+      } catch (error) {
+        return jobToolError(error, "start");
+      }
+    }
+  );
+
+  server.registerTool(
+    "status",
+    {
+      description:
+        "Read a durable delegation job snapshot. health=stale means evidence is too old; it is not a completion or failure. The request never sends a prompt or changes the job.",
+      inputSchema: statusInputSchema,
+      annotations: {
+        title: "Read Cursor delegation status",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ jobId }) => {
+      try {
+        return jsonToolResult(await statusJob({ root: jobRoot(), jobId }));
+      } catch (error) {
+        return jobToolError(error, "status");
+      }
+    }
+  );
+
+  server.registerTool(
+    "wait",
+    {
+      description:
+        "Wait up to 30 seconds for a delegation revision, terminal state, or timeout. timedOut=true is a normal result; call wait again with afterRevision. This tool never sends a prompt, retries, cancels, or changes the job.",
+      inputSchema: waitInputSchema,
+      annotations: {
+        title: "Wait for Cursor delegation progress",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      try {
+        const out = await waitJob({
+          root: jobRoot(),
+          jobId: args.jobId,
+          afterRevision: args.afterRevision,
+          timeoutMs: args.timeoutMs,
+        });
+        return jsonToolResult({
+          ...out.job,
+          changed: out.changed,
+          timedOut: out.timedOut,
+        });
+      } catch (error) {
+        return jobToolError(error, "wait");
+      }
+    }
+  );
+
+  server.registerTool(
+    "result",
+    {
+      description:
+        "Read the immutable result of a durable delegation. Non-terminal jobs return status=not-ready without an error. Failed, cancelled, and interrupted jobs preserve structured status and cleanup evidence.",
+      inputSchema: resultInputSchema,
+      annotations: {
+        title: "Read durable delegation result",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ jobId }) => {
+      try {
+        const out = await resultJob({ root: jobRoot(), jobId });
+        return jsonToolResult(out.ready ? out.value : {
+          status: "not-ready",
+          job: out.job,
+        });
+      } catch (error) {
+        return jobToolError(error, "result");
+      }
+    }
+  );
+
+  server.registerTool(
     "cancel",
     {
       description:
@@ -302,7 +477,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       },
     },
     async ({ jobId, sessionId, force }) => {
-      const root = resolveJobRoot();
+      const root = jobRoot();
       if (jobId) {
         try {
           if (sessionId) {
@@ -314,7 +489,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
               };
             }
           }
-          const out = await cancelPersistentJob({ root, jobId, force });
+          const out = await cancelJob({ root, jobId, force });
           return { content: [{ type: "text", text: JSON.stringify(out) }] };
         } catch (error) {
           return {
@@ -337,7 +512,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         const persistent = await findPersistentJobBySession(root, sessionId);
         if (persistent) {
           if (isTerminalJobStatus(persistent.status)) return cancelResult("not-running", sessionId);
-          await cancelPersistentJob({ root, jobId: persistent.jobId, force });
+          await cancelJob({ root, jobId: persistent.jobId, force });
           return cancelResult("cancelled", sessionId);
         }
         // A finished session and a garbage id are both "not in flight". Reporting them alike

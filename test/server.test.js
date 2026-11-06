@@ -208,7 +208,15 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.match(instructions, /filesReportedByEditTools/);
     const listed = await client.listTools();
     const tools = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
-    assert.deepEqual(Object.keys(tools).sort(), ["cancel", "delegate", "doctor"]);
+    assert.deepEqual(Object.keys(tools).sort(), [
+      "cancel",
+      "delegate",
+      "doctor",
+      "result",
+      "start",
+      "status",
+      "wait",
+    ]);
     // The description is what a host reads immediately before calling, so it must not
     // reassert the workspace confinement the instructions just denied.
     assert.match(tools.delegate.description, /every permission the agent requests, in any mode and anywhere on disk/i);
@@ -230,9 +238,7 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.doesNotMatch(effortDescription, /gpt-5\.x|extra-high/);
     // No outputSchema on any tool: declaring one forces structuredContent alongside the text
     // block, which puts the payload in the caller's context twice.
-    assert.equal(tools.delegate.outputSchema, undefined);
-    assert.equal(tools.doctor.outputSchema, undefined);
-    assert.equal(tools.cancel.outputSchema, undefined);
+    for (const tool of Object.values(tools)) assert.equal(tool.outputSchema, undefined);
     // With the schema gone, the description is the only published source of cancel's statuses.
     for (const status of ["cancelled", "killed", "not-running", "not-found"]) {
       assert.ok(tools.cancel.description.includes(status), `cancel description names ${status}`);
@@ -243,6 +249,11 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.equal(tools.delegate.annotations.openWorldHint, true);
     assert.equal(tools.doctor.annotations.readOnlyHint, true);
     assert.equal(tools.cancel.annotations.idempotentHint, true);
+    assert.equal(tools.start.annotations.idempotentHint, false);
+    for (const name of ["status", "wait", "result"]) {
+      assert.equal(tools[name].annotations.readOnlyHint, true, `${name} is read-only`);
+      assert.equal(tools[name].annotations.idempotentHint, true, `${name} is idempotent`);
+    }
   } finally {
     await client.close();
   }
