@@ -350,3 +350,36 @@ export async function writeJobResultOnce(root, jobId, result) {
     return result;
   });
 }
+
+/**
+ * Reserve the single runner launch attempt before spawning. A retry after an uncertain start
+ * response observes this marker and does not launch a second runner. If the process died
+ * between reservation and spawn, reconcile can mark the job interrupted without guessing.
+ *
+ * @param {string} root
+ * @param {string} jobId
+ * @param {{ now?: () => string }} [options]
+ */
+export async function claimJobSpawn(root, jobId, options = {}) {
+  const directory = jobDirectory(root, jobId);
+  return withJobLock(directory, async () => {
+    const current = await readJson(path.join(directory, "state.json"));
+    if (
+      current.runnerPid
+      || current.spawnAttemptedAt
+      || ["succeeded", "failed", "cancelled", "interrupted"].includes(current.status)
+    ) {
+      return { claimed: false, state: current };
+    }
+    const at = timestamp(options.now);
+    const next = {
+      ...current,
+      spawnToken: randomUUID(),
+      spawnAttemptedAt: at,
+      revision: Number(current.revision || 0) + 1,
+      updatedAt: at,
+    };
+    await writeJsonAtomic(path.join(directory, "state.json"), next);
+    return { claimed: true, state: next };
+  }, options);
+}

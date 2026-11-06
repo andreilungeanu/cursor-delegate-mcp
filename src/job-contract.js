@@ -51,6 +51,11 @@ export const delegateInputSchema = z.object({
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting contents into spec. Text becomes references the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against workspace but are not limited to it. Skips are reported in protocolWarnings, never fatal."),
 });
 
+export const startInputSchema = delegateInputSchema.extend({
+  clientRequestId: z.string().trim().min(1).max(200).optional()
+    .describe("Stable caller-generated idempotency key. Reuse it when retrying an uncertain start response."),
+});
+
 export const JOB_SNAPSHOT_FIELDS = Object.freeze([
   "jobId",
   "status",
