@@ -249,6 +249,31 @@ export async function readJobState(root, jobId) {
 }
 
 /**
+ * Read the immutable terminal result without converting missing or corrupt evidence into a
+ * successful outcome.
+ *
+ * @param {string} root
+ * @param {string} jobId
+ */
+export async function readJobResult(root, jobId) {
+  const resultPath = path.join(jobDirectory(root, jobId), "result.json");
+  let body;
+  try {
+    body = await readFile(resultPath, "utf8");
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
+      throw makeJobStoreError("result-not-found", `job result not found: ${resultPath}`, resultPath);
+    }
+    throw error;
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw makeJobStoreError("result-corrupt", `corrupt JSON result: ${resultPath}`, resultPath);
+  }
+}
+
+/**
  * Append a complete event line. When the bounded log is full, keep the newest whole lines and
  * one explicit truncation marker. Atomic replacement prevents a partial trailing line.
  *

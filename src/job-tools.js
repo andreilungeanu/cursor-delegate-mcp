@@ -20,6 +20,7 @@ import {
   claimJobSpawn,
   createJob,
   jobDirectory,
+  readJobResult,
   readJobState,
   updateJobState,
   writeJobResultOnce,
@@ -255,4 +256,28 @@ export async function waitForJob(options) {
     if (remaining <= 0) return { job, changed: false, timedOut: true };
     await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
   }
+}
+
+/**
+ * @param {{ root: string, jobId: string, now?: string, nowMs?: number }} options
+ */
+export async function getJobResult(options) {
+  const job = await getJobStatus({
+    root: options.root,
+    jobId: options.jobId,
+    nowMs: options.nowMs,
+  });
+  if (!isTerminalJobStatus(job.status)) {
+    return {
+      ready: false,
+      status: "not-ready",
+      job,
+    };
+  }
+  const value = await readJobResult(options.root, options.jobId);
+  return {
+    ready: true,
+    status: value.status || job.status,
+    value,
+  };
 }
