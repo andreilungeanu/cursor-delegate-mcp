@@ -41,11 +41,9 @@ test("package and plugin manifest versions stay in sync", () => {
     ["light", "dark"]
   );
 
-  // The Codex marketplace clones this ref for the skill while the manifest above pins the server
-  // to a published version. On `main` the two describe different builds, so the ref moves with
-  // the release like every other pin here.
+  // Fork development follows main so an unpublished candidate plugin can be installed directly.
   const agents = read("../.agents/plugins/marketplace.json");
-  assert.equal(agents.plugins[0].source.ref, `v${pkg.version}`);
+  assert.equal(agents.plugins[0].source.ref, "main");
 });
 
 test("registry ownership metadata matches the published package", () => {

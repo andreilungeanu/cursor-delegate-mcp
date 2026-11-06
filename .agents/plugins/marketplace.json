@@ -8,8 +8,8 @@
       "name": "cursor-delegate",
       "source": {
         "source": "url",
-        "url": "https://github.com/andreilungeanu/cursor-delegate-mcp.git",
-        "ref": "v2.7.0"
+        "url": "https://github.com/liuxiaofengone/cursor-delegate-mcp.git",
+        "ref": "main"
       },
       "policy": {
         "installation": "AVAILABLE",

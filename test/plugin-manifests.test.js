@@ -95,7 +95,8 @@ test("marketplaces and Copilot plugin point at the intended package", () => {
   assert.match(readme, new RegExp(`/plugin install ${selector}`));
   assert.match(readme, new RegExp(`codex plugin add ${selector}`));
   assert.equal(codexEntry.source.source, "url");
-  assert.match(codexEntry.source.url, /^https:\/\/github\.com\/andreilungeanu\//);
+  assert.equal(codexEntry.source.url, "https://github.com/liuxiaofengone/cursor-delegate-mcp.git");
+  assert.equal(codexEntry.source.ref, "main");
   assert.equal(codexEntry.policy.installation, "AVAILABLE");
   assert.equal(codexEntry.policy.authentication, "ON_INSTALL");
 
