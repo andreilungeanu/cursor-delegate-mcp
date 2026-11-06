@@ -6,6 +6,10 @@ Details for integrators and contributors. For a quick start, see [README.md](REA
 
 MCP host (orchestrator) → MCP `delegate` tool → this bridge → **cursor-agent** over ACP (stdio JSON-RPC).
 
+For long jobs, the MCP host creates a persisted job with `start`; a detached Node runner owns
+the ACP child and writes revisions/results while short `status`, `wait`, and `result` calls
+read the same store across MCP restarts.
+
 The bridge auto-approves every permission request and returns named fields (`sessionId`, `filesReportedByEditTools`, optional `plan` and `todos`) instead of scraping stdout.
 
 ## `delegate` tool
@@ -26,6 +30,10 @@ Every tool returns its payload as one compact JSON text block and declares no MC
 
 - **`cancel`** — best-effort cancel of an in-flight delegation.
 - **`doctor`** — setup diagnostics (see below).
+- **`start`** — persist and launch one durable job; `clientRequestId` supplies application
+  idempotency.
+- **`status`** / **`wait`** — read-only revision snapshots; one `wait` is capped at 30 s.
+- **`result`** — immutable terminal delegate result or structured lifecycle failure.
 
 ## `doctor` tool
 
@@ -58,6 +66,12 @@ diagnostic, not fail the call.
 
 ## ACP behavior (verified)
 
+The lifecycle was checked against Cursor CLI `2026.10.22-27dcf5f`. The official ACP contract
+still uses `initialize`, `session/new` or `session/load`, `session/prompt`, streamed
+`session/update`, and `session/cancel`. Cursor's `agent persist` sessions survive terminal
+disconnects but do not expose this JSON lifecycle or external send-message control, so the
+durable MCP path continues to own a separate ACP runner.
+
 - **`parameterizedModelPicker`** in `initialize` enables standard-tier `composer-2.5` (`fast: false`). Without it, only the ~6× fast tier is offered.
 - Model: `session/set_model` when the session did not open on the requested model.
   `session/set_config_option { configId: "fast", … }` unless the session opened on that model *and*
@@ -83,14 +97,26 @@ diagnostic, not fail the call.
 | `CURSOR_DELEGATE_HANDSHAKE_MS` | Handshake deadline (default 60 s). |
 | `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute delegation cap (default 1 h). |
 | `CURSOR_DELEGATE_IDLE_MS` | Opt-in mid-turn idle guard; unset or `0` = off. |
+| `CURSOR_DELEGATE_STATE_DIR` | Override the per-user durable-job state parent directory. Jobs live in its `jobs/` child. |
 | `ACP_E2E` | Set to `1` to run live e2e tests locally. |
+
+Windows resolves the default Cursor launcher through PowerShell with `shell: false`. The job
+runner also uses `process.execPath`, argument arrays, `shell: false`, `detached: true`, and a
+bounded stderr file; it does not construct a `cmd.exe` command.
 
 ## Source layout
 
 | Path | Purpose |
 | ---- | ------- |
-| `src/server.js` | MCP server (`delegate`, `cancel`, `doctor`). |
+| `src/server.js` | MCP server registration and dependency wiring. |
 | `src/delegate.js` | One delegation lifecycle. |
+| `src/job-contract.js` | Job states, public schemas and snapshots. |
+| `src/job-paths.js` | Per-platform state paths and strict job-id validation. |
+| `src/job-store.js` | Atomic state/results, bounded event logs, and cross-process locks. |
+| `src/job-locks.js` | Idempotency index, resume-session locks, and session lookup. |
+| `src/job-runner.js` | Detached ACP job runner and cleanup evidence. |
+| `src/job-tools.js` | Start, status, wait, result, and job cancellation. |
+| `src/job-reconcile.js` | Stale-heartbeat and dead-runner interruption reconciliation. |
 | `src/acp-client.js` | ACP client. |
 | `src/request-router.js` | Permission, plan and todo routing. |
 | `src/jsonrpc.js` | NDJSON JSON-RPC peer. |

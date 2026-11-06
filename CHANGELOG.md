@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-11-06
+
+### Added
+
+- Durable delegation jobs through `start`, `status`, `wait`, and `result`. A detached
+  local runner owns Cursor ACP, so long jobs can survive MCP server exit and restart.
+- Idempotent `clientRequestId` claims, atomic job state, bounded event logs, monotonic
+  revisions, heartbeat/reconcile handling, and one-active-job-per-resume-session locks.
+- Durable cancellation by `jobId`, with advisory ACP cancel, optional forced local
+  termination, and separate `localTermination` / `remoteTermination` evidence.
+- Cross-process integration coverage and a controlled 321-second no-network acceptance
+  test that closes and restarts the MCP server while the same job continues.
+
+### Changed
+
+- The tool set is now `cancel`, `delegate`, `doctor`, `result`, `start`, `status`, and
+  `wait`. Existing synchronous `delegate` and legacy `cancel({sessionId})` contracts remain
+  compatible.
+- Runtime integration is validated against Cursor CLI `2026.10.22-27dcf5f`, including its
+  documented ACP session and cancellation methods.
+- On Windows, the Cursor CLI launcher runs through PowerShell instead of an implicit
+  `cmd.exe` shell. The detached job runner continues to use `process.execPath` with
+  `shell: false`.
+
+### Security
+
+- Job records live in a per-user state directory and are not deleted automatically. State
+  contains the brief, workspace paths, progress, and results; credentials must not be put
+  in briefs or attached context.
+
 ## [2.6.0] - 2026-10-22
 
 ### Fixed

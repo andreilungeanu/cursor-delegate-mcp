@@ -51,6 +51,28 @@ test("Codex interface metadata uses accepted manifest fields", () => {
   assert.deepEqual(unknown, [], "Codex rejects unsupported interface metadata");
 });
 
+test("durable lifecycle documentation covers the shipped workflow", () => {
+  const readme = readFileSync(resolve(ROOT, "README.md"), "utf8");
+  const skill = readFileSync(resolve(ROOT, "skills/delegate/SKILL.md"), "utf8");
+  const reference = readFileSync(resolve(ROOT, "skills/delegate/reference.md"), "utf8");
+  const combined = `${readme}\n${skill}\n${reference}`;
+  for (const term of [
+    "clientRequestId",
+    "start",
+    "status",
+    "wait",
+    "result",
+    "interrupted",
+    "CURSOR_DELEGATE_STATE_DIR",
+    "localTermination",
+    "remoteTermination",
+  ]) {
+    assert.match(combined, new RegExp(term), `durable workflow documents ${term}`);
+  }
+  assert.match(combined, /300s|300 seconds|four minutes/);
+  assert.match(combined, /does not retry|never retried|not retried automatically/i);
+});
+
 test("marketplaces and Copilot plugin point at the intended package", () => {
   const codexMarketplace = read(".agents/plugins/marketplace.json");
   const codexEntry = codexMarketplace.plugins[0];

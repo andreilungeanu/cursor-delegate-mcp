@@ -33,6 +33,16 @@ Scale effort to the task:
 
 ## Workflow
 
+Choose the execution mode before building the brief:
+
+- Use **`delegate`** when the turn is expected to finish well under four minutes and the
+  host can keep one tool call open.
+- Use **`start`** for long, risky, or disconnect-prone work. It returns a persistent
+  `jobId` quickly; `wait`, `status`, and `result` are separate short calls.
+- A host transport timeout such as `timed out awaiting tools/call after 300s` means the
+  outcome is unknown. For an async job, query the same `jobId`. Do not resend the brief or
+  start a second job merely because the transport timed out.
+
 1. **Build the brief inline** — pass task text in `spec` that answers all four, and asks
    for one thing back:
    - **Goal** — the outcome, precisely.
@@ -88,6 +98,26 @@ Scale effort to the task:
    retried; stalls and exits resume the id named in the message. reference.md maps every reason
    to its action.
 4. **Report** — summarize what changed and whether acceptance criteria are met.
+
+## Durable jobs
+
+1. Generate a stable `clientRequestId` for the intended brief. Reuse the exact key
+   and request if `start` loses its response.
+2. Call `start` with the same brief fields as `delegate`. A new job usually returns
+   `sessionId: null`; obtain the real ACP session id from later `status` or `wait`
+   results.
+3. Track with the current `jobId` and latest `revision`. Call
+   `wait(jobId, afterRevision, timeoutMs<=30000)` repeatedly. `timedOut: true` is a
+   normal observation; it does not send a prompt, retry, cancel, or change state.
+4. Once terminal, call `result`. Do not treat `succeeded` as verified work: inspect the
+   real diff and run independent tests just as for `delegate`.
+5. Cancel by `jobId`. A plain cancel writes a durable advisory request. Use
+   `force: true` only when the user wants local process termination; remote termination
+   remains `unknown` without remote evidence.
+
+`interrupted` is not success and is never retried automatically. If a user asks to pause
+after an uncertain outcome, stop, read `status`/`result`, and report the evidence. Do not
+resume, queue another prompt, or switch implementations without permission.
 
 For the failure-reason table, full input and output fields, timeouts, and debugging env
 vars, read [reference.md](reference.md) in this skill directory.
@@ -145,6 +175,18 @@ bridge does not scan for prompt injection).
 ## Other MCP tools
 
 - **`doctor`** — setup diagnostics when the user asks or delegation fails (`agent.found`, version, client capabilities; `deep: true` for handshake).
-- **`cancel`** — best-effort cancel by `sessionId` (MCP calls are serialized; often delegate
-  must finish first). If the agent ignores it and keeps going, call again with `force: true`
-  to kill the process after a grace period.
+- **`start`** — persist a durable job and return `{jobId, status, clientRequestId}` quickly.
+  Same `clientRequestId` plus same request is idempotent; a changed request with that key is
+  an `idempotency-conflict`.
+- **`status`** — immediate public snapshot. `health: "stale"` means evidence is old; it is
+  not a terminal status.
+- **`wait`** — revision-aware wait capped at 30 seconds.
+- **`result`** — `status: "not-ready"` before a terminal state; terminal success returns the
+  delegate payload plus lifecycle metadata.
+- **`cancel`** — prefer `{jobId, force?}` for durable jobs. Legacy `{sessionId, force?}`
+  remains supported. `session/cancel` is advisory; forced local termination is separate
+  from remote evidence.
+
+The current Cursor CLI ACP contract is the integration boundary. `agent persist` can keep a
+terminal session attached across disconnects, but it has no programmatic JSON management or
+external send-message interface, so it does not replace MCP `start`/`wait`/`result`.

@@ -45,10 +45,57 @@ Composer and Grok draw from the **Cursor Models usage pool**, separate from thir
 - 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
 - 🔍 **Ask anything** — `ask` mode: Q&A over your codebase.
+- ⏳ **Durable long jobs** — tasks expected to exceed four minutes can run in a detached local runner. Close or restart the MCP host, then keep tracking the same `jobId`.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
 - 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, OpenCode, Antigravity, and more.
 
 `plan` and `ask` are instructions to the agent, and `workspace` is its working directory — [Security](SECURITY.md) and the [delegate reference](skills/delegate/reference.md) spell out what the bridge enforces and what it reports back.
+
+## Durable long jobs
+
+Keep `delegate` for short and medium turns. For work that may exceed four minutes,
+`start` persists a job and launches a detached runner before returning a `jobId`.
+The runner owns the Cursor ACP child, so closing or restarting the MCP server does
+not end the job.
+
+1. Call `start` with the same brief fields as `delegate`, plus a stable
+   `clientRequestId`. If the response is lost, repeat the exact request with the
+   same key and you get the original job instead of another prompt.
+2. Poll `status`, or repeatedly call `wait` with the latest `revision`. Each
+   `wait` may wait for at most 30 seconds. `timedOut: true` is normal and does not
+   mean the job failed.
+3. Once the job is terminal, call `result` for the delegate output or structured
+   failure, cancellation, or interruption evidence.
+4. A resumed Cursor session accepts one active job at a time. Cancel a durable
+   job by `jobId`; `force: true` upgrades an advisory
+   `session/cancel` request to confirmed local process termination.
+
+```text
+start(spec, workspace, clientRequestId) -> jobId
+status(jobId)                           -> current revision
+wait(jobId, afterRevision, timeoutMs)   -> next revision or normal timeout
+result(jobId)                           -> not-ready until terminal, then the result
+cancel(jobId, force)                    -> durable cancellation request
+```
+
+`interrupted` means the runner heartbeat and process evidence went stale. The
+bridge does not retry or recover it automatically. `localTermination` describes
+this machine only; `remoteTermination` stays `unknown` unless a future adapter has
+remote PID or platform evidence.
+
+Job state is stored under `%LOCALAPPDATA%\cursor-delegate-mcp\jobs` on Windows or
+`${XDG_STATE_HOME:-~/.local/state}/cursor-delegate-mcp/jobs` on POSIX. Set
+`CURSOR_DELEGATE_STATE_DIR` to override it. State can contain the task brief,
+workspace paths, progress, and result, so protect that directory like source code.
+The bridge does not delete evidence automatically. After confirming no job is active,
+you can remove a chosen state directory manually; on Windows use
+`Remove-Item -LiteralPath <state-dir> -Recurse` only for the exact path you intend.
+
+This workflow is compatible with the current Cursor CLI ACP contract
+(`session/new`, `session/load`, `session/prompt`, and `session/cancel`) and keeps
+`cursor-agent` as the official backward-compatible launcher name. On Windows it
+starts the CLI launcher through PowerShell, while the standalone job runner uses
+`spawn(..., { shell: false })`; neither path intentionally routes through `cmd.exe`.
 
 ## Install
 
@@ -177,7 +224,7 @@ Same `mcpServers` block as the generic snippet above. Workspace file wins when b
 <details>
 <summary><strong>Kilo Code</strong> — <code>kilo.jsonc</code> (<code>mcp</code> key, not <code>mcpServers</code>)</summary>
 
-Same shape as OpenCode: `type: "local"` and `command` as one array. In the VS Code extension: **Settings → MCP → Add Server → Local (stdio)**. On Windows, if `npx` is not found, use command `cmd` with arguments `/c`, `npx`, `-y`, `cursor-delegate-mcp`.
+Same shape as OpenCode: `type: "local"` and `command` as one array. In the VS Code extension: **Settings → MCP → Add Server → Local (stdio)**. On Windows, if `npx` is not found, invoke PowerShell (`powershell.exe`) with `-NoProfile`, `-Command`, `npx -y cursor-delegate-mcp`.
 
 </details>
 

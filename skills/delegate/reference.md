@@ -34,6 +34,42 @@ option was recognized as effort, and the message lists what the model offers ins
 For `effort-options-unavailable`, keep the same session and complete spec but do not guess a value.
 Do not pass `context` speculatively.
 
+## Sync and durable jobs
+
+`delegate` remains the synchronous interface. Do not use it for a turn expected to
+exceed the host's tool-call deadline (Codex hosts have been observed to time out around
+300 seconds); use `start` instead.
+
+`start` accepts every `delegate` field plus optional `clientRequestId`. It persists the
+request first and returns a `jobId` quickly while a detached local runner owns the Cursor
+ACP process. The same idempotency key and normalized request return the original job;
+the same key with a different request fails as `idempotency-conflict`. A resumed Cursor
+session accepts one unfinished job at a time and reports `session-busy` with the holder
+`jobId`.
+
+Track one job with its latest revision:
+
+```text
+status(jobId)
+wait(jobId, afterRevision, timeoutMs<=30000)
+result(jobId)
+```
+
+`wait` reports `changed` and `timedOut`. A timeout is not failure and does not write state,
+send a prompt, retry, cancel, or recover a session. Poll again with the returned revision.
+`result` is `not-ready` until a terminal state, and then returns the same delegate-shaped
+success payload plus `jobId` and `lifecycle`, or structured failure/cancellation/
+interruption evidence.
+
+State lives under `%LOCALAPPDATA%\cursor-delegate-mcp\jobs` on Windows or the platform
+state directory on POSIX; `CURSOR_DELEGATE_STATE_DIR` overrides it. Files can contain the
+brief, workspace paths, progress, and result. The bridge does not delete them automatically.
+Never put credentials in briefs or context files.
+
+`health: "stale"` is derived from an old heartbeat and process evidence; a live PID alone
+does not prove the job is progressing. `interrupted` is a terminal forensic state, not
+success, and is never retried automatically.
+
 ## Return value
 
 | Field | Description |
@@ -109,6 +145,11 @@ Errors come back as `delegate failed [<reason>]: …`.
 | `idle-timeout` | Opt-in mid-turn idle guard tripped (off by default). | Resume the id in the message. |
 | `spawn-failed` | The agent process could not be started at all (launcher missing or not executable). | Install Cursor CLI and run `cursor-agent login`; `doctor` shows the launcher resolution. |
 | `agent-exit` | The agent process died; stderr is included. | Resume once; run `doctor` if it repeats. |
+| `session-busy` | Another unfinished persistent job holds the requested `resumeSessionId`. | Wait for, inspect, or cancel the holder named by `holderJobId`; do not send another prompt to that session. |
+| `idempotency-conflict` | A `clientRequestId` was reused with a different normalized request. | Use the original request or a new key. |
+| `cleanup-failed` | Work settled, but the local Cursor CLI process was not observed to exit. | Treat the job as failed; inspect `localTermination` and process evidence before any manual recovery. |
+| `runner-exited` | A previously observed runner exited without a terminal result. | Job status becomes `interrupted`; do not retry automatically. |
+| `runner-not-observed` | A reserved spawn was not observed before its evidence expired. | Job status becomes `interrupted`; do not create another prompt automatically. |
 | `handshake-timeout` | No prompt ever went in flight — the agent wedged during setup. Setup runs past `session/new`, so a session may already exist. | Resume the id if the message names one; run `doctor` if it names none, or if resuming repeats the stall. |
 | `aborted` | The MCP host interrupted the request (e.g. Esc in Claude Code). Usually fires mid-turn against a live session, so a `resumeSessionId` is supplied; only an abort that arrives before the session exists has none. | Deliberate, so normally stop — but resume the id if the work should continue. |
 
@@ -160,17 +201,29 @@ Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
 malformed value falls back to the default. Agent process exit is detected directly and fails
 fast regardless of these.
 
-A delegation is still cancellable at any time via the `cancel` tool or a host interrupt.
+A synchronous delegation is still cancellable via the legacy `cancel({sessionId, force?})`
+mode. A durable job is cancelled with `{jobId, force?}`. Repeating the same request is
+idempotent; force upgrades an earlier advisory request.
 
 ## Other tools
 
-**`cancel`** — `{sessionId, force?}` → `status: "cancelled" | "killed" | "not-running" | "not-found"`.
+**`cancel`** — durable `{jobId, force?}` returns `jobId`, `sessionId`, lifecycle `status`,
+`cancelRequested`, and separate `localTermination` / `remoteTermination` evidence. The runner
+sends `session/cancel`; `force: true` may then terminate and confirm the local process exit.
+`remoteTermination` stays `unknown` without a remote-specific adapter.
+
+Legacy `{sessionId, force?}` remains compatible with
+`status: "cancelled" | "killed" | "not-running" | "not-found"`.
 `session/cancel` is best-effort and the agent may finish the turn; the session stays
 cancellable afterwards, so a follow-up call with `force: true` kills the process after a
 grace period. `killed` means the process was observed to exit; a force that cannot confirm the
 exit reports `cancelled` and keeps the session cancellable, so force can be retried.
 `not-running` means the turn already ended — the session is still resumable via
 `resumeSessionId`; `not-found` means the id is not in this process's recent session history.
+
+**`start` / `status` / `wait` / `result`** — the durable-job lifecycle described above.
+`status`, `wait`, and `result` are read-only. `wait` accepts 0–30,000 ms and defaults to
+20,000 ms; larger values are rejected.
 
 **`doctor`** — `{deep?}`. Always reports plugin version, MCP client `capabilities`,
 launcher resolution and `agent.found`, plus runtime info. With
@@ -184,3 +237,17 @@ none.
 `agent.version` is the launcher's `--version` output, or `null`. `found: false` means it is not
 installed; `found: true` with a `null` version means it exists but did not answer, and
 `agent.error` says why (e.g. the probe timed out).
+
+## Cursor CLI compatibility
+
+The lifecycle targets Cursor's documented ACP server: `session/new`, `session/load`,
+`session/prompt`, and `session/cancel`. The `cursor-agent` name remains Cursor's official
+backward-compatible alias for `agent`. Windows resolves the installed
+`cursor-agent.ps1` through PowerShell instead of an implicit `cmd.exe` shell. The detached
+job runner uses `process.execPath` with `shell: false`; neither path is built by string
+concatenation.
+
+Cursor also has `agent persist` sessions that survive terminal disconnects. They are useful
+inside an interactive terminal but do not currently expose the JSON lifecycle or external
+send-message control this MCP needs, so durable MCP jobs continue to use a separate ACP
+runner.

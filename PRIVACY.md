@@ -8,4 +8,9 @@ When you delegate, the local server starts `cursor-agent`. Task prompts, selecte
 
 The MCP response can contain file paths, agent output, plan text, diagnostic information, and session identifiers. Review that output before sharing logs or bug reports. The plugin does not redact secrets found in prompts, files, agent output, or diagnostics.
 
+Durable jobs are stored only on this machine under the per-user state directory described in
+the README. That state can include the task brief, workspace paths, progress, event logs, and
+the final result. It is not uploaded by this project and is not deleted automatically. Protect
+or remove that directory according to your own data-retention policy.
+
 For security issues, see [SECURITY.md](SECURITY.md) or open a [GitHub Security Advisory](https://github.com/andreilungeanu/cursor-delegate-mcp/security/advisories/new).
