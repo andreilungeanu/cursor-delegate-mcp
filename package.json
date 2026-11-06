@@ -52,6 +52,7 @@
   ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
+    "test:async": "node --test test/async-lifecycle.slow.test.mjs",
     "test:pack": "node test/npm-package-smoke.mjs",
     "start": "node src/server.js",
     "typecheck": "tsc -p tsconfig.json"
