@@ -47,13 +47,14 @@ async function makeWorkspace(label) {
   return workspace;
 }
 
-async function startJob(client, workspace, spec, clientRequestId) {
+async function startJob(client, workspace, spec, clientRequestId, extra = {}) {
   return payload(await client.callTool({
     name: "start",
     arguments: {
       spec,
       workspace,
       clientRequestId,
+      ...extra,
     },
   }));
 }
@@ -94,7 +95,8 @@ if (mode === "probe") {
       client,
       workspace,
       "Answer with exactly SHORT_ASYNC_OK. Do not use tools and do not edit files.",
-      `short-${Date.now()}`
+      `short-${Date.now()}`,
+      { mode: "ask" }
     );
     const terminal = await waitUntil(
       client,
