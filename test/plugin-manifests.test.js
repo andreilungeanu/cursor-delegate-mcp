@@ -8,6 +8,7 @@ import { cp, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_HARD_CAP_MS } from "../src/session-supervisor.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel) => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8"));
@@ -29,6 +30,16 @@ test("Codex plugin manifest references real portable components", () => {
   }
   assert.equal(manifest.mcpServers[serverName].command, "npx");
   assert.deepEqual(manifest.mcpServers[serverName].args, ["-y", pin]);
+  // Codex ends a tool call after 300s of wall-clock time unless the server entry sets
+  // tool_timeout_sec, and progress notifications do not extend it. The hard-cap timer starts
+  // after Codex's clock, so the margin lets the structured hard-cap error arrive first.
+  const toolTimeoutSec = manifest.mcpServers[serverName].tool_timeout_sec;
+  // A quoted value would pass the comparison below by coercion; Codex drops the whole server.
+  assert.ok(Number.isFinite(toolTimeoutSec), "Codex tool_timeout_sec must be a JSON number");
+  assert.ok(
+    toolTimeoutSec * 1000 >= DEFAULT_HARD_CAP_MS + 60000,
+    "Codex tool_timeout_sec must exceed the bridge hard cap by at least a minute"
+  );
   for (const field of ["composerIcon", "logo", "logoDark"]) {
     const target = resolve(dirname(manifestPath), "..", manifest.interface[field]);
     assert.ok(existsSync(target), `${field} asset must exist`);
