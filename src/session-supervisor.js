@@ -1,9 +1,11 @@
 import { makeError } from "./errors.js";
 
+export const DEFAULT_HARD_CAP_MS = 6 * 60 * 60 * 1000;
+
 export class SessionSupervisor {
   constructor(client, {
     handshakeMs = 60000,
-    hardCapMs = 3600000,
+    hardCapMs = DEFAULT_HARD_CAP_MS,
     idleMs = 0,
   } = {}) {
     this.client = client;

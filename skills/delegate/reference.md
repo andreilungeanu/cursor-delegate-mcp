@@ -105,7 +105,7 @@ Errors come back as `delegate failed [<reason>]: …`.
 | `effort-options-unavailable` | The selected model did not report a usable effort option list, or rejected an option it had just advertised. No prompt was sent. | Retry the named session once with the complete original `spec`; if it repeats, run `doctor` and report the capability failure rather than guessing. |
 | `resume-failed` | `resumeSessionId` could not be loaded for a reason other than the agent not having that session — no fresh session was started. | Retry; omit `resumeSessionId` to start fresh deliberately. A session the agent does not have is not this: it starts fresh and reports a `protocolWarnings` entry. |
 | `agent-error` | The agent rejected a request (JSON-RPC error, e.g. an invalid config value). | Fix the argument; retrying is pointless. |
-| `hard-cap` | The 1h absolute cap elapsed. | Resume the id in the message. |
+| `hard-cap` | The 6h absolute cap elapsed. | Resume the id in the message. |
 | `idle-timeout` | Opt-in mid-turn idle guard tripped (off by default). | Resume the id in the message. |
 | `spawn-failed` | The agent process could not be started at all (launcher missing or not executable). | Install Cursor CLI and run `cursor-agent login`; `doctor` shows the launcher resolution. |
 | `agent-exit` | The agent process died; stderr is included. | Resume once; run `doctor` if it repeats. |
@@ -152,7 +152,7 @@ rather than acting on it.
 | Guard | Default | Scope |
 | ----- | ------- | ----- |
 | Handshake deadline | 60 s | Spawn through session setup only, where silence really does mean a wedged agent. |
-| Hard cap | 1 h | Whole delegation, absolute. |
+| Hard cap | 6 h | Whole delegation, absolute. |
 | Mid-turn idle guard | off | Opt-in; silence during a turn does not settle the session. |
 
 Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,

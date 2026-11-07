@@ -7,7 +7,7 @@ import { statSync, realpathSync } from "node:fs";
 // run before the spawn.
 import { readFile } from "node:fs/promises";
 import { AcpClient } from "./acp-client.js";
-import { SessionSupervisor } from "./session-supervisor.js";
+import { DEFAULT_HARD_CAP_MS, SessionSupervisor } from "./session-supervisor.js";
 import { normalizeAgentReportedFiles } from "./agent-reported-files.js";
 import { makeTurnState } from "./turn-state.js";
 import { makeError } from "./errors.js";
@@ -289,7 +289,7 @@ export async function runDelegate({
   assertWorkspace(workspace);
   assertSpec(spec);
   const promptText = spec;
-  const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", 3600000);
+  const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", DEFAULT_HARD_CAP_MS);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
   const state = makeTurnState({ onProgress, progressThrottleMs });

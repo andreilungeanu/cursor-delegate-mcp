@@ -81,7 +81,7 @@ diagnostic, not fail the call.
 | `ACP_LOG_SIZE` | Flight recorder frame count (`0` = off). Recording runs only while `CURSOR_DELEGATE_TRANSCRIPT` is set. |
 | `CURSOR_DELEGATE_TRANSCRIPT` | Frames of raw ACP transcript to append to failure messages; unset = none. Contains prompts, tool inputs/outputs and agent messages — use it only when debugging the bridge itself. |
 | `CURSOR_DELEGATE_HANDSHAKE_MS` | Handshake deadline (default 60 s). |
-| `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute delegation cap (default 1 h). |
+| `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute delegation cap (default 6 h). |
 | `CURSOR_DELEGATE_IDLE_MS` | Opt-in mid-turn idle guard; unset or `0` = off. |
 | `ACP_E2E` | Set to `1` to run live e2e tests locally. |
 

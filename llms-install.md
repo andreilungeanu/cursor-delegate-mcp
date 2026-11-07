@@ -38,7 +38,7 @@ Call the `doctor` tool. It reports the Node version and how `cursor-agent` resol
 | Variable | Purpose |
 | --- | --- |
 | `CURSOR_DELEGATE_IDLE_MS` | Mid-turn idle guard; unset or `0` = off. |
-| `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute cap on a single delegation (default 1 h). |
+| `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute cap on a single delegation (default 6 h). |
 | `CURSOR_DELEGATE_HANDSHAKE_MS` | Handshake deadline (default 60 s). |
 | `CURSOR_DELEGATE_TRANSCRIPT` | Frames of raw ACP transcript to append to failure messages; unset = none. |
 
