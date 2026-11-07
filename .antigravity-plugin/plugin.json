@@ -1,0 +1,22 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "cursor-delegate",
+  "displayName": "Cursor Delegate",
+  "version": "2.7.0",
+  "description": "Delegate coding tasks to cursor-agent over ACP, with structured results, plan mode, and clarification handling.",
+  "logo": "assets/logo-light.png",
+  "suggestedPrompts": [
+    "Delegate this implementation to Cursor and review the diff.",
+    "Ask Cursor to draft a plan for this change.",
+    "Ask Cursor a question about this code, then review the git diff — every mode can edit files."
+  ],
+  "author": {
+    "name": "Andrei Lungeanu",
+    "email": "andrei@lungeanu.ro",
+    "url": "https://github.com/andreilungeanu"
+  },
+  "homepage": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "repository": "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "cursor", "antigravity", "delegation", "coding-agent"]
+}

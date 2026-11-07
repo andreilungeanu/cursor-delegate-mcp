@@ -62,6 +62,54 @@ test("Codex interface metadata uses accepted manifest fields", () => {
   assert.deepEqual(unknown, [], "Codex rejects unsupported interface metadata");
 });
 
+test("Antigravity plugin manifest and MCP config reference real files and outlast the bridge hard cap", () => {
+  const manifest = read(".antigravity-plugin/plugin.json");
+  assert.equal(manifest.name, pluginName);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+
+  const logo = resolve(ROOT, manifest.logo);
+  assert.ok(existsSync(logo), "logo asset must exist");
+  assert.deepEqual([...readFileSync(logo).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.ok(existsSync(resolve(ROOT, "skills")), "default skills/ directory must exist");
+
+  const config = read("mcp_config.json");
+  assert.deepEqual(Object.keys(config), ["mcpServers"]);
+  const server = config.mcpServers[serverName];
+  assert.ok(server, `mcp_config.json must define the ${serverName} server`);
+  assert.equal(server.command, "npx");
+  // Antigravity spawns plugin servers in the plugin root, which is this repository: npx there
+  // resolves the pin to the local package, finds no node_modules/.bin, and the server never starts.
+  assert.equal(server.cwd, "${PLUGIN_DATA}", "mcp_config.json must run npx outside the plugin root");
+  assert.deepEqual(server.args, ["-y", pin]);
+  // Antigravity ends a tool call after 180 s unless the server entry sets timeoutSeconds, and
+  // progress notifications do not extend it. The hard-cap timer starts after Antigravity's
+  // clock, so the margin lets the structured hard-cap error arrive first.
+  const timeoutSec = server.timeoutSeconds;
+  // The schema types timeoutSeconds as an integer; a quoted value would pass the comparison
+  // below by coercion.
+  assert.ok(Number.isInteger(timeoutSec), "Antigravity timeoutSeconds must be a JSON integer");
+  assert.ok(
+    timeoutSec * 1000 >= DEFAULT_HARD_CAP_MS + 60000,
+    "Antigravity timeoutSeconds must exceed the bridge hard cap by at least a minute"
+  );
+});
+
+test("Antigravity plugin manifest uses accepted schema fields", () => {
+  // The manifest schema sets additionalProperties: false and has no mcpServers field; servers
+  // live in mcp_config.json. Keep this contract in npm test so CI catches it without the
+  // Antigravity CLI installed.
+  // https://antigravity.google/docs/build-plugins
+  const allowed = new Set([
+    "$schema", "name", "displayName", "description", "version", "disabled", "logo",
+    "suggestedPrompts", "skills", "author", "homepage", "repository", "license", "keywords",
+    "extensions",
+  ]);
+  const manifest = read(".antigravity-plugin/plugin.json");
+  assert.deepEqual(Object.keys(manifest).filter((key) => !allowed.has(key)), [], "unsupported manifest keys");
+  assert.deepEqual(Object.keys(manifest.author).filter((key) => !["name", "email", "url"].includes(key)), []);
+  assert.ok(manifest.suggestedPrompts.length <= 3, "suggestedPrompts holds at most 3 entries");
+});
+
 test("marketplaces and Copilot plugin point at the intended package", () => {
   const codexMarketplace = read(".agents/plugins/marketplace.json");
   const codexEntry = codexMarketplace.plugins[0];

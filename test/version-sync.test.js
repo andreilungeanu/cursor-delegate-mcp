@@ -12,6 +12,7 @@ test("package and plugin manifest versions stay in sync", () => {
     read("../.claude-plugin/plugin.json"),
     read("../.codex-plugin/plugin.json"),
     read("../plugin.json"),
+    read("../.antigravity-plugin/plugin.json"),
   ];
   const copilotMarketplace = read("../.github/plugin/marketplace.json");
   const registry = read("../server.json");
@@ -27,6 +28,7 @@ test("package and plugin manifest versions stay in sync", () => {
   const pin = `cursor-delegate-mcp@${pkg.version}`;
   assert.ok(JSON.stringify(read("../.mcp.copilot.json")).includes(pin), `../.mcp.copilot.json must pin ${pin}`);
   assert.ok(JSON.stringify(manifests[1].mcpServers).includes(pin), "Codex inline MCP config must pin the package version");
+  assert.ok(JSON.stringify(read("../mcp_config.json")).includes(pin), `../mcp_config.json must pin ${pin}`);
 
   const iconTag = `/v${pkg.version}/assets/`;
   for (const icon of registry.icons) {
