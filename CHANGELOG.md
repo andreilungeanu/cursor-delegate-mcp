@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-11-07
+
+### Changed
+
+- The default hard cap on a single delegation (`CURSOR_DELEGATE_HARD_CAP_MS`) is 6 h, up from 1 h,
+  so long research and refactor runs fit in one call. Longer work continues in another run with
+  `resumeSessionId`.
+
+### Fixed
+
+- Codex lets a `delegate` call run to the hard cap. Codex times an MCP tool call by wall clock,
+  300 s by default, whatever progress the server reports; the Codex plugin now sets
+  `tool_timeout_sec` to 21660 s, a minute past the hard cap, so the bridge's `hard-cap` error
+  arrives first. A server added by hand under `[mcp_servers.cursor-delegate]` in Codex's
+  `config.toml` takes the same key. Reported in #20.
+
+### Security
+
+- Lockfile bumps of `zod` to 4.6.7, `body-parser` to 2.4.0, `fast-uri` to 3.1.9, `ip-address` to
+  10.7.6, `qs` to 6.17.1 and `@hono/node-server` to 2.1.6, clearing the high advisories
+  GHSA-mrhx-c7xc-m3w5 and GHSA-27r3-jxmh-p828, the moderate GHSA-rmxm-3fg6-px4f,
+  GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr, GHSA-rxp7-6hxx-x8q5 and GHSA-6pq8-jhm2-2vcw, and the
+  low GHSA-333x-w4r6-6crp and GHSA-xhq7-xmqj-769h.
+
 ## [2.6.0] - 2026-10-22
 
 ### Fixed
