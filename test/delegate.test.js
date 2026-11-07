@@ -1657,7 +1657,9 @@ test("runDelegate skips an unreadable image and continues with the remaining att
   try {
     if (process.platform === "win32") {
       const script = fileURLToPath(new URL("./fixtures/lock-file.ps1", import.meta.url));
-      locker = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", script, imgPath], {
+      // -File obeys the execution policy, and a default Windows client policy (Restricted) blocks
+      // every script.
+      locker = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, imgPath], {
         stdio: ["pipe", "pipe", "pipe"], windowsHide: true, timeout: 10000,
       });
       closed = new Promise((resolve) => locker.once("close", resolve));
