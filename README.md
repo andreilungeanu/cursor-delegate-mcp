@@ -40,7 +40,7 @@ Composer and Grok draw from the **Cursor Models usage pool**, separate from thir
 
 ## Features
 
-- 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
+- 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, Google Antigravity, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
 - 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
 - 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape.
 - 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
@@ -74,10 +74,21 @@ codex plugin marketplace add andreilungeanu/cursor-delegate-mcp
 codex plugin add cursor-delegate@cursor-delegate-mcp
 ```
 
+### Google Antigravity
+
+```shell
+agy plugin install https://github.com/andreilungeanu/cursor-delegate-mcp
+```
+
+Restart the Antigravity app to load it. If you added `cursor-delegate` to `mcp_config.json` by hand, remove that entry.
+
+Without the CLI, use the manual config under [Client-specific config locations](#client-specific-config-locations).
+
 ### GitHub Copilot CLI
 
 ```shell
-copilot plugin install andreilungeanu/cursor-delegate-mcp
+copilot plugin marketplace add andreilungeanu/cursor-delegate-mcp
+copilot plugin install cursor-delegate@cursor-delegate-mcp
 ```
 
 ### Any other MCP client
@@ -161,9 +172,19 @@ OpenCode does **not** use `mcpServers`. Local servers go under `mcp`, with `type
 </details>
 
 <details>
-<summary><strong>Google Antigravity</strong> — <code>~/.gemini/config/mcp_config.json</code> or workspace <code>.agents/mcp_config.json</code></summary>
+<summary><strong>Google Antigravity</strong> (without the plugin) — <code>~/.gemini/config/mcp_config.json</code> or workspace <code>.agents/mcp_config.json</code></summary>
 
-Same `mcpServers` block as the generic snippet above. In the IDE: **…** on the agent panel → **MCP Servers** → **Manage MCP Servers** → **View raw config**. Antigravity 2.0, IDE, and CLI share the Gemini config file. You may need to approve the server's tools on first run.
+```json
+{
+  "mcpServers": {
+    "cursor-delegate": {
+      "command": "npx",
+      "args": ["-y", "cursor-delegate-mcp"],
+      "timeoutSeconds": 21660
+    }
+  }
+}
+```
 
 </details>
 
