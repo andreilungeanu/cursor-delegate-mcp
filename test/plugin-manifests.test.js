@@ -70,7 +70,7 @@ test("Codex interface metadata uses accepted manifest fields", () => {
 
 test("Antigravity plugin manifest and MCP config reference real files and outlast the bridge hard cap", () => {
   const manifest = read(".antigravity-plugin/plugin.json");
-  assert.equal(manifest.name, pluginName);
+  assert.equal(manifest.name, "delegate-to-cursor");
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
 
   const logo = resolve(ROOT, manifest.logo);
@@ -111,6 +111,16 @@ test("Antigravity plugin manifest uses accepted schema fields", () => {
   assert.deepEqual(Object.keys(manifest).filter((key) => !allowed.has(key)), [], "unsupported manifest keys");
   assert.deepEqual(Object.keys(manifest.author).filter((key) => !["name", "email", "url"].includes(key)), []);
   assert.ok(manifest.suggestedPrompts.length <= 3, "suggestedPrompts holds at most 3 entries");
+
+  // Marketplace submission requires `agy plugin validate --strict` to pass and a name and
+  // displayName that do not lead with "Antigravity", "Gemini", "Claude", or "Cursor". Only this
+  // manifest carries the Antigravity name; the other hosts keep `cursor-delegate`.
+  for (const value of [manifest.name, manifest.displayName]) {
+    assert.doesNotMatch(value, /^(antigravity|gemini|claude|cursor)/i, `${value} leads with a reserved name`);
+  }
+  // Antigravity reads a root plugin.json as a second manifest and strict validation fails on
+  // "ignored: .antigravity-plugin/plugin.json takes precedence".
+  assert.ok(!existsSync(resolve(ROOT, "plugin.json")), "Copilot's manifest belongs in .github/plugin/");
 });
 
 test("marketplaces and Copilot plugin point at the intended package", () => {
@@ -130,7 +140,7 @@ test("marketplaces and Copilot plugin point at the intended package", () => {
   assert.equal(codexEntry.policy.installation, "AVAILABLE");
   assert.equal(codexEntry.policy.authentication, "ON_INSTALL");
 
-  const copilot = read("plugin.json");
+  const copilot = read(".github/plugin/plugin.json");
   assert.equal(copilot.name, pluginName);
   assert.equal(copilot.logo, read(".claude-plugin/plugin.json").logo);
   assert.ok(existsSync(resolve(ROOT, copilot.skills)));

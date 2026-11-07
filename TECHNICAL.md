@@ -106,9 +106,9 @@ diagnostic, not fail the call.
 | `src/version.js` | Version read from `package.json`. |
 | `.claude-plugin/hooks.json`, `.claude-plugin/ensure-deps.mjs` | Claude/VS Code SessionStart dependency bootstrap. |
 | `skills/` | Shared plugin skill for host orchestration. |
-| `.mcp*.json` | Version-pinned host MCP server registrations. |
-| `.claude-plugin/`, `.codex-plugin/`, `plugin.json` | Claude, Codex, and Copilot plugin manifests. |
-| `.agents/plugins/`, `.github/plugin/` | Codex and Copilot marketplace catalogs. |
+| `.mcp*.json`, `mcp_config.json` | Version-pinned host MCP server registrations. |
+| `.claude-plugin/`, `.codex-plugin/`, `.antigravity-plugin/`, `.github/plugin/plugin.json` | Claude, Codex, Antigravity, and Copilot plugin manifests. |
+| `.agents/plugins/`, `.github/plugin/marketplace.json` | Codex and Copilot marketplace catalogs. |
 
 ## Local development
 
