@@ -14,6 +14,11 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel) => JSON.parse(readFileSync(resolve(ROOT, rel), "utf8"));
 const pkg = read("package.json");
 const pin = `cursor-delegate-mcp@${pkg.version}`;
+// Copilot and Antigravity install this whole repository as the plugin and spawn its server
+// there. `npx -y <pin>` in that folder matches the pin to this package.json, finds no
+// node_modules/.bin, and the server never starts. An npm alias spec has no package name, so npx
+// skips the local match and fetches the exact pinned version.
+const npxPin = `npm:${pin}`;
 const pluginName = "cursor-delegate";
 const serverName = "cursor-delegate";
 const marketplaceName = "cursor-delegate-mcp";
@@ -29,7 +34,7 @@ test("Codex plugin manifest references real portable components", () => {
     assert.ok(existsSync(resolve(dirname(manifestPath), "..", manifest[field])), `${field} path must exist`);
   }
   assert.equal(manifest.mcpServers[serverName].command, "npx");
-  assert.deepEqual(manifest.mcpServers[serverName].args, ["-y", pin]);
+  assert.deepEqual(manifest.mcpServers[serverName].args, ["-y", npxPin]);
   // Codex ends a tool call after 300s of wall-clock time unless the server entry sets
   // tool_timeout_sec, and progress notifications do not extend it. The hard-cap timer starts
   // after Codex's clock, so the margin lets the structured hard-cap error arrive first.
@@ -77,10 +82,7 @@ test("Antigravity plugin manifest and MCP config reference real files and outlas
   const server = config.mcpServers[serverName];
   assert.ok(server, `mcp_config.json must define the ${serverName} server`);
   assert.equal(server.command, "npx");
-  // Antigravity spawns plugin servers in the plugin root, which is this repository: npx there
-  // resolves the pin to the local package, finds no node_modules/.bin, and the server never starts.
-  assert.equal(server.cwd, "${PLUGIN_DATA}", "mcp_config.json must run npx outside the plugin root");
-  assert.deepEqual(server.args, ["-y", pin]);
+  assert.deepEqual(server.args, ["-y", npxPin]);
   // Antigravity ends a tool call after 180 s unless the server entry sets timeoutSeconds, and
   // progress notifications do not extend it. The hard-cap timer starts after Antigravity's
   // clock, so the margin lets the structured hard-cap error arrive first.
@@ -133,7 +135,7 @@ test("marketplaces and Copilot plugin point at the intended package", () => {
   assert.ok(existsSync(resolve(ROOT, copilot.skills)));
   assert.ok(existsSync(resolve(ROOT, copilot.mcpServers)));
   const copilotMcp = read(".mcp.copilot.json");
-  assert.deepEqual(copilotMcp[serverName].args, ["-y", pin]);
+  assert.deepEqual(copilotMcp[serverName].args, ["-y", npxPin]);
 
   const copilotMarketplace = read(".github/plugin/marketplace.json");
   assert.equal(copilotMarketplace.name, marketplaceName);

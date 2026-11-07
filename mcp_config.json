@@ -2,8 +2,7 @@
   "mcpServers": {
     "cursor-delegate": {
       "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp@2.7.0"],
-      "cwd": "${PLUGIN_DATA}",
+      "args": ["-y", "npm:cursor-delegate-mcp@2.7.0"],
       "timeoutSeconds": 21660
     }
   }
