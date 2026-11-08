@@ -202,25 +202,6 @@ Same shape as OpenCode: `type: "local"` and `command` as one array. In the VS Co
 
 </details>
 
-<details>
-<summary><strong>Zed</strong> — Settings → AI → MCP Servers, or <code>context_servers</code> in Zed settings</summary>
-
-```json
-{
-  "context_servers": {
-    "cursor-delegate": {
-      "command": "npx",
-      "args": ["-y", "cursor-delegate-mcp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Zed's native agent uses this. External ACP agents in Zed read their own MCP config unless you forward Zed's servers.
-
-</details>
-
 ## License
 
 MIT © [Andrei Lungeanu](https://github.com/andreilungeanu)
