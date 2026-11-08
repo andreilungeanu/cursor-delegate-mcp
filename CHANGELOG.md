@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-11-08
+
+### Added
+
+- Antigravity plugin, listed as Delegate to Cursor:
+  `agy plugin install https://github.com/andreilungeanu/cursor-delegate-mcp`. It sets
+  `timeoutSeconds` to 21660 s, a minute past the hard cap; Antigravity otherwise ends a tool call
+  after 180 s.
+
+### Changed
+
+- Copilot CLI installs from the plugin marketplace:
+  `copilot plugin marketplace add andreilungeanu/cursor-delegate-mcp`, then
+  `copilot plugin install cursor-delegate@cursor-delegate-mcp`. Copilot deprecates direct
+  repository installs. Copilot's manifest moved from the repository root to
+  `.github/plugin/plugin.json`.
+
+### Fixed
+
+- The Copilot plugin's server starts. Copilot runs it inside the plugin folder, a copy of this
+  repository, where `npx -y cursor-delegate-mcp@X.Y.Z` matched the pin to the folder's own
+  `package.json` and failed with `'cursor-delegate-mcp' is not recognized`. The Copilot, Codex and
+  Antigravity configs pin `npm:cursor-delegate-mcp@X.Y.Z`, which npx always fetches. Existing
+  installs pick it up with `copilot plugin update cursor-delegate`.
+
+### Internal
+
+- The test suite passes under Windows' default PowerShell execution policy and removes its
+  temporary plugin folders.
+
 ## [2.7.0] - 2026-11-07
 
 ### Changed
