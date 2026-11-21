@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-11-22
+
+### Fixed
+
+- A missing cursor-agent on Windows is reported as `spawn-failed` with the install hint, and
+  `doctor` reports `found: false`. Launched through cmd.exe it read as `agent-exit` quoting cmd's
+  "is not recognized" line, and `doctor` reported `found: true`.
+- `cancel` with `force` returns as soon as the turn settles, in about 60 ms, instead of waiting out
+  its 5 s grace.
+
 ## [2.8.0] - 2026-11-08
 
 ### Added
