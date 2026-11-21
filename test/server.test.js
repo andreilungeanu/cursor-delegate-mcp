@@ -1025,3 +1025,34 @@ test("a shutdown during the handshake still kills the agent it spawned", async (
     await delegation.catch(() => {});
   }
 });
+
+// Force waited out the whole grace before looking, so a caller paid 5 s for a cancel that had
+// already landed: 5011 ms live against cursor-agent on 2.8.0, with the shell command already gone.
+test("cancel with force returns as soon as the turn settles, not after the whole grace", async () => {
+  let settle;
+  const gate = new Promise((r) => { settle = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-force-fast", { cancel: async () => { settle(); }, stop: () => {} });
+    sessionReady();
+    await gate;
+    return { result: "", stopReason: "cancelled", sessionId: "sess-force-fast" };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 5000 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
+    await ready;
+    const started = Date.now();
+    const cancelRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-force-fast", force: true } });
+    const elapsed = Date.now() - started;
+    assert.equal(payload(cancelRes).status, "cancelled");
+    assert.ok(elapsed < 1000, `force cancel took ${elapsed} ms for a turn that settled at once`);
+    await delegateP;
+  } finally {
+    await client.close();
+  }
+});

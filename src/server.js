@@ -323,7 +323,12 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         // finally removes its handle when the turn actually settles.
         return cancelResult("cancelled", sessionId);
       }
-      await new Promise((r) => setTimeout(r, forceGraceMs));
+      // Watched rather than slept through: cursor-agent can stop a cancelled turn well inside the
+      // grace, and the delegation's finally drops its handle the moment the turn settles.
+      const graceEnds = Date.now() + forceGraceMs;
+      while (Date.now() < graceEnds && inFlight.get(sessionId)?.size) {
+        await new Promise((r) => setTimeout(r, Math.min(50, Math.max(1, graceEnds - Date.now()))));
+      }
       const stillRunning = inFlight.get(sessionId);
       if (!stillRunning || stillRunning.size === 0) return cancelResult("cancelled", sessionId);
       // Snapshot before awaiting stop. A resume that registers during teardown must not be
