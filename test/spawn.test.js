@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { splitArgs, resolveAcpSpawn } from "../src/spawn.js";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { splitArgs, resolveAcpSpawn, commandExists } from "../src/spawn.js";
 
 test("splitArgs splits plain whitespace-separated tokens", () => {
   assert.deepEqual(splitArgs("acp --verbose"), ["acp", "--verbose"]);
@@ -67,5 +70,27 @@ test("resolveAcpSpawn drops MSYSTEM and SHELL from the agent's environment on wi
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  }
+});
+
+test("commandExists finds a launcher on PATH with and without a PATHEXT extension", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmd-exists-"));
+  try {
+    writeFileSync(path.join(dir, "fakecursor.cmd"), "@echo off\n");
+    writeFileSync(path.join(dir, "plaincursor"), "");
+    mkdirSync(path.join(dir, "dironly"));
+    const env = { Path: ["/nowhere", dir].join(path.delimiter), PATHEXT: ".EXE;.CMD" };
+    assert.equal(commandExists("fakecursor", env), true, "bare name resolves through PATHEXT");
+    assert.equal(commandExists("fakecursor.cmd", env), true, "name with its extension");
+    assert.equal(commandExists("plaincursor", env), true, "extensionless file");
+    assert.equal(commandExists("dironly", env), false, "a directory is not a launcher");
+    assert.equal(commandExists("missingcursor", env), false);
+    assert.equal(commandExists(path.join(dir, "fakecursor"), env), true, "a path is checked as given");
+    assert.equal(commandExists(`"${path.join(dir, "fakecursor.cmd")}"`, env), true, "quotes are stripped");
+    assert.equal(commandExists(path.join(dir, "missingcursor"), env), false);
+    assert.equal(commandExists("fakecursor", { PATH: "/nowhere" }), false, "only the given env's PATH is searched");
+    assert.equal(commandExists("", env), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -55,6 +55,16 @@ test("runDoctor reports agent.version null when the command fails", async () => 
   assert.equal(out.agent.version, null);
 });
 
+// Through a shell the probe's spawn succeeds even for a missing launcher, so found read true.
+test("runDoctor reports found false for a missing launcher run through a shell", async () => {
+  const out = await runDoctor({
+    spawnSpec: { command: "nonexistent-agent-xyz-12345", args: ["acp"], options: { shell: true } },
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.equal(out.agent.found, false);
+  assert.equal(out.agent.version, null);
+});
+
 test("runDoctor times out a launcher that never answers --version", async () => {
   const hangPath = fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url));
   const started = Date.now();

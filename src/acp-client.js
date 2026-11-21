@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
-import { resolveAcpSpawn } from "./spawn.js";
+import { commandExists, resolveAcpSpawn } from "./spawn.js";
 import { DETACHED, isChildAlive, treeKill } from "./proc.js";
 import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
@@ -47,6 +47,10 @@ export class AcpClient extends EventEmitter {
 
   start() {
     const { command, args, options } = this.spawnSpec;
+    const opts = /** @type {{ shell?: boolean, env?: NodeJS.ProcessEnv }} */ (options);
+    if (opts?.shell && !commandExists(command, opts.env)) {
+      return Promise.reject(makeError("spawn-failed", `Failed to spawn agent (${command}): not found on PATH. Install Cursor CLI and run 'cursor-agent login'.`));
+    }
     this._stderrChunks = [];
     this._stderrLength = 0;
     const stderrDecoder = new StringDecoder("utf8");

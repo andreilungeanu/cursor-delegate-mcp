@@ -1,7 +1,7 @@
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
-import { resolveAcpSpawn } from "./spawn.js";
+import { commandExists, resolveAcpSpawn } from "./spawn.js";
 import { DETACHED, treeKill } from "./proc.js";
 import { readPackageVersion } from "./version.js";
 import { describeOptions } from "./model-options.js";
@@ -40,6 +40,8 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
   const isJsScript = isJsLauncher(launcher);
   const execCommand = isJsScript ? process.execPath : command;
   const execArgs = isJsScript ? [launcher, "--version"] : ["--version"];
+  // Through a shell, a missing launcher still spawns (the shell does) and would read as found.
+  if (options?.shell && !isJsScript && !commandExists(launcher, options.env)) return Promise.resolve({ found: false, version: null });
   return new Promise((resolve) => {
     let settled = false;
     let stdout = "";

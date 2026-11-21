@@ -1,4 +1,6 @@
 import process from "node:process";
+import { existsSync, statSync } from "node:fs";
+import path from "node:path";
 
 export function splitArgs(raw) {
   const args = [];
@@ -32,4 +34,23 @@ export function resolveAcpSpawn() {
     : ["acp"];
   const win32 = process.platform === "win32";
   return { command, args, options: { shell: win32, ...(win32 ? { env: agentEnv() } : {}) } };
+}
+
+// Through a shell the spawn itself always succeeds: cmd.exe starts, fails to find the launcher and
+// exits 1 with a localized "is not recognized" line, so Node's spawn 'error' event never fires and
+// a missing cursor-agent reads as an agent crash. Resolving the launcher first is what lets that
+// case be reported as not installed. Mirrors cmd's lookup: a path is checked as given, a bare name
+// against each PATH entry, both with and without each PATHEXT extension. Pass the env the child
+// will get: on win32 that is agentEnv(), not process.env.
+export function commandExists(command, env = process.env) {
+  const name = String(command || "").replace(/^["']|["']$/g, "");
+  if (!name) return false;
+  const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
+  const extKey = Object.keys(env).find((k) => k.toUpperCase() === "PATHEXT");
+  const exts = ["", ...String((extKey && env[extKey]) || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)];
+  const isFile = (p) => { try { return existsSync(p) && statSync(p).isFile(); } catch { return false; } };
+  const hit = (base) => exts.some((ext) => isFile(base + ext) || isFile(base + ext.toLowerCase()));
+  if (/[\\/]/.test(name)) return hit(name);
+  const dirs = String((pathKey && env[pathKey]) || "").split(path.delimiter).filter(Boolean);
+  return dirs.some((dir) => hit(path.join(dir.replace(/^"|"$/g, ""), name)));
 }

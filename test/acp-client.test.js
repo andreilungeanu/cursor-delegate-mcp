@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
-import { readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -133,6 +133,40 @@ test("start() rejects a failed spawn with reason spawn-failed", async () => {
     }
   );
   client.stop();
+});
+
+// How the bridge launches cursor-agent on Windows: through cmd.exe, which always spawns. Without
+// the PATH check a missing launcher surfaced as agent-exit quoting cmd's localized "is not
+// recognized" line, and the spawn-failed install hint never fired. Measured live on 2.8.0.
+test("start() reports a missing launcher as spawn-failed when it runs through a shell", async () => {
+  const client = new AcpClient({
+    spawnSpec: { command: "definitely-not-a-real-command-xyz", args: ["acp"], options: { shell: true } },
+  });
+  await assert.rejects(() => client.start(), (err) => {
+    assert.equal(err.reason, "spawn-failed");
+    assert.match(err.message, /not found on PATH\. Install Cursor CLI/);
+    return true;
+  });
+  await client.stop();
+});
+
+// The launcher is looked up on the PATH the agent is spawned with (agentEnv() on win32), not on
+// this process's: node is on this process's PATH but not on the one handed to the shell.
+test("start() resolves a shell-launched command against the spawn env, not process.env", async () => {
+  const emptyDir = mkdtempSync(join(tmpdir(), "acp-empty-path-"));
+  const client = new AcpClient({
+    spawnSpec: { command: "node", args: ["-e", ""], options: { shell: true, env: { PATH: emptyDir } } },
+  });
+  try {
+    await assert.rejects(() => client.start(), (err) => {
+      assert.equal(err.reason, "spawn-failed");
+      assert.match(err.message, /Failed to spawn agent \(node\): not found on PATH/);
+      return true;
+    });
+  } finally {
+    await client.stop();
+    rmSync(emptyDir, { recursive: true, force: true });
+  }
 });
 
 test("stop() terminates a live agent child (regression: Windows orphaned agent)", async () => {
