@@ -15,16 +15,11 @@ export function createRequestRouter({ respond, respondError, onCreatePlan, onTod
     try {
       if (method === "session/request_permission") {
         const opts = params?.options || [];
-        // The two allow kinds only. Taking opts[0] when neither is offered returned a reject
-        // id under a `selected` outcome, which the agent reads as an approval of the denial —
-        // a silent skip from a bridge that advertises auto-approval.
+        // Allow kinds only: opts[0] can be a reject option, and selecting it silently denies.
         const pick =
           opts.find((o) => o.kind === "allow_always") ||
           opts.find((o) => o.kind === "allow_once");
-        // Selecting nothing is not a selection: an options-less request answered with
-        // optionId undefined is a malformed ACP response, and a request offering no allow
-        // option is one this bridge can approve nothing in. Say cancelled to both and let the
-        // agent decide what to do about it.
+        // With no allow option there is nothing to select; cancelled is the valid ACP answer.
         if (!pick?.optionId) return respond(id, { outcome: { outcome: "cancelled" } });
         return respond(id, { outcome: { outcome: "selected", optionId: pick.optionId } });
       }
@@ -42,8 +37,7 @@ export function createRequestRouter({ respond, respondError, onCreatePlan, onTod
         onTodos?.({ todos: params?.todos, merge: params?.merge, toolCallId: params?.toolCallId });
         log({ method, params });
         if (id == null) return;
-        // The documented response is {outcome:{outcome:"accepted", todos}}; the bare {} we
-        // have always sent is accepted by cursor-agent, so it stays until that changes.
+        // The documented reply is {outcome:{outcome:"accepted", todos}}; cursor-agent accepts {}.
         return respond(id, {});
       }
       if (ACK_METHODS.has(method)) {
@@ -52,8 +46,7 @@ export function createRequestRouter({ respond, respondError, onCreatePlan, onTod
       }
       return respondError(id, -32601, `Unhandled method: ${method}`);
     } catch (err) {
-      // -32603, not -32000: ACP assigns -32000 to auth_required, and a bug on this side
-      // reported as "authenticate" sends the agent down a recovery path that cannot work.
+      // -32603, not -32000: ACP reserves -32000 for auth_required, which sends the agent to log in.
       if (id != null) return respondError(id, -32603, `Router error: ${err?.message || err}`);
     }
   };

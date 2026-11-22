@@ -1,11 +1,6 @@
-// The value sets ACP allows for plan and todo fields, shared by the two layers that read them:
-// the sanitizers in delegate.js, which strip anything else off an agent frame, and the zod
-// schemas in server.js, which advertise them to hosts. A drift between the two would strip a
-// value the tool documents, or document one it strips.
-//
-// Plan status follows ACP v1 PlanEntryStatus (no cancelled). Todo status follows Cursor's
-// update_todos / create_plan todo arrays, which include cancelled. They stay separate
-// constants so they can diverge.
+// Allowed plan and todo values, shared by delegate.js's sanitizers and server.js's schemas so the
+// two cannot drift. Plan status follows ACP v1 PlanEntryStatus (no cancelled); todo status follows
+// Cursor's update_todos and create_plan arrays, which include cancelled.
 
 export const PLAN_PRIORITIES = /** @type {const} */ (["high", "medium", "low"]);
 

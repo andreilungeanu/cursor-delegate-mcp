@@ -2,9 +2,8 @@ import process from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { statSync, realpathSync } from "node:fs";
-// Async: a sync read on the server's only thread stalls every other in-flight delegation and
-// its progress stream. The statSync calls below stay sync — they are argument validation and
-// run before the spawn.
+// Async: a sync read would stall every other delegation on this thread. The statSync calls stay
+// sync: they validate arguments before the spawn.
 import { readFile } from "node:fs/promises";
 import { AcpClient } from "./acp-client.js";
 import { DEFAULT_HARD_CAP_MS, SessionSupervisor } from "./session-supervisor.js";
@@ -22,9 +21,8 @@ const ROUTED_MODEL = "default";
 export const DEFAULT_HANDSHAKE_MS = 60000;
 export const DEFAULT_HEARTBEAT_MS = 30000;
 
-// Malformed values fall back to the default rather than failing the call. Only a positive value
-// counts, so a blank var (Number("") is 0) cannot arm a zero-length deadline. The idle guard's
-// documented 0 comes from its own fallback being 0, not from an env value.
+// A malformed or non-positive value falls back to the default, so a blank var (Number("") is 0)
+// cannot arm a zero-length deadline. The idle guard is off because its own fallback is 0.
 function envMs(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -37,19 +35,16 @@ function fmtDuration(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
-// A blank spec spins up a live session that only replies "No prompt content provided" —
-// a billed turn for nothing. Reject it before the spawn, like a bad workspace.
+// A blank spec costs a billed turn that only replies "No prompt content provided".
 function assertSpec(spec) {
   if (typeof spec === "string" && spec.trim() === "") {
     throw makeError("invalid-spec", "spec is empty. Provide a task brief.");
   }
 }
 
-// Named, never defaulted: under npx or a plugin launch the server's own cwd is a cache directory
-// or the user's home, so a defaulted workspace put an auto-approved agent to work on a tree
-// nobody asked about while every layer reported success. And without the existence check the
-// agent's first write creates the directory, so a typo spawns a parallel empty tree. Same check
-// contextFiles applies.
+// Required, never defaulted: under npx or a plugin launch the server's cwd is a cache directory or
+// the user's home, where an auto-approved agent would then work. Must exist, or the agent's first
+// write turns a typo into a new empty tree.
 function assertWorkspace(workspace) {
   if (typeof workspace !== "string" || workspace.trim() === "") {
     throw makeError("invalid-workspace", "workspace is required. Name the directory the agent should work in.");
@@ -72,19 +67,15 @@ const IMAGE_MIME = {
 // Base64 inflates by a third and every byte lands in the prompt, unlike a link.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-// A resource_link hands the agent a path, not the file's bytes, so a large brief costs prompt
-// space only for what the agent opens. Images have no such form — they go inline. Both are
-// measured working, including links outside the workspace. Two rules from that probe:
-//   - gate images on the advertised capability: cursor-agent accepts unsupported blocks without
-//     error (embeddedContext:false raises nothing), so an ungated image vanishes silently;
-//   - report anything skipped — a dropped attachment is otherwise invisible.
+// A resource_link hands the agent a path, so a file costs prompt space only if opened; it works
+// outside the workspace too. Images have no such form and go inline, gated on the advertised
+// capability: cursor-agent drops an unsupported block without error. Every skip is reported.
 async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   const blocks = [];
   // A glob plus an explicit path can resolve to one file; sending it twice wastes prompt space.
   const seen = new Set();
-  // Grouped, not one warning per file: a wrong workspace misses every attachment at once, and a
-  // line each would repeat the same root N times for one root cause. The other skip reasons stay
-  // per-entry — they are individually distinct and never arrive in bulk.
+  // One warning for every miss, since a wrong workspace misses them all at once. Other skip
+  // reasons are reported per entry.
   const notFound = [];
   const root = path.resolve(workspace || process.cwd());
   const identKey = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
@@ -143,11 +134,10 @@ async function buildContextBlocks(contextFiles, workspace, client, warnings) {
   return blocks;
 }
 
-// Only a session the agent does not have justifies a fresh one; falling back on anything else
-// runs the task without the context the caller asked for. Code and wording together, never
-// either: 2026.08.11 returns -32602 `Session "<id>" not found` when it is missing, but -32603
-// `Failed to load session "<id>": <cause>` when restore fails, and that cause can carry the
-// same words. A missed match costs a recoverable resume-failed; a false match costs a silent turn.
+// Only a missing session justifies a fresh one. Code and wording together: 2026.08.11 returns
+// -32602 `Session "<id>" not found` when missing, but -32603 `Failed to load session "<id>": <cause>`
+// when restore fails, and the cause can carry the same words. A missed match costs a recoverable
+// resume-failed; a false one, a turn run without the caller's context.
 function isMissingSession(err) {
   const message = err?.message || "";
   return err?.code === -32602
@@ -169,15 +159,13 @@ async function openSession(client, resumeSessionId, workspace) {
         + ` resumeSessionId to start fresh deliberately.`
       );
     }
-    // Starting fresh is right, but silently doing so leaves the caller unable to tell a
-    // stale id from a typo'd one — keep why the load failed.
+    // Kept so the caller can tell a stale id from a mistyped one.
     const fresh = await client.newSession(workspace);
     return { ...fresh, resumeError: err?.message || String(err) };
   }
 }
 
-// session/new reports the models the agent actually offers. Reject an unknown id here,
-// where the real list can be named, rather than letting set_model fail without it.
+// Rejected here, where session/new's model list can be named; set_model's own error does not.
 // Agents that report no list are left alone.
 function assertKnownModel(client, model) {
   const available = client?.sessionModels?.availableModels;
@@ -187,11 +175,10 @@ function assertKnownModel(client, model) {
   throw makeError("unknown-model", `Unknown model ${JSON.stringify(model)}. This agent offers: ${ids.join(", ")}.`);
 }
 
-// A model's config options are not discoverable up front (session/new reports only the default
-// model's; set_model returns nothing), so probe by asking and read the rejection. Both -32602s
-// are measured: "Unknown model config option: X" means no such knob — report and carry on;
-// "Invalid value for X: Y" is a caller error and must propagate.
-// res echoes the now-current model's configOptions — the only place the served model id appears.
+// Options are not discoverable up front (session/new reports only the default model's; set_model
+// returns nothing), so probe and read the rejection. Measured -32602s: "Unknown model config
+// option: X" means no such knob (report, carry on); "Invalid value for X: Y" propagates.
+// res echoes the current model's configOptions, the only place the served model id appears.
 async function applyConfig(client, sessionId, configId, value) {
   try {
     const res = await client.setConfigOption(sessionId, configId, value);
@@ -202,15 +189,14 @@ async function applyConfig(client, sessionId, configId, value) {
   }
 }
 
-// The resolved model appears only in a set_config_option reply's configOptions (set_model
-// returns nothing). Absent for models that reject every option sent — the field then stays off.
-// session/new and session/load both report the values the session opens with, which is what makes
-// a config round-trip skippable: the bridge can see it would set what is already set.
+// session/new and session/load report the values the session opens with, so a set that would
+// change nothing can be skipped.
 function configOptionValue(configOptions, id) {
   const opt = (Array.isArray(configOptions) ? configOptions : []).find((o) => o?.id === id);
   return typeof opt?.currentValue === "string" ? opt.currentValue : undefined;
 }
 
+// Undefined when the model rejected every option sent; effectiveModel then stays off.
 function servedModelFrom(res) {
   const opts = optionsFrom(res);
   if (opts === undefined) return undefined;
@@ -218,9 +204,8 @@ function servedModelFrom(res) {
   return typeof m?.currentValue === "string" ? m.currentValue : undefined;
 }
 
-// Sent only when the exact value appears under a thought-level option the selected model
-// advertised. Local validation keeps a bad token out of ACP and, more importantly, out of a
-// billed prompt. Missing capability data is not mislabeled as a caller mistake.
+// Sent only as an exact value of an effort option the selected model advertised, so a bad token
+// never reaches a billed prompt. Missing capability data is not reported as a caller mistake.
 async function applyEffort(client, sessionId, model, value, modelOptions) {
   const resolved = resolveEffort(modelOptions, value);
   if (resolved.status === "unavailable") {
@@ -278,10 +263,9 @@ export async function runDelegate({
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
-  // Nothing between here and the abort listener below may await: addEventListener does not
-  // replay an abort that already fired, so an abort landing in that window would be lost. A
-  // spec read used to await here, and did lose one. Throwing, not supervisor.abort(): tripping
-  // before supervise() installs its reject settles the supervisor with nothing listening.
+  // No await before the abort listener below: addEventListener does not replay an abort that
+  // already fired. Throw, not supervisor.abort(): tripping before supervise() installs its reject
+  // settles the supervisor with nothing listening.
   if (signal?.aborted) {
     throw makeError("aborted", "delegation aborted by MCP host");
   }
@@ -356,9 +340,8 @@ export async function runDelegate({
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
   const client = make({ mode, onCreatePlan: state.recordCreatePlan, onTodos: state.recordTodos });
-  // Handed over before the spawn, because from client.start() there is an agent process and the
-  // caller needs something that can stop it. onSessionReady is roughly 3.4s later — a host going
-  // away inside that window used to exit with the agent already running and nothing holding it.
+  // Before the spawn, so the caller can stop the agent from its first moment; onSessionReady comes
+  // ~3.4s later, and a host exiting in between would leave the agent running.
   onClientReady?.(client);
   const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
@@ -384,14 +367,12 @@ export async function runDelegate({
     heartbeat.unref?.();
   };
 
-  // Malformed frames noticed as they arrive, where protocolWarnings does not exist yet. Merged
-  // into it with the rest below.
+  // Malformed frames seen mid-turn; merged into protocolWarnings at the end.
   const frameWarnings = [];
 
-  // Collapsed onto one line the way both readers of this take it: a progress notification and
-  // the "last tool call" line in a stall error. A terminal tool's command arrives verbatim, so a
-  // multi-line script keeps its newlines. The path is left off when the title already names it
-  // ("Edit `src/a.js`"). A start is always reported; a refresh only when it changes the label.
+  // One line for progress and a stall error's "last tool call"; a command arrives verbatim, newlines
+  // included. The path is left off when the title names it ("Edit `src/a.js`"). A start always
+  // reports; a refresh only when the label changes.
   const labelTool = (started) => {
     const { title, path } = state.lastTool;
     const label = (String(title) + (path && !String(title).includes(path) ? " — " + path : "")).replace(/\s+/g, " ").trim();
@@ -400,16 +381,13 @@ export async function runDelegate({
     try { onProgress?.(("running: " + label).slice(0, 200)); } catch {}
   };
 
-  // session/load replays the previous turn as ordinary update frames, tool_call and diff blocks
-  // included. state.reset() clears what they touch but cannot unsend a progress notification, so
-  // the guard below is what stops a resume reporting last turn's edits as if they were happening.
+  // session/load replays the previous turn as ordinary updates. state.reset() clears what they
+  // set; only this guard keeps them out of progress.
   client.on("update", (u) => {
     if (!promptInFlight) return;
     const up = u?.update || {};
     if (up.sessionUpdate === "plan") {
-      // ACP defines entries as an array. A non-array is truthy, so it was stored as-is and
-      // reached the sanitizer's forEach — throwing after the turn's work was done, which is the
-      // one thing the sanitizer exists to prevent. Drop it here and say so instead.
+      // A non-array would reach the sanitizer's forEach and throw after the work is done.
       if (up.entries !== undefined && !Array.isArray(up.entries)) {
         frameWarnings.push(
           `plan entries dropped: ACP requires an array, got ${up.entries === null ? "null" : typeof up.entries}`
@@ -419,10 +397,8 @@ export async function runDelegate({
         state.planEntries = up.entries || [];
       }
     }
-    // The agent titles the turn a beat after the prompt lands ("File Creator") — useful live,
-    // when several delegations run, and in timeout forensics. Kept out of the result: there it
-    // arrives too late to tell anything apart, and was measured contradicting the answer
-    // ("No Image Detected" on a turn describing an image).
+    // The agent's turn title ("File Creator"): a live label and timeout forensics. Kept out of the
+    // result, where it has contradicted the answer ("No Image Detected" on an image turn).
     if (up.sessionUpdate === "session_info_update" && typeof up.title === "string" && up.title) {
       if (up.title !== state.sessionTitle) { try { onProgress?.(`turn titled: ${up.title}`.slice(0, 200)); } catch {} }
       state.sessionTitle = up.title;
@@ -442,9 +418,8 @@ export async function runDelegate({
     }
     if (up.sessionUpdate === "tool_call_update") {
       state.updateToolStatus(up.toolCallId, up.status);
-      // tool_call names only the tool's kind ("Terminal", "Edit File"); the command or path
-      // arrives on a later update for the same id. Only the newest call is relabelled, so a late
-      // frame from an earlier one does not replace what is running now.
+      // tool_call names only the kind ("Terminal", "Edit File"); the command or path comes on a
+      // later update for the same id. Only the newest call is relabelled.
       const tool = state.lastTool;
       if (tool && up.toolCallId != null && up.toolCallId === tool.id) {
         const path = up.locations?.[0]?.path;
@@ -452,10 +427,8 @@ export async function runDelegate({
         if (typeof path === "string" && path) tool.path = path;
         labelTool(false);
       }
-      // Array.isArray, not `|| []`: a non-array content is truthy and iterating it throws
-      // "object is not iterable" here, in the readline callback, where nothing awaits it. That
-      // is an uncaught exception — the whole server, not this one turn — and it also stops the
-      // reply on the next line from being read, so the turn hangs to its cap.
+      // Array.isArray, not `|| []`: iterating a non-array throws in the readline callback, an
+      // uncaught exception that takes down the whole server.
       for (const c of Array.isArray(up.content) ? up.content : []) {
         if (!c || typeof c !== "object" || Array.isArray(c) || typeof c.type !== "string"
           || (c.type === "diff" && (typeof c.path !== "string" || !c.path))) {
@@ -487,25 +460,18 @@ export async function runDelegate({
       supervisor.setSessionId(sessionId);
       onSessionReady?.(sessionId, client);
       assertKnownModel(client, model);
-      // session/new and session/load both report the model the session opened on, and an id that
-      // already matches is served without an explicit set — measured, so this round-trip has
-      // nothing to change. Cursor carries the selection across sessions, so the common shape
-      // (same model twice running) hits this.
+      // A session serves the model it reports opening on, so a matching id needs no set_model
+      // (measured). Cursor carries the selection across sessions, which makes this the usual case.
       const openedOnModel = client.sessionModels?.currentModelId === model;
       if (!openedOnModel) await client.setModel(sessionId, model);
-      // The selected model's options as the agent last reported them, read for effectiveEffort.
-      // After a switch the opening snapshot describes the model we left, so it is dropped. A set
-      // that succeeds replaces the snapshot with its reply, which may carry none, and then nothing
-      // is known; a refused set changed nothing, so the snapshot stands.
+      // The selected model's options as last reported, for effectiveEffort: dropped after a model
+      // switch, replaced by each accepted set's reply (which may carry none), kept through a refused one.
       let observedOptions = openedOnModel ? client.configOptions : undefined;
-      // fast is an instruction, not a probe. Cursor persists the tier, and persists it per model —
-      // both measured: one fast:true turn leaves the next fresh session reporting fast=true, and a
-      // set_model to another model reports that model's own tier. So the opening snapshot only
-      // describes the tier in force when the session also opened on this model; after a switch it
-      // describes the model we left. Skip only when both hold, which is the steady-state path this
-      // is for, and send whenever the reply itself is read: effort needs its option list, and a
-      // routable id needs the served model. An absent value reads as a mismatch and sends. effort
-      // and context go only when the caller named one; the last reply seen wins.
+      // fast is always sent as meant, never probed. Cursor persists the tier per model (measured),
+      // so the opening value counts only when the session opened on this model. Skip the set only
+      // when it did and the value matches, and send anyway when the reply is needed: effort needs
+      // its option list, a routed id the served model. An absent value counts as a mismatch. effort
+      // and context go only when named; the last reply seen wins.
       const openedFast = configOptionValue(client.configOptions, "fast");
       let modelOptions;
       if (!openedOnModel || openedFast !== String(fast) || effort !== undefined || model === ROUTED_MODEL) {
@@ -537,8 +503,7 @@ export async function runDelegate({
         }
       }
       await client.setMode(sessionId, mode);
-      // What the agent reported in force as the prompt goes out — never the requested value
-      // standing in for a reply that did not confirm it.
+      // What the agent reported, never the requested value standing in for an unconfirmed one.
       effectiveEffort = effortSettings(observedOptions);
       // Everything a session/load replay may have written belongs to the previous turn.
       state.reset();
@@ -549,8 +514,7 @@ export async function runDelegate({
         const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
         return await client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
       } finally {
-        // The result is assembled across awaits below, so without this a frame trailing the
-        // settled turn is still folded into it.
+        // The result is assembled across later awaits; a frame trailing the turn must not join it.
         promptInFlight = false;
       }
     });
@@ -579,8 +543,7 @@ export async function runDelegate({
       if (typeof res.stopReason !== "string") {
         protocolWarnings.push("stopReason dropped: ACP requires a string stop reason");
       } else if (res.stopReason !== "end_turn") {
-        // end_turn carries no signal (it was end_turn on every stress-test call). Surface a stop
-        // reason only when something happened: a refusal, a cancel, an output cap.
+        // end_turn is the normal case; only a refusal, a cancel or an output cap is surfaced.
         stopReason = res.stopReason;
       }
     }
@@ -588,42 +551,33 @@ export async function runDelegate({
       result,
       sessionId,
     };
-    // Absence means "nothing reported", not "nothing changed" — a claim this field cannot make,
-    // since shell-driven edits leave no diff event.
+    // Absent means nothing reported, not nothing changed: shell edits leave no diff event.
     const filesReported = normalizeAgentReportedFiles([...state.touched], workspace);
     if (filesReported.length) out.filesReportedByEditTools = filesReported;
-    // resultSource is a caveat, not a fact: on the happy path (post-tool / tool-free-stream)
-    // result is just the answer. Emit it only when it warns. resumed likewise appears only when a
-    // resume took — a fresh session or a failed one (which carries its own warning) leaves it off.
+    // resultSource appears only when it warns; resumed only when a resume took (a failed one has
+    // its own warning).
     if (resultSource !== "post-tool" && resultSource !== "tool-free-stream") out.resultSource = resultSource;
     if (!!resumeSessionId && sessionId === resumeSessionId) out.resumed = true;
-    // Only when the agent served a different model than asked — e.g. "default" routing to a
-    // concrete id, or a cross-model resume. Silence means the request was honored.
+    // Only when the agent served another model than asked ("default" routing, a cross-model resume).
     if (servedModel !== undefined && servedModel !== model) out.effectiveModel = servedModel;
     // Unlike effectiveModel, present whenever known: an omitted effort runs at whatever Cursor
     // saved for the model, and this is the only place the caller can see what that was.
     if (effectiveEffort !== undefined) out.effectiveEffort = effectiveEffort;
     if (stopReason !== undefined) out.stopReason = stopReason;
-    // sessionTitle stays out of the result: it is a live label (progress) and a forensic one
-    // (timeout errors), not a fact about the finished turn.
     if (resumeError) protocolWarnings.push(`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`);
     for (const u of unsupportedOptions) protocolWarnings.push(unsupportedWarning(model, u));
     protocolWarnings.push(...contextWarnings);
     protocolWarnings.push(...frameWarnings);
     if (state.planEntries.length > 0 || state.planOverview !== undefined || state.planDetail !== undefined) {
-      // Sanitize even when the plan is discarded: the warnings it raises report malformed ACP
-      // frames, which the caller needs whatever mode it asked for.
+      // Sanitized even when dropped: its warnings report malformed frames in any mode.
       const plan = sanitizePlan(protocolWarnings);
-      // In plan/ask, result IS the plan — the agent's own message, already prose and already
-      // what gets shown to the user for approval. Returning entries alongside it puts the same
-      // steps in the orchestrator's context twice, and nothing consumes them: the resume that
-      // implements reads the agent's own session, not this field. In agent mode result is the
-      // implementation report, a separate artifact from the plan, so the whole object stays.
+      // In plan/ask the result is the plan in prose; entries would put the same steps in context
+      // twice, and the implementing resume reads the session, not this field. In agent mode the
+      // result is the implementation report, so the plan stays.
       if (!dropPlan) out.plan = plan;
     }
-    // Most turns emit no todos, so an empty list would read as "nothing done" rather than "not
-    // tracked". The full list is carried only when it says what todoProgress cannot — which items
-    // remain; on a fully-completed turn it just restates the counts.
+    // Only when the agent tracked todos: an empty list would read as "nothing done". The list
+    // itself only while items remain; once all are done it restates the counts.
     if (state.sawTodoFrame) {
       const { todos: todoList, todoProgress } = sanitizeTodos(protocolWarnings);
       out.todoProgress = todoProgress;
@@ -654,25 +608,22 @@ export async function runDelegate({
       const files = normalizeAgentReportedFiles([...state.touched], workspace);
       if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
     }
-    // Every failure after session/new leaves a live session, not just the stalls: the id is set
-    // before set_model/set_config_option/set_mode, so unknown-model and a rejected config value
-    // land here too and are abandoned without it.
     if (resumeError) {
-      // Without this the resume hint reads as "carry on from where you were", when the requested
-      // session was never loaded.
+      // Otherwise the resume hint reads as continuing work this session never had.
       err.message += ` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
         + ` so this ran as a fresh session and none of that earlier work was in context.`;
     }
+    // Any failure after session/new leaves a resumable session, unknown-model and a rejected
+    // config value included, not just the stalls.
     if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
     if (isTimeout) {
-      // Name the knob that actually fired: raising the hard cap does nothing for an
-      // idle-timeout, whose ceiling is CURSOR_DELEGATE_IDLE_MS.
+      // Name the knob that fired: the hard cap does nothing for an idle-timeout.
       const knob = err.reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
       err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
         + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`;
     }
-    // Opt-in: the frames land in the caller's context and nothing there is actionable — the
-    // forensics above already carry that. Raw frames only help someone debugging the bridge.
+    // Opt-in: raw frames add nothing actionable to the caller's context beyond the forensics
+    // above; they help only someone debugging the bridge.
     const frames = transcriptFrames();
     if (frames > 0) {
       try {

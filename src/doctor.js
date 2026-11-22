@@ -31,17 +31,15 @@ function envReport(name, fallback = null) {
   return process.env[name] !== undefined ? process.env[name] : fallback;
 }
 
-// Time-boxed because a launcher that accepts --version and then never answers would hang doctor
-// forever — and doctor is what you run when delegation is already broken, so a wedged agent is
-// exactly the case it must survive. Same guard the deep handshake has.
+// Time-boxed, like the deep handshake: doctor runs when delegation is already broken, and a
+// launcher that never answers must not hang it.
 export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
   const { command, args, options } = spawnSpec;
   const launcher = String(command || "").replace(/^["']|["']$/g, "");
   const isJsScript = isJsLauncher(launcher);
   const execCommand = isJsScript ? process.execPath : command;
-  // --version takes the place of the acp subcommand, so a launcher prefix ("node index.js acp")
-  // still reaches the agent instead of asking the wrapper for its own version. With no acp
-  // token, nothing marks the args as a prefix and --version goes alone.
+  // --version replaces the acp subcommand, so a launcher prefix ("node index.js acp") still
+  // reaches the agent. With no acp token, --version goes alone.
   const acpAt = Array.isArray(args) ? args.indexOf("acp") : -1;
   const versionArgs = [...(acpAt > 0 ? args.slice(0, acpAt) : []), "--version"];
   const execArgs = isJsScript ? [launcher, ...versionArgs] : versionArgs;
@@ -59,14 +57,11 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
     };
     const argv = shellArgv(execCommand, execArgs, options);
     const child = spawn(argv.command, argv.args, { ...options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
-    // Capped: a version string is a line, and a launcher that streams instead should not be
-    // accumulated whole while the probe waits out its timeout.
+    // Capped: a version is one line, and a launcher that streams is not kept whole.
     child.stdout?.on("data", (chunk) => {
       if (stdout.length < PROBE_STDOUT_CAP) stdout += chunk.toString();
     });
-    // Drained, not merely piped. An unread pipe fills, the launcher blocks writing to it and so
-    // never exits, and the probe can only report that as a timeout — a healthy but noisy
-    // launcher reads out identically to a wedged one. Nothing consumes the bytes.
+    // Drained: a full stderr pipe blocks the launcher, and a noisy one would read as wedged.
     child.stderr?.on("data", () => {});
     child.stderr?.on("error", () => {});
     child.on("error", () => finish({ found: false, version: null }));
@@ -79,11 +74,9 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       });
     });
     timer = setTimeout(() => {
-      // treeKill, not child.kill: the spawn spec carries shell:true on win32, where a plain
-      // kill only reaches the wrapper and leaves the launcher running.
+      // treeKill: on win32 a plain kill reaches only the wrapper, not the launcher.
       if (child.pid) treeKill(child.pid).catch(() => {});
-      // The launcher exists — it spawned — it just never answered, which is a different
-      // diagnosis from "not installed" and has to read that way.
+      // It spawned, so it is found; it just never answered.
       finish({ found: true, version: null, error: `version probe timed out after ${timeoutMs}ms` });
     }, timeoutMs);
     timer.unref?.();
@@ -105,15 +98,13 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
       details.models = (client.sessionModels?.availableModels ?? []).map((m) => m?.modelId).filter(Boolean);
       details.currentModel = client.sessionModels?.currentModelId ?? null;
       details.modes = (client.sessionModes?.availableModes ?? []).map((m) => m?.id).filter(Boolean);
-      // session/new already returned these. currentModel only — any other model needs a set_model
-      // first, which this handshake does not send. name and category are what tell an effort
-      // option apart when its id is unfamiliar; currentValue is the level saved for the model.
+      // From session/new, for the current model only (another needs a set_model). name and
+      // category identify an unfamiliar effort option; currentValue is the model's saved level.
       details.currentModelOptions = describeOptions(client.configOptions);
     })();
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
-        // Not awaited, so the timeout still rejects at its stated deadline rather than at the
-        // deadline plus teardown. The finally below awaits the same idempotent promise.
+        // Not awaited, so the timeout rejects on its deadline; the finally awaits the same stop.
         try { Promise.resolve(client.stop()).catch(() => {}); } catch {}
         reject(new Error(`Handshake timed out after ${timeoutMs}ms`));
       }, timeoutMs);
@@ -124,8 +115,7 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
     return { ok: false, error: err?.message || String(err) };
   } finally {
     clearTimeout(timer);
-    // Awaited so doctor does not return while the agent it spawned is still being torn down.
-    // A killed child exits in milliseconds; only one that ignores the kill costs the full bound.
+    // Awaited so doctor does not return with its agent still alive; a killed child exits in ms.
     try { await Promise.resolve(client.stop()); } catch {}
   }
 }

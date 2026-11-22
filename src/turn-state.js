@@ -1,8 +1,6 @@
-// Everything describing the turn in progress, in one object because it has to be wiped as one:
-// session/load replays the previous turn as ordinary update frames, so anything left behind
-// leaks into the next result. Fields are declared in exactly one place, freshFields(), which is
-// also what reset() applies — a field added there is reset for free, and one that is missed is a
-// silent stale-data bug on resume.
+// The turn in progress, in one object so it can be wiped as one: session/load replays the
+// previous turn as ordinary updates. Declare every field in freshFields(), which reset() applies;
+// a field kept elsewhere leaks stale data into a resumed turn.
 
 const isTerminalToolStatus = (status) =>
   status === "completed" || status === "failed" || status === "cancelled";
@@ -42,28 +40,22 @@ function progressStream(prefix, onProgress, throttleMs) {
   };
 }
 
-// The single declaration of what a turn accumulates.
 function freshFields() {
   return {
     resultChunks: [],
-    // Text superseded by a later tool call is normally a preamble ("Inspecting the
-    // implementation."), but the rule cannot tell a preamble from the whole answer: an agent
-    // that replies and then runs one more command has its entire reply discarded, leaving the
-    // caller "" with stopReason end_turn and no error. Kept so it can be handed back when
-    // nothing survived — labelled, never blended with a real final message.
+    // Text a later tool call superseded: usually a preamble, but the whole answer when the agent
+    // replied and then ran one more command. Handed back, labelled, only when nothing followed.
     discardedResult: "",
     sawToolCall: false,
     collectingPostToolResult: false,
     activeToolCalls: new Set(),
-    // Ids observed terminal, so a stale non-terminal re-send for one is recognized and dropped
-    // instead of restarting collection — which would demote an already-collected final message
-    // to discardedResult and mislabel it pre-tool-fallback.
+    // Ids seen terminal, so a stale non-terminal re-send is dropped instead of restarting
+    // collection and demoting the collected final message.
     finishedToolCalls: new Set(),
     planEntries: [],
     planOverview: undefined,
     planDetail: undefined,
-    // merge:false replaces the list, merge:true upserts by id. Entries always arrive complete,
-    // so a keyed set is enough — no field-level merging.
+    // merge:false replaces the list, merge:true upserts by id; entries arrive complete.
     todos: new Map(),
     sawTodoFrame: false,
     touched: new Set(),
@@ -98,8 +90,7 @@ export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
       state.resultChunks.length = 0;
     },
 
-    // The stream is the model's own message, bounded by its output limit; a byte cap
-    // here would hand back a partial answer as if it were the whole one.
+    // Uncapped: the model's output limit bounds it, and a cap would pass off a partial answer.
     appendResult(text) {
       state.resultChunks.push(text);
     },
@@ -130,8 +121,8 @@ export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
           state.finishedToolCalls.add(toolCallId);
         }
         if (state.activeToolCalls.size === 0 && !state.collectingPostToolResult) {
-          // Discard any message text emitted while tools were still running.
-          // A duplicate or late terminal update must not wipe an already-collected final message.
+          // Drops text emitted while tools ran. Guarded so a duplicate or late terminal update
+          // cannot wipe a collected final message.
           state.resetResult();
           state.collectingPostToolResult = true;
         }
@@ -142,8 +133,7 @@ export function makeTurnState({ onProgress, progressThrottleMs = 2000 } = {}) {
       }
     },
 
-    // True while a message chunk still belongs in the result: before any tool ran, or after
-    // the last one finished.
+    // A chunk belongs in the result before any tool ran or after the last one finished.
     collectingResult() {
       return !state.sawToolCall || (state.collectingPostToolResult && state.activeToolCalls.size === 0);
     },

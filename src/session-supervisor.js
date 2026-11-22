@@ -11,9 +11,8 @@ export class SessionSupervisor {
     this.client = client;
     this.handshakeMs = handshakeMs;
     this.hardCapMs = hardCapMs;
-    // Mid-turn idle detection is opt-in and off by default. cursor-agent emits no ACP
-    // frames while a shell command runs, so silence during a prompt turn says nothing
-    // about liveness: a probe measured 26.9s of dead wire for a healthy 20s command.
+    // Idle detection is opt-in: cursor-agent sends no frames while a shell command runs (26.9s of
+    // silence measured for a healthy 20s command).
     this.idleMs = idleMs > 0 ? idleMs : 0;
     this.sessionId = null;
     this.lastActivityAt = Date.now();
@@ -58,9 +57,8 @@ export class SessionSupervisor {
     }, this.handshakeMs);
   }
 
-  // The handshake is strict request/response, so silence there is real evidence of a
-  // wedged agent. Once the prompt is in flight that stops being true, and the deadline
-  // must come off.
+  // Silence in the request/response handshake means a wedged agent; once the prompt is in flight
+  // it does not, so the deadline comes off.
   promptStarted() {
     if (this._promptStarted) return;
     this._promptStarted = true;

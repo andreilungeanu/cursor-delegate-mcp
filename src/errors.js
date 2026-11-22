@@ -1,8 +1,6 @@
 /**
- * Every failure this bridge raises carries a `reason`, which is what lets a caller tell
- * "fix your arguments" from "retry" without parsing prose. Errors that came off the wire also
- * carry the agent's JSON-RPC `code`. One shape, one constructor, so the tag is never forgotten
- * and the type checker has something to check against.
+ * Every failure carries a `reason`, so a caller can tell "fix your arguments" from "retry"
+ * without parsing prose. Errors off the wire also carry the agent's JSON-RPC `code`.
  *
  * @typedef {Error & { reason?: string, code?: number }} DelegateError
  */

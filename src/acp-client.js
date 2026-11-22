@@ -9,8 +9,8 @@ import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
 
 const STDERR_CAP = 64 * 1024;
-// How long stop() waits for the child to actually exit after the kill is dispatched. SIGKILL and
-// taskkill /F land in milliseconds, so this only ever elapses when the kill did not work.
+// How long stop() waits for the exit after the kill. SIGKILL and taskkill /F land in milliseconds,
+// so this elapses only when the kill failed.
 const STOP_EXIT_TIMEOUT_MS = 2000;
 
 export class AcpClient extends EventEmitter {
@@ -34,12 +34,9 @@ export class AcpClient extends EventEmitter {
     this._stopping = null;
   }
 
-  // stderr is captured but does not count as activity: the supervisor measures ACP frames, and
-  // an agent writing diagnostics is not the same fact as a turn making progress.
-  // The tail of stderr, which is what an exit error quotes. Kept as chunks and joined on read:
-  // rebuilding a 64KB string per chunk was the whole cost of a noisy agent. A StringDecoder
-  // holds partial UTF-8 across chunk boundaries, so a multi-byte character split by the pipe
-  // does not land in the error message as a replacement char.
+  // The stderr tail an exit error quotes. Kept as chunks and joined on read, so a noisy agent costs
+  // a push per chunk; a StringDecoder keeps a multi-byte character split across reads intact.
+  // stderr is not ACP activity, so it does not feed the supervisor.
   get stderrBuffer() {
     const joined = this._stderrChunks.join("");
     return joined.length > STDERR_CAP ? joined.slice(-STDERR_CAP) : joined;
@@ -67,9 +64,8 @@ export class AcpClient extends EventEmitter {
         while (this._stderrChunks.length > 1 && this._stderrLength - this._stderrChunks[0].length >= STDERR_CAP) {
           this._stderrLength -= this._stderrChunks.shift().length;
         }
-        // Whole-chunk drops leave a remainder when one pipe read is itself larger than the cap
-        // (observed on GitHub Windows runners). Slice that first chunk so retained memory cannot
-        // grow with the flood; the public tail is still exactly one cap on read.
+        // A single read larger than the cap (seen on GitHub Windows runners) is sliced too, so
+        // retained memory stays bounded.
         const overflow = this._stderrLength - STDERR_CAP;
         if (overflow > 0) {
           this._stderrChunks[0] = this._stderrChunks[0].slice(overflow);
@@ -78,9 +74,8 @@ export class AcpClient extends EventEmitter {
       }
     });
     this.child.stderr.on("error", () => {});
-    // A supervisor trip writes session/cancel, which can land after the agent is already gone.
-    // Without a handler that surfaces as an unhandled 'error' event on some platforms, taking
-    // the whole MCP server down with it. stdout needs the same guard; readline adds none.
+    // session/cancel can be written after the agent is gone, and an unhandled pipe 'error' would
+    // take down the server. readline adds no handler on stdout either.
     this.child.stdin.on("error", () => {});
     this.child.stdout.on("error", () => {});
     const emitExit = (code, signal) => {
@@ -89,9 +84,8 @@ export class AcpClient extends EventEmitter {
       const stderr = this.stderrBuffer;
       const err = makeError(
         "agent-exit",
-        // stderr kept whole. This is the one string that says why the agent died — the model
-        // that was rejected, the quota that ran out, the login that expired — and the part that
-        // names it can sit anywhere in it. The 64KB ring buffer above is the bound.
+        // stderr whole, bounded by the 64KB buffer: why the agent died (a rejected model, a spent
+        // quota, an expired login) can sit anywhere in it.
         `agent exited (code=${code}${signal ? ", signal=" + signal : ""})${stderr ? ": " + String(stderr) : ""}`
       );
       // exit + rejectAllPending both settle the same Promise.race; second rejection is intentional.
@@ -125,8 +119,6 @@ export class AcpClient extends EventEmitter {
     });
     return /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       this.child.once("error", (e) => {
-        // Tagged like every other failure class so the caller gets
-        // "delegate failed [spawn-failed]: ..." instead of the one untagged prose error.
         const err = makeError("spawn-failed", `Failed to spawn agent (${command}): ${e.message}. Install Cursor CLI and run 'cursor-agent login'.`);
         reject(err);
       });
@@ -134,8 +126,7 @@ export class AcpClient extends EventEmitter {
     }));
   }
 
-  // Stashed so the unknown-model pre-flight and doctor --deep can read the agent's real
-  // capability and model lists without paying for a second handshake.
+  // Stashed for the unknown-model check and doctor deep, so neither needs a second handshake.
   async initialize() {
     const res = await this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } });
     this.protocolVersion = res?.protocolVersion;
@@ -180,8 +171,7 @@ export class AcpClient extends EventEmitter {
       return true;
     }
     const alive = isChildAlive(child);
-    // Subscribed before the kill is dispatched. A child that dies immediately would otherwise
-    // exit in the gap and leave this waiting on an event that has already fired.
+    // Subscribed before the kill, so an instant exit is not missed.
     const exited = alive
       ? /** @type {Promise<boolean>} */ (new Promise((resolve) => child.once("exit", () => resolve(true))))
       : Promise.resolve(true);
@@ -195,10 +185,8 @@ export class AcpClient extends EventEmitter {
     }));
     const observed = await Promise.race([exited, bounded]);
     clearTimeout(timer);
-    // The exit handler rejects in-flight RPCs with stderr. Doing that here on a confirmed
-    // exit would race it and the first settlement would drop the forensics. A stop that
-    // did not see the child die never gets that handler, so settle those RPCs only when
-    // the process is still alive and emitExit has not run.
+    // On an observed exit, emitExit rejects in-flight RPCs with stderr, and racing it here would
+    // drop that. Only a child still alive after the stop has its RPCs settled here.
     if (!observed && !this._exitEmitted && isChildAlive(child)) {
       try {
         this.peer?.rejectAllPending(makeError("agent-exit", "agent process did not exit after stop"));
