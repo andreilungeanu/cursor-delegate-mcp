@@ -277,7 +277,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
       description:
         "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's recent session history).",
       inputSchema: {
-        sessionId: z.string(),
+        // Blank is a malformed call, not a stale id.
+        sessionId: z.string().trim().min(1, "sessionId must not be blank"),
         force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
       },
       annotations: {

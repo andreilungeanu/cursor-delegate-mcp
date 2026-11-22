@@ -1166,3 +1166,33 @@ test("the doctor tool registers its agent where shutdown looks, and passes the h
     await client.close();
   }
 });
+
+// A blank id is a malformed call, not a stale one, and a stray space around a live id read as
+// not-found while the turn kept running.
+test("cancel rejects a blank sessionId and trims one with stray whitespace", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  const runDelegate = async ({ onSessionReady }) => {
+    onSessionReady("sess-padded", { cancel: async () => { release(); }, stop: () => true });
+    sessionReady();
+    await gate;
+    return { result: "", sessionId: "sess-padded" };
+  };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const blank = await client.callTool({ name: "cancel", arguments: { sessionId: "  " } });
+    assert.equal(blank.isError, true, JSON.stringify(blank));
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
+    await ready;
+    const padded = await client.callTool({ name: "cancel", arguments: { sessionId: " sess-padded\n" } });
+    assert.deepEqual(payload(padded), { status: "cancelled", sessionId: "sess-padded" });
+    assert.equal(payload(await delegateP).cancelRequested, true);
+  } finally {
+    await client.close();
+  }
+});
