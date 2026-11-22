@@ -35,11 +35,16 @@ function envReport(name, fallback = null) {
 // forever — and doctor is what you run when delegation is already broken, so a wedged agent is
 // exactly the case it must survive. Same guard the deep handshake has.
 export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
-  const { command, options } = spawnSpec;
+  const { command, args, options } = spawnSpec;
   const launcher = String(command || "").replace(/^["']|["']$/g, "");
   const isJsScript = isJsLauncher(launcher);
   const execCommand = isJsScript ? process.execPath : command;
-  const execArgs = isJsScript ? [launcher, "--version"] : ["--version"];
+  // --version takes the place of the acp subcommand, so a launcher prefix ("node index.js acp")
+  // still reaches the agent instead of asking the wrapper for its own version. With no acp
+  // token, nothing marks the args as a prefix and --version goes alone.
+  const acpAt = Array.isArray(args) ? args.indexOf("acp") : -1;
+  const versionArgs = [...(acpAt > 0 ? args.slice(0, acpAt) : []), "--version"];
+  const execArgs = isJsScript ? [launcher, ...versionArgs] : versionArgs;
   // Through a shell, a missing launcher still spawns (the shell does) and would read as found.
   if (options?.shell && !isJsScript && !commandExists(launcher, options.env)) return Promise.resolve({ found: false, version: null });
   return new Promise((resolve) => {

@@ -102,6 +102,25 @@ test("runDoctor probes a .mjs launcher with node", async () => {
   assert.equal(out.agent.error, undefined);
 });
 
+// ACP_AGENT_COMMAND=node with ACP_AGENT_ARGS="<script> acp": --version replaces the acp
+// subcommand and the script stays in front of it. Probing the command alone reported Node's
+// own version as the agent's.
+test("runDoctor keeps the launcher prefix before acp when probing the version", async () => {
+  const argvPath = fileURLToPath(new URL("./fixtures/version-argv.mjs", import.meta.url));
+  const probe = async (command, args) => {
+    const out = await runDoctor({
+      spawnSpec: { command, args, options: { shell: false } },
+      getClientInfo: () => ({ capabilities: {}, version: {} }),
+    });
+    assert.equal(out.agent.found, true);
+    assert.equal(out.agent.error, undefined);
+    return out.agent.version;
+  };
+  assert.equal(await probe(process.execPath, [argvPath, "acp"]), '["--version"]', "the script runs, not node --version");
+  assert.equal(await probe(process.execPath, [argvPath, "acp", "--trailing"]), '["--version"]', "what follows acp is dropped");
+  assert.equal(await probe(argvPath, ["--stdio"]), '["--version"]', "with no acp token, --version alone");
+});
+
 // The probe opens stderr as a pipe. With no reader on it the launcher cannot drain its own
 // write buffer and never exits, so a merely noisy launcher gets diagnosed as one that spawned
 // and never answered — the same output as a wedged agent, for a healthy one.
