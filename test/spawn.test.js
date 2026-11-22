@@ -73,6 +73,67 @@ test("resolveAcpSpawn drops MSYSTEM and SHELL from the agent's environment on wi
   }
 });
 
+// cmd.exe hands a .ps1 to its file association, an editor by default, instead of running it, so
+// ACP_AGENT_COMMAND pointing at cursor-agent.ps1 never started the agent. The spec is checked
+// before anything spawns: on the old route the spawn would open the script, not run it.
+const PS1_AGENT = [
+  "if ($args -contains '--version') { Write-Output 'ps1-agent 1.0'; exit 0 }",
+  "[Console]::Error.Write((ConvertTo-Json -InputObject @($args) -Compress)); exit 3",
+].join("\r\n");
+
+function withAgentEnv(vars, fn) {
+  const prev = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  const restore = () => { for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+  try { return fn(); } finally { restore(); }
+}
+
+test("a .ps1 ACP_AGENT_COMMAND runs through PowerShell with its arguments intact", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
+  const { AcpClient } = await import("../src/acp-client.js");
+  const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
+  try {
+    const script = path.join(dir, "agent.ps1");
+    writeFileSync(script, PS1_AGENT);
+    const spec = withAgentEnv({ ACP_AGENT_COMMAND: script, ACP_AGENT_ARGS: '"two words" acp' }, () => resolveAcpSpawn());
+    assert.match(spec.command, /powershell\.exe$/i, "the script must not go to cmd.exe");
+    assert.deepEqual(spec.args.slice(-3), [script, "two words", "acp"]);
+    const client = new AcpClient({ spawnSpec: spec });
+    const exit = new Promise((resolve) => client.once("exit", resolve));
+    await client.start();
+    const info = await exit;
+    assert.equal(info.code, 3, info.stderr);
+    assert.deepEqual(JSON.parse(info.stderr), ["two words", "acp"]);
+    await client.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor reads a .ps1 launcher's version, and resolves a bare .ps1 name on PATH", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
+  const { runDoctor } = await import("../src/doctor.js");
+  const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
+  try {
+    writeFileSync(path.join(dir, "agent.ps1"), PS1_AGENT);
+    const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") || "PATH";
+    const spec = withAgentEnv({ ACP_AGENT_COMMAND: "agent.ps1", ACP_AGENT_ARGS: undefined, [pathKey]: dir + path.delimiter + process.env[pathKey] }, () => resolveAcpSpawn());
+    assert.match(spec.command, /powershell\.exe$/i);
+    assert.equal(spec.args.at(-2), path.join(dir, "agent.ps1"), "the bare name resolves to the script on PATH");
+    const out = await runDoctor({ spawnSpec: spec });
+    assert.equal(out.agent.found, true);
+    assert.equal(out.agent.version, "ps1-agent 1.0");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a .ps1 ACP_AGENT_COMMAND that does not exist is reported as spawn-failed", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
+  const { AcpClient } = await import("../src/acp-client.js");
+  const missing = path.join(tmpdir(), "no-such-dir-xyz", "agent.ps1");
+  const spec = withAgentEnv({ ACP_AGENT_COMMAND: missing, ACP_AGENT_ARGS: undefined }, () => resolveAcpSpawn());
+  assert.equal(spec.command, missing, "a script that does not resolve stays as given");
+  await assert.rejects(() => new AcpClient({ spawnSpec: spec }).start(), (err) => err.reason === "spawn-failed");
+});
+
 test("commandExists finds a launcher on PATH with and without a PATHEXT extension", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "cmd-exists-"));
   try {

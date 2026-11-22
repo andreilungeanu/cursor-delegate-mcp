@@ -22,18 +22,35 @@ function agentEnv(env = process.env) {
   return Object.fromEntries(Object.entries(env).filter(([key]) => !WIN32_DROPPED_ENV.has(key.toUpperCase())));
 }
 
-// shell:true on win32 is what lets a .cmd/.ps1 launcher resolve at all, and it means the
-// command and args are parsed by cmd.exe. Safe only because both come from the environment,
-// which is already as trusted as this process: anything that can set them can run code here
-// anyway. Routing host- or caller-supplied values into either variable would turn this into a
-// command-injection path, so don't.
+// shell:true on win32 is what lets a .cmd launcher resolve at all, and it means the command and
+// args are parsed by cmd.exe. Safe only because both come from the environment, which is already
+// as trusted as this process: anything that can set them can run code here anyway. Routing host-
+// or caller-supplied values into either variable would turn this into a command-injection path,
+// so don't.
 export function resolveAcpSpawn() {
   const command = process.env.ACP_AGENT_COMMAND || "cursor-agent";
   const args = process.env.ACP_AGENT_ARGS
     ? splitArgs(process.env.ACP_AGENT_ARGS)
     : ["acp"];
-  const win32 = process.platform === "win32";
-  return { command, args, options: { shell: win32, ...(win32 ? { env: agentEnv() } : {}) } };
+  if (process.platform !== "win32") return { command, args, options: { shell: false } };
+  const env = agentEnv();
+  // cmd.exe hands a .ps1 to its file association, an editor by default, rather than running it.
+  // Started the way cursor-agent.cmd starts cursor-agent.ps1. A script that does not resolve
+  // stays as given, so the not-installed check still reports it.
+  const name = command.replace(/^["']|["']$/g, "");
+  const script = /\.ps1$/i.test(name) ? findCommand(name, env) : null;
+  if (script) {
+    const rootKey = Object.keys(env).find((k) => k.toUpperCase() === "SYSTEMROOT");
+    const powershell = rootKey && env[rootKey]
+      ? path.win32.join(env[rootKey], "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      : "powershell.exe";
+    return {
+      command: powershell,
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
+      options: { shell: false, env },
+    };
+  }
+  return { command, args, options: { shell: true, env } };
 }
 
 // Node hands cmd.exe one joined line under shell:true and quotes nothing, so a launcher path or
@@ -64,14 +81,28 @@ export function shellArgv(command, args, options) {
 // against each PATH entry, both with and without each PATHEXT extension. Pass the env the child
 // will get: on win32 that is agentEnv(), not process.env.
 export function commandExists(command, env = process.env) {
+  return findCommand(command, env) !== null;
+}
+
+/** The file that lookup lands on, or null. */
+function findCommand(command, env) {
   const name = String(command || "").replace(/^["']|["']$/g, "");
-  if (!name) return false;
+  if (!name) return null;
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
   const extKey = Object.keys(env).find((k) => k.toUpperCase() === "PATHEXT");
   const exts = ["", ...String((extKey && env[extKey]) || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)];
   const isFile = (p) => { try { return existsSync(p) && statSync(p).isFile(); } catch { return false; } };
-  const hit = (base) => exts.some((ext) => isFile(base + ext) || isFile(base + ext.toLowerCase()));
+  const hit = (base) => {
+    for (const ext of exts) {
+      for (const p of [base + ext, base + ext.toLowerCase()]) if (isFile(p)) return p;
+    }
+    return null;
+  };
   if (/[\\/]/.test(name)) return hit(name);
   const dirs = String((pathKey && env[pathKey]) || "").split(path.delimiter).filter(Boolean);
-  return dirs.some((dir) => hit(path.join(dir.replace(/^"|"$/g, ""), name)));
+  for (const dir of dirs) {
+    const found = hit(path.join(dir.replace(/^"|"$/g, ""), name));
+    if (found) return found;
+  }
+  return null;
 }
