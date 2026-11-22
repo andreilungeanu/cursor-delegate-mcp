@@ -28,25 +28,8 @@ export function resolveAcpSpawn() {
   const args = process.env.ACP_AGENT_ARGS
     ? splitArgs(process.env.ACP_AGENT_ARGS)
     : ["acp"];
-  if (process.platform !== "win32") return { command, args, options: { shell: false } };
-  const env = agentEnv();
-  // cmd.exe hands a .ps1 to its file association instead of running it, so start it the way
-  // cursor-agent.cmd starts cursor-agent.ps1. One that does not resolve stays as given, for the
-  // not-installed check.
-  const name = command.replace(/^["']|["']$/g, "");
-  const script = /\.ps1$/i.test(name) ? findCommand(name, env) : null;
-  if (script) {
-    const rootKey = Object.keys(env).find((k) => k.toUpperCase() === "SYSTEMROOT");
-    const powershell = rootKey && env[rootKey]
-      ? path.win32.join(env[rootKey], "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-      : "powershell.exe";
-    return {
-      command: powershell,
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
-      options: { shell: false, env },
-    };
-  }
-  return { command, args, options: { shell: true, env } };
+  const win32 = process.platform === "win32";
+  return { command, args, options: { shell: win32, ...(win32 ? { env: agentEnv() } : {}) } };
 }
 
 // Under shell:true Node hands cmd.exe one unquoted line, so a value with a space or metacharacter
@@ -61,12 +44,30 @@ function cmdQuote(value) {
 }
 
 /**
- * The command and args to hand spawn() for a spec's options.
- * @param {string} command @param {string[]} args @param {{ shell?: boolean | string } | undefined} options
+ * What to hand spawn() for a spec. Applied at each spawn site, after doctor has built its
+ * --version args from the spec as configured.
+ * @param {string} command @param {string[]} args
+ * @param {{ shell?: boolean | string, env?: NodeJS.ProcessEnv } | undefined} options
  */
-export function shellArgv(command, args, options) {
-  if (!(options?.shell && process.platform === "win32")) return { command, args };
-  return { command: cmdQuote(command), args: args.map(cmdQuote) };
+export function spawnArgv(command, args, options) {
+  if (!(options?.shell && process.platform === "win32")) return { command, args, options };
+  const env = options.env || process.env;
+  // cmd.exe hands a .ps1 to its file association instead of running it, so start it the way
+  // cursor-agent.cmd starts cursor-agent.ps1. Only that exact file: x.ps1.cmd is cmd's to run.
+  const name = String(command).replace(/^["']|["']$/g, "");
+  const script = /\.ps1$/i.test(name) ? findCommand(name, env, true) : null;
+  if (script) {
+    const rootKey = Object.keys(env).find((k) => k.toUpperCase() === "SYSTEMROOT");
+    const powershell = rootKey && env[rootKey]
+      ? path.win32.join(env[rootKey], "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      : "powershell.exe";
+    return {
+      command: powershell,
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
+      options: { ...options, shell: false },
+    };
+  }
+  return { command: cmdQuote(command), args: args.map(cmdQuote), options };
 }
 
 // Through a shell the spawn always succeeds (cmd.exe exits 1, "is not recognized"), so a missing
@@ -77,13 +78,13 @@ export function commandExists(command, env = process.env) {
   return findCommand(command, env) !== null;
 }
 
-/** The file that lookup lands on, or null. */
-function findCommand(command, env) {
+/** The file that lookup lands on, or null. exact skips the PATHEXT extensions. */
+function findCommand(command, env, exact = false) {
   const name = String(command || "").replace(/^["']|["']$/g, "");
   if (!name) return null;
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
   const extKey = Object.keys(env).find((k) => k.toUpperCase() === "PATHEXT");
-  const exts = ["", ...String((extKey && env[extKey]) || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)];
+  const exts = exact ? [""] : ["", ...String((extKey && env[extKey]) || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)];
   const isFile = (p) => { try { return existsSync(p) && statSync(p).isFile(); } catch { return false; } };
   const hit = (base) => {
     for (const ext of exts) {

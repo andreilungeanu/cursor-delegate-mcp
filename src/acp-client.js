@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
-import { commandExists, resolveAcpSpawn, shellArgv } from "./spawn.js";
+import { commandExists, resolveAcpSpawn, spawnArgv } from "./spawn.js";
 import { DETACHED, isChildAlive, treeKill } from "./proc.js";
 import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
@@ -52,8 +52,8 @@ export class AcpClient extends EventEmitter {
     this._stderrLength = 0;
     const stderrDecoder = new StringDecoder("utf8");
     this._exitEmitted = false;
-    const argv = shellArgv(command, args, opts);
-    this.child = spawn(argv.command, argv.args, { ...options, detached: DETACHED, stdio: ["pipe", "pipe", "pipe"] });
+    const argv = spawnArgv(command, args, opts);
+    this.child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr.on("data", (chunk) => {
       const text = stderrDecoder.write(chunk);
       if (text) {

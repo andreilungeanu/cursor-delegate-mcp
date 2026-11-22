@@ -1,7 +1,7 @@
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
-import { commandExists, resolveAcpSpawn, shellArgv } from "./spawn.js";
+import { commandExists, resolveAcpSpawn, spawnArgv } from "./spawn.js";
 import { DETACHED, treeKill } from "./proc.js";
 import { readPackageVersion } from "./version.js";
 import { describeOptions } from "./model-options.js";
@@ -55,8 +55,8 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       clearTimeout(timer);
       resolve(result);
     };
-    const argv = shellArgv(execCommand, execArgs, options);
-    const child = spawn(argv.command, argv.args, { ...options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
+    const argv = spawnArgv(execCommand, execArgs, options);
+    const child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
     // Capped: a version is one line, and a launcher that streams is not kept whole.
     child.stdout?.on("data", (chunk) => {
       if (stdout.length < PROBE_STDOUT_CAP) stdout += chunk.toString();

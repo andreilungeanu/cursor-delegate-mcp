@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { splitArgs, resolveAcpSpawn, commandExists } from "../src/spawn.js";
+import { splitArgs, resolveAcpSpawn, commandExists, spawnArgv } from "../src/spawn.js";
 
 test("splitArgs splits plain whitespace-separated tokens", () => {
   assert.deepEqual(splitArgs("acp --verbose"), ["acp", "--verbose"]);
@@ -95,8 +95,9 @@ test("a .ps1 ACP_AGENT_COMMAND runs through PowerShell with its arguments intact
     const script = path.join(dir, "agent.ps1");
     writeFileSync(script, PS1_AGENT);
     const spec = withAgentEnv({ ACP_AGENT_COMMAND: script, ACP_AGENT_ARGS: '"two words" acp' }, () => resolveAcpSpawn());
-    assert.match(spec.command, /powershell\.exe$/i, "the script must not go to cmd.exe");
-    assert.deepEqual(spec.args.slice(-3), [script, "two words", "acp"]);
+    const argv = spawnArgv(spec.command, spec.args, spec.options);
+    assert.match(argv.command, /powershell\.exe$/i, "the script must not go to cmd.exe");
+    assert.deepEqual(argv.args.slice(-3), [script, "two words", "acp"]);
     const client = new AcpClient({ spawnSpec: spec });
     const exit = new Promise((resolve) => client.once("exit", resolve));
     await client.start();
@@ -116,10 +117,28 @@ test("doctor reads a .ps1 launcher's version, and resolves a bare .ps1 name on P
     writeFileSync(path.join(dir, "agent.ps1"), PS1_AGENT);
     const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") || "PATH";
     const spec = withAgentEnv({ ACP_AGENT_COMMAND: "agent.ps1", ACP_AGENT_ARGS: undefined, [pathKey]: dir + path.delimiter + process.env[pathKey] }, () => resolveAcpSpawn());
-    assert.match(spec.command, /powershell\.exe$/i);
-    assert.equal(spec.args.at(-2), path.join(dir, "agent.ps1"), "the bare name resolves to the script on PATH");
+    const argv = spawnArgv(spec.command, spec.args, spec.options);
+    assert.match(argv.command, /powershell\.exe$/i);
+    assert.equal(argv.args.at(-2), path.join(dir, "agent.ps1"), "the bare name resolves to the script on PATH");
     const out = await runDoctor({ spawnSpec: spec });
     assert.equal(out.agent.found, true);
+    assert.equal(out.agent.version, "ps1-agent 1.0");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The probe builds its --version args from the spec. With the PowerShell flags already in the
+// spec and no acp token to mark a prefix, it probed `powershell.exe --version`.
+test("doctor reads a .ps1 launcher's version when ACP_AGENT_ARGS has no acp token", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
+  const { runDoctor } = await import("../src/doctor.js");
+  const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
+  try {
+    const script = path.join(dir, "agent.ps1");
+    writeFileSync(script, PS1_AGENT);
+    const spec = withAgentEnv({ ACP_AGENT_COMMAND: script, ACP_AGENT_ARGS: "--stdio" }, () => resolveAcpSpawn());
+    const out = await runDoctor({ spawnSpec: spec });
+    assert.equal(out.agent.error, undefined);
     assert.equal(out.agent.version, "ps1-agent 1.0");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -130,8 +149,21 @@ test("a .ps1 ACP_AGENT_COMMAND that does not exist is reported as spawn-failed",
   const { AcpClient } = await import("../src/acp-client.js");
   const missing = path.join(tmpdir(), "no-such-dir-xyz", "agent.ps1");
   const spec = withAgentEnv({ ACP_AGENT_COMMAND: missing, ACP_AGENT_ARGS: undefined }, () => resolveAcpSpawn());
-  assert.equal(spec.command, missing, "a script that does not resolve stays as given");
+  assert.equal(spec.command, missing);
   await assert.rejects(() => new AcpClient({ spawnSpec: spec }).start(), (err) => err.reason === "spawn-failed");
+});
+
+// cmd runs x.ps1.cmd for "x.ps1" through PATHEXT; only the .ps1 file itself goes to PowerShell.
+test("only an existing .ps1 file itself is run through PowerShell", { skip: process.platform !== "win32" && "Windows launcher" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
+  try {
+    writeFileSync(path.join(dir, "agent.ps1.cmd"), "@echo off\r\n");
+    const spec = withAgentEnv({ ACP_AGENT_COMMAND: path.join(dir, "agent.ps1"), ACP_AGENT_ARGS: undefined }, () => resolveAcpSpawn());
+    const argv = spawnArgv(spec.command, spec.args, spec.options);
+    assert.doesNotMatch(argv.command, /powershell\.exe$/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("commandExists finds a launcher on PATH with and without a PATHEXT extension", () => {
