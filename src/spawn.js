@@ -36,6 +36,27 @@ export function resolveAcpSpawn() {
   return { command, args, options: { shell: win32, ...(win32 ? { env: agentEnv() } : {}) } };
 }
 
+// Node hands cmd.exe one joined line under shell:true and quotes nothing, so a launcher path or
+// an argument with a space or a cmd metacharacter splits there even though splitArgs kept it
+// whole. Quoted at each spawn site, so the spec stays the plain argument list it names. A value
+// already holding a quote passes as given: cmd cannot nest them, and a pre-quoted launcher path
+// is how an override with a space was written before. %VAR% still expands, inside quotes too.
+function cmdQuote(value) {
+  const s = String(value);
+  if (s.includes('"') || (s !== "" && !/[\s&|<>^(),;=]/.test(s))) return s;
+  // Doubled so the child's argv parser does not read a trailing backslash as escaping the quote.
+  return `"${s.replace(/(\\+)$/, "$1$1")}"`;
+}
+
+/**
+ * The command and args to hand spawn() for a spec's options.
+ * @param {string} command @param {string[]} args @param {{ shell?: boolean | string } | undefined} options
+ */
+export function shellArgv(command, args, options) {
+  if (!(options?.shell && process.platform === "win32")) return { command, args };
+  return { command: cmdQuote(command), args: args.map(cmdQuote) };
+}
+
 // Through a shell the spawn itself always succeeds: cmd.exe starts, fails to find the launcher and
 // exits 1 with a localized "is not recognized" line, so Node's spawn 'error' event never fires and
 // a missing cursor-agent reads as an agent crash. Resolving the launcher first is what lets that

@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { runDoctor as rawRunDoctor } from "../src/doctor.js";
@@ -119,6 +122,23 @@ test("runDoctor keeps the launcher prefix before acp when probing the version", 
   assert.equal(await probe(process.execPath, [argvPath, "acp"]), '["--version"]', "the script runs, not node --version");
   assert.equal(await probe(process.execPath, [argvPath, "acp", "--trailing"]), '["--version"]', "what follows acp is dropped");
   assert.equal(await probe(argvPath, ["--stdio"]), '["--version"]', "with no acp token, --version alone");
+});
+
+test("runDoctor probes through cmd.exe with a launcher path and arguments holding spaces", { skip: process.platform !== "win32" && "cmd.exe quoting" }, async () => {
+  const argvPath = fileURLToPath(new URL("./fixtures/version-argv.mjs", import.meta.url));
+  const dir = mkdtempSync(join(tmpdir(), "doctor launcher "));
+  try {
+    const launcher = join(dir, "launch me.cmd");
+    writeFileSync(launcher, `@echo off\r\n"${process.execPath}" "${argvPath}" %*\r\n`);
+    const out = await runDoctor({
+      spawnSpec: { command: launcher, args: ["two words", "acp"], options: { shell: true } },
+      getClientInfo: () => ({ capabilities: {}, version: {} }),
+    });
+    assert.equal(out.agent.error, undefined);
+    assert.equal(out.agent.version, '["two words","--version"]');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // The probe opens stderr as a pipe. With no reader on it the launcher cannot drain its own

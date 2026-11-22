@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,6 +80,30 @@ test("captures stderr and surfaces it on exit", async () => {
   assert.equal(info.code, 3);
   assert.match(info.stderr, /stderr-line/);
   client.stop();
+});
+
+// Under shell:true Node hands cmd.exe one unquoted line, so a launcher path with a space failed
+// to resolve and a quoted ACP_AGENT_ARGS segment arrived split. The child reports the argv it got.
+test("start() passes a launcher path and arguments with spaces through cmd.exe intact", { skip: process.platform !== "win32" && "cmd.exe quoting" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp launcher "));
+  try {
+    writeFileSync(join(dir, "argv-dump.js"), "process.stderr.write(JSON.stringify(process.argv.slice(2))); process.exit(3);\n");
+    const launcher = join(dir, "launch me.cmd");
+    writeFileSync(launcher, `@echo off\r\n"${process.execPath}" "%~dp0argv-dump.js" %*\r\n`);
+    const args = ["two words", "C:\\trailing dir\\", "a&b", "", "acp"];
+    // Unquoted as most users write it, and pre-quoted as the old workaround had them write it.
+    for (const command of [launcher, `"${launcher}"`]) {
+      const client = new AcpClient({ spawnSpec: { command, args, options: { shell: true } } });
+      const exit = new Promise((resolve) => client.once("exit", resolve));
+      await client.start();
+      const info = await exit;
+      assert.equal(info.code, 3, `launcher must run (${command}): ${info.stderr}`);
+      assert.deepEqual(JSON.parse(info.stderr), args);
+      await client.stop();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Mirrors STDERR_CAP in src/acp-client.js. The cap is the contract this pins, so it is stated
