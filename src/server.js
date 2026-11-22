@@ -296,8 +296,8 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         const known = seenSessions.has(sessionId);
         return cancelResult(known ? "not-running" : "not-found", sessionId);
       }
-      // Every turn on the id when the cancel arrives: the caller named a session, not a turn. Taken
-      // now, so a resume that registers later, during the grace or the kill, is never swept in.
+      // Every turn on the id (the caller named a session), taken now: a resume that registers during
+      // the grace or the kill is not swept in.
       const targeted = [...handles];
       for (const handle of targeted) handle.cancelRequested = true;
       await Promise.all(targeted.map((handle) => handle.client.cancel(sessionId).catch(() => {})));
@@ -386,8 +386,8 @@ export function installSignalCleanup(map, {
 } = {}) {
   let shuttingDown = false;
   const shutdown = (code, fromSignal = false) => {
-    // A second signal skips the wait: the kills are already dispatched. A stdin EOF is not a
-    // second ask, since a hangup closes stdin right after its SIGHUP.
+    // A second signal exits without the wait, the kills already sent. A stdin EOF does not: a
+    // hangup closes stdin right after its SIGHUP.
     if (shuttingDown) return fromSignal ? exit(code) : undefined;
     shuttingDown = true;
     // Set now: the loop may run dry before the scheduled exit gets a turn.
@@ -405,9 +405,8 @@ export function installSignalCleanup(map, {
     const leave = () => schedule(() => exit(code));
     Promise.all(stops).then(leave, leave);
   };
-  // On POSIX each agent has its own process group, so a signal to this process misses it; the
-  // handler kills the agents before exiting. SIGHUP is a closed terminal, whose default would end
-  // the server and leave them running.
+  // On POSIX each agent has its own process group, which a signal to this process misses, so the
+  // handler kills them first. SIGHUP too: a closed terminal, whose default leaves them running.
   if (DETACHED) {
     const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]);
     for (const [signal, code] of signals) process.on(signal, () => shutdown(code, true));

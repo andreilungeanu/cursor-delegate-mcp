@@ -22,14 +22,11 @@ test("splitArgs keeps single-quoted arguments intact", () => {
   assert.deepEqual(splitArgs("run 'a b c' end"), ["run", "a b c", "end"]);
 });
 
-// A quote inside a token split it: --log-file="C:\logs & traces\agent.log" became three args, and
-// the bare & among them reached cmd.exe as a command separator.
 test("splitArgs joins a quoted section to the token it sits in", () => {
   assert.deepEqual(splitArgs('acp --log-file="C:\\logs & traces\\agent.log"'), ["acp", "--log-file=C:\\logs & traces\\agent.log"]);
   assert.deepEqual(splitArgs('acp "" end'), ["acp", "", "end"]);
 });
 
-// A quote inside a word is a character of it: a path under O'Brien split in two.
 test("splitArgs keeps a quote inside a word as part of the argument", () => {
   assert.deepEqual(splitArgs("--log C:\\Users\\O'Brien\\agent.log"), ["--log", "C:\\Users\\O'Brien\\agent.log"]);
   assert.deepEqual(splitArgs("--log=C:\\it's\\O'Brien.log end"), ["--log=C:\\it's\\O'Brien.log", "end"]);
@@ -142,8 +139,6 @@ test("doctor reads a .ps1 launcher's version, and resolves a bare .ps1 name on P
   }
 });
 
-// The probe builds its --version args from the spec. With the PowerShell flags already in the
-// spec and no acp token to mark a prefix, it probed `powershell.exe --version`.
 test("doctor reads a .ps1 launcher's version when ACP_AGENT_ARGS has no acp token", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
   const { runDoctor } = await import("../src/doctor.js");
   const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
@@ -167,8 +162,7 @@ test("a .ps1 ACP_AGENT_COMMAND that does not exist is reported as spawn-failed",
   await assert.rejects(() => new AcpClient({ spawnSpec: spec }).start(), (err) => err.reason === "spawn-failed");
 });
 
-// Node 24 deprecates an args array under shell:true (DEP0190) and warns on the first launch. Older
-// Node stays silent, so this goes red only on 24+. One process per site: Node warns once each.
+// Node warns (DEP0190) only from 24 on, and once per process, so each site gets its own process.
 test("launching through cmd.exe prints no DEP0190 warning, from the client or doctor", { skip: process.platform !== "win32" && "cmd.exe launch" }, async () => {
   const { spawnSync } = await import("node:child_process");
   const { pathToFileURL } = await import("node:url");
@@ -187,8 +181,7 @@ test("launching through cmd.exe prints no DEP0190 warning, from the client or do
   }
 });
 
-// The shape of cursor-agent.cmd: delayed expansion on, then a .ps1 from its own folder through
-// powershell.exe. Cursor's agent.cmd is a copy, so it runs cursor-agent.ps1.
+// The shape of cursor-agent.cmd: delayed expansion, then its folder's .ps1 via powershell.exe.
 const forwardingCmd = (base, dir = "%SCRIPT_DIR%") => [
   "@echo off",
   "setlocal enabledelayedexpansion",
@@ -256,7 +249,6 @@ test("a .cmd stays on cmd.exe unless it only forwards to an existing .ps1 in its
   }
 });
 
-// cmd runs x.ps1.cmd for "x.ps1" through PATHEXT; only the .ps1 file itself goes to PowerShell.
 test("only an existing .ps1 file itself is run through PowerShell", { skip: process.platform !== "win32" && "Windows launcher" }, () => {
   const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
   try {
@@ -291,8 +283,7 @@ test("commandExists finds a launcher on PATH with and without a PATHEXT extensio
   }
 });
 
-// A Store app's alias in WindowsApps is a link whose target sits in a folder this user cannot
-// stat, so stat fails with EACCES while cmd still runs it.
+// A WindowsApps entry that lstat sees as a link and stat cannot read: a Store app's alias.
 function findAppExecAlias() {
   const dir = path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WindowsApps");
   let names = [];

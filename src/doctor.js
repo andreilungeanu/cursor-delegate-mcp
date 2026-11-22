@@ -76,9 +76,9 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
     const stop = () => (child.pid ? treeKill(child.pid, { childAlive: isChildAlive(child) }).catch(() => {}) : Promise.resolve());
     onSpawn?.({ pid: child.pid, stop });
     const closed = new Promise((r) => child.once("close", r));
-    // Returns once the probe has closed, so doctor does not leave it running; bounded like stop().
+    // Settles once the probe has closed, so doctor does not return with it running.
     const onAbort = () => {
-      // The timeout would otherwise fire during the kill and return first.
+      // Else it fires during the kill and reports a timeout.
       clearTimeout(timer);
       aborting = true;
       const bound = new Promise((r) => { setTimeout(r, PROBE_KILL_WAIT_MS).unref?.(); });
@@ -115,7 +115,7 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
 async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs, signal, onClientReady }) {
   if (signal?.aborted) return { ok: false, error: "Handshake aborted by MCP host" };
   const client = clientFactory({ spawnSpec });
-  // Handed out before the spawn, as delegate does, so a server shutdown can stop it.
+  // Handed out before the spawn, so a server shutdown can stop it.
   onClientReady?.(client);
   const workspaceDir = workspace || process.cwd();
   let timer;
@@ -142,7 +142,6 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
         reject(new Error(`Handshake timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     });
-    // A host interrupt stops the agent at once rather than leaving it to the timeout.
     const aborted = new Promise((_, reject) => {
       onAbort = () => {
         try { Promise.resolve(client.stop()).catch(() => {}); } catch {}
@@ -164,8 +163,7 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
 }
 
 /**
- * onClientReady receives each process doctor starts, the version probe and then the handshake
- * agent, so a server shutdown can stop it.
+ * onClientReady gets each process doctor starts, probe then agent, so a shutdown can stop it.
  * @param {{
  *   getClientInfo?: () => { capabilities?: any, version?: any },
  *   deep?: boolean,

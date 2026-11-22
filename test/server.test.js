@@ -432,8 +432,6 @@ test("cancel tool with force kills the agent when delegation does not settle", a
   }
 });
 
-// The cancel names the turns running when it arrives. A resume that registers under the same id
-// during the grace was swept into the kill after it.
 test("a force cancel does not kill a resume that registered during its grace", async () => {
   const stops = [];
   const release = {};
@@ -900,9 +898,6 @@ test("a signal during the wait after stdin closed exits at once", { skip: proces
   }
 });
 
-// A closed terminal sends SIGHUP, whose default ends the server without stopping its detached
-// agents. The stdin EOF that follows a hangup read as a second request and exited 0 before the
-// kills settled; only a second signal is that.
 test("SIGHUP stops registered agents, and the stdin EOF after it does not cut the wait short", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
   const exited = [];
   let settle;
@@ -1167,8 +1162,6 @@ test("the doctor tool registers its agent where shutdown looks, and passes the h
   }
 });
 
-// A blank id is a malformed call, not a stale one, and a stray space around a live id read as
-// not-found while the turn kept running.
 test("cancel rejects a blank sessionId and trims one with stray whitespace", async () => {
   let release;
   const gate = new Promise((r) => { release = r; });

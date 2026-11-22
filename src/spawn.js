@@ -2,9 +2,8 @@ import process from "node:process";
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
-// Splits on whitespace outside quotes. A quote opens a section only at the start of an argument or
-// right after "=", and only when it closes: --log-file="C:\a b\x.log" is one argument, quotes
-// removed, while the apostrophe in O'Brien stays a character. Backslashes are literal.
+// Splits on whitespace outside quotes. A closed quote at an argument's start or after "=" groups
+// and is removed (--log-file="C:\a b\x.log"); elsewhere it is a character (O'Brien). \ is literal.
 export function splitArgs(raw) {
   const s = String(raw || "");
   const args = [];
@@ -56,17 +55,15 @@ function cmdQuote(value) {
 }
 
 /**
- * What to hand spawn() for a spec. Applied at each spawn site, after doctor has built its
- * --version args from the spec as configured.
+ * What to hand spawn() for a spec, at each spawn site so doctor reads the spec as configured.
  * @param {string} command @param {string[]} args
  * @param {{ shell?: boolean | string, env?: NodeJS.ProcessEnv } | undefined} options
  */
 export function spawnArgv(command, args, options) {
   if (!(options?.shell && process.platform === "win32")) return { command, args, options };
   const env = options.env || process.env;
-  // cmd.exe hands a .ps1 to its file association instead of running it, so start it the way
-  // cursor-agent.cmd starts cursor-agent.ps1. Only that exact file: x.ps1.cmd is cmd's to run.
-  // A .cmd that only does that runs its .ps1 the same way, skipping cmd.exe.
+  // cmd.exe opens a .ps1 with its file association, so a .ps1, or the one a forwarding .cmd runs,
+  // goes to powershell.exe -File as cursor-agent.cmd does. Only x.ps1 itself: x.ps1.cmd stays cmd's.
   const name = String(command).replace(/^["']|["']$/g, "");
   const script = /\.ps1$/i.test(name) ? findCommand(name, env, true) : forwardedScript(findCommand(name, env), env);
   if (script) {
@@ -84,11 +81,9 @@ export function spawnArgv(command, args, options) {
   return { command: [command, ...args].map(cmdQuote).join(" "), args: [], options };
 }
 
-// cursor-agent.cmd (and agent.cmd, a copy) turns on delayed expansion, then runs cursor-agent.ps1
-// from its own folder through powershell.exe -File; the .ps1 repeats the .cmd's update step.
-// Through cmd.exe and that .cmd, !, %VAR%, ^ and quotes in the args are rewritten before the agent
-// sees them. The .ps1 when the .cmd's PowerShell line forwards its args (%*) to a script in the
-// .cmd's folder (%~dp0, or a variable set from it), else null.
+// The .ps1 a .cmd passes its args to (powershell ... -File "%~dp0x.ps1" %*, or a variable set from
+// %~dp0), else null. cursor-agent.cmd and its copy agent.cmd do this; cmd.exe and their delayed
+// expansion rewrite !, %VAR%, ^ and quotes in the args, and the .ps1 repeats their update step.
 function forwardedScript(file, env) {
   if (!file || !/\.(cmd|bat)$/i.test(file)) return null;
   let text;

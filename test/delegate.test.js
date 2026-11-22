@@ -1329,7 +1329,6 @@ test("a timeout names the command from the tool_call_update as the last tool cal
   );
 });
 
-// The update carries the whole command, so a long script would land whole in the error text.
 test("the last tool call in a timeout error is capped like the progress line", async () => {
   const script = "python - <<'EOF'\n" + "print('x' * 80)\n".repeat(400) + "EOF";
   await assert.rejects(
@@ -2657,8 +2656,6 @@ test("a delegation without a workspace is refused before anything is spawned", a
   assert.equal(spawned, false, "the workspace check must run before the agent is spawned");
 });
 
-// The caller gets the session id as the session opens, before model, config and mode are set, so
-// a cancel can land before there is a turn. The prompt then still went out and ran in full.
 test("a cancel that arrives before the prompt is sent stops the prompt from going out", async () => {
   let client;
   const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;

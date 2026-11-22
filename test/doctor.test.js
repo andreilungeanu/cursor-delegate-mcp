@@ -405,8 +405,6 @@ test("runDoctor deep:true reports the negotiated capability matrix", async () =>
   assert.equal(out.agent.handshake.agentCapabilities.sessionCapabilities.list !== undefined, true);
 });
 
-// doctor ran its handshake with no way in from the host: an interrupt left the agent to the
-// handshake timeout, and shutdown could not see it at all.
 test("runDoctor deep stops the agent at once when the host aborts", async () => {
   const controller = new AbortController();
   let client;
@@ -429,8 +427,6 @@ test("runDoctor deep stops the agent at once when the host aborts", async () => 
   assert.ok(!isChildAlive(client.child));
 });
 
-// The version probe had no way in either: an abort during it waited out the probe's timeout, and
-// the handshake after it then spawned an agent for a host that had gone.
 test("runDoctor stops the version probe on a host abort, and spawns no handshake agent after it", async () => {
   const controller = new AbortController();
   const readied = [];
@@ -451,12 +447,10 @@ test("runDoctor stops the version probe on a host abort, and spawns no handshake
   assert.equal(readied.length, 1, "the probe must be handed out so shutdown can reach it");
   const { pid } = readied[0];
   assert.ok(pid > 0);
-  // Checked as doctor returns, not after a grace: returning first left the probe running.
   assert.throws(() => process.kill(pid, 0), "the probe process must be gone when doctor returns");
 });
 
-// An abort just before the timeout: the kill takes a while (taskkill on Windows), and a timer
-// still armed fired during it and returned "timed out" with the probe still running.
+// The abort lands 20 ms before the timeout, inside the time the kill takes (taskkill on Windows).
 test("a version probe aborted just before its timeout reports the abort, once the probe is gone", async () => {
   const controller = new AbortController();
   const readied = [];
