@@ -2656,3 +2656,29 @@ test("a delegation without a workspace is refused before anything is spawned", a
   }
   assert.equal(spawned, false, "the workspace check must run before the agent is spawned");
 });
+
+// The caller gets the session id as the session opens, before model, config and mode are set, so
+// a cancel can land before there is a turn. The prompt then still went out and ran in full.
+test("a cancel that arrives before the prompt is sent stops the prompt from going out", async () => {
+  let client;
+  const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "50";
+  let out;
+  try {
+    out = await runDelegate({
+      spec: "do the thing", workspace: process.cwd(),
+      clientFactory: (opts) => (client = fakeFactory(opts)),
+      onSessionReady: (sid) => { client.cancel(sid); },
+    });
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
+  }
+  const sent = client.peer.getLog().filter((e) => e.dir === "out").map((e) => JSON.parse(e.line).method);
+  assert.ok(sent.includes("session/cancel"), JSON.stringify(sent));
+  assert.ok(!sent.includes("session/prompt"), `no prompt may follow the cancel: ${JSON.stringify(sent)}`);
+  assert.equal(out.stopReason, "cancelled");
+  assert.equal(out.result, "");
+  assert.equal(out.filesReportedByEditTools, undefined);
+  assert.ok(!(out.protocolWarnings ?? []).some((w) => /without emitting any message/.test(w)), JSON.stringify(out.protocolWarnings));
+});

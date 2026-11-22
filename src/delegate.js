@@ -512,6 +512,8 @@ export async function runDelegate({
       promptInFlight = true;
       try {
         const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
+        // The caller has the id from session/new on, so a cancel can come before there is a turn.
+        if (client.cancelRequested) return { stopReason: "cancelled", cancelledBeforePrompt: true };
         return await client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
       } finally {
         // The result is assembled across later awaits; a frame trailing the turn must not join it.
@@ -535,7 +537,7 @@ export async function runDelegate({
         "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
         + " result carries the last message before that tool call — it may be a preamble rather than the answer."
       );
-    } else if (!finalMessageAvailable) {
+    } else if (!finalMessageAvailable && !res?.cancelledBeforePrompt) {
       protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
     }
     let stopReason;
