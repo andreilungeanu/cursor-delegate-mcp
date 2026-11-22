@@ -370,12 +370,12 @@ export async function runDelegate({
   // Malformed frames seen mid-turn; merged into protocolWarnings at the end.
   const frameWarnings = [];
 
-  // One line for progress and a stall error's "last tool call"; a command arrives verbatim, newlines
-  // included. The path is left off when the title names it ("Edit `src/a.js`"). A start always
-  // reports; a refresh only when the label changes.
+  // One line of at most 200 characters for progress and a stall error's "last tool call"; a command
+  // arrives verbatim, a whole script included. The path is left off when the title names it
+  // ("Edit `src/a.js`"). A start always reports; a refresh only when the label changes.
   const labelTool = (started) => {
     const { title, path } = state.lastTool;
-    const label = (String(title) + (path && !String(title).includes(path) ? " — " + path : "")).replace(/\s+/g, " ").trim();
+    const label = (String(title) + (path && !String(title).includes(path) ? " — " + path : "")).replace(/\s+/g, " ").trim().slice(0, 200);
     if (!started && label === state.lastToolLabel) return;
     state.lastToolLabel = label;
     try { onProgress?.(("running: " + label).slice(0, 200)); } catch {}

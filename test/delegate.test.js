@@ -1329,6 +1329,33 @@ test("a timeout names the command from the tool_call_update as the last tool cal
   );
 });
 
+// The update carries the whole command, so a long script would land whole in the error text.
+test("the last tool call in a timeout error is capped like the progress line", async () => {
+  const script = "python - <<'EOF'\n" + "print('x' * 80)\n".repeat(400) + "EOF";
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory({
+        emit: (client) => {
+          client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Terminal", kind: "execute", status: "pending" } });
+          client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", title: script } });
+        },
+      }),
+      handshakeMs: 10000,
+      hardCapMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      const label = /last tool call: (.*?)\.(?: The agent| Resume|$)/s.exec(err.message)?.[1];
+      assert.ok(label, err.message.slice(0, 300));
+      assert.ok(label.startsWith("python - <<'EOF' print("), label.slice(0, 60));
+      assert.ok(label.length <= 200, `label is ${label.length} chars`);
+      return true;
+    }
+  );
+});
+
 test("runDelegate returns the complete stream when the turn uses no tools", async () => {
   const out = await replayResult([msgChunk("Code:\n"), msgChunk("```js\nrun();\n```")]);
   assert.equal(out.result, "Code:\n```js\nrun();\n```");
