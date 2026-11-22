@@ -294,23 +294,24 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         const known = seenSessions.has(sessionId);
         return cancelResult(known ? "not-running" : "not-found", sessionId);
       }
-      // Every turn on the id: the caller named a session, not a turn.
-      for (const handle of handles) handle.cancelRequested = true;
-      await Promise.all([...handles].map((handle) => handle.client.cancel(sessionId).catch(() => {})));
+      // Every turn on the id when the cancel arrives: the caller named a session, not a turn. Taken
+      // now, so a resume that registers later, during the grace or the kill, is never swept in.
+      const targeted = [...handles];
+      for (const handle of targeted) handle.cancelRequested = true;
+      await Promise.all(targeted.map((handle) => handle.client.cancel(sessionId).catch(() => {})));
       if (!force) {
         // Handles stay registered: session/cancel is advisory, and a later force must still find
         // the turn. Each delegation's finally removes its handle when the turn settles.
         return cancelResult("cancelled", sessionId);
       }
       // Polled, not slept through: the turn often settles well inside the grace.
+      const running = () => targeted.filter((handle) => inFlight.get(sessionId)?.has(handle));
       const graceEnds = Date.now() + forceGraceMs;
-      while (Date.now() < graceEnds && inFlight.get(sessionId)?.size) {
+      while (Date.now() < graceEnds && running().length) {
         await new Promise((r) => setTimeout(r, Math.min(50, Math.max(1, graceEnds - Date.now()))));
       }
-      const stillRunning = inFlight.get(sessionId);
-      if (!stillRunning || stillRunning.size === 0) return cancelResult("cancelled", sessionId);
-      // Snapshot before awaiting stop, so a resume registering during teardown is not swept out.
-      const toKill = [...stillRunning];
+      const toKill = running();
+      if (toKill.length === 0) return cancelResult("cancelled", sessionId);
       const observed = await Promise.all(
         toKill.map((handle) => Promise.resolve(handle.client.stop()).catch(() => false))
       );

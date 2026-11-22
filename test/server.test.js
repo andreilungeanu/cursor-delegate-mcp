@@ -432,6 +432,50 @@ test("cancel tool with force kills the agent when delegation does not settle", a
   }
 });
 
+// The cancel names the turns running when it arrives. A resume that registers under the same id
+// during the grace was swept into the kill after it.
+test("a force cancel does not kill a resume that registered during its grace", async () => {
+  const stops = [];
+  const release = {};
+  let cancelSeen;
+  const seen = new Promise((r) => { cancelSeen = r; });
+  let resumeReady;
+  const resumed = new Promise((r) => { resumeReady = r; });
+  let firstReady;
+  const first = new Promise((r) => { firstReady = r; });
+  let calls = 0;
+  const runDelegate = async ({ onSessionReady }) => {
+    const n = ++calls;
+    const gate = new Promise((r) => { release[n] = r; });
+    onSessionReady("sess-shared", {
+      cancel: async () => { cancelSeen(); },
+      stop: () => { stops.push(n); release[n](); return true; },
+    });
+    (n === 1 ? firstReady : resumeReady)();
+    await gate;
+    return { result: `turn ${n}`, sessionId: "sess-shared" };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 300 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const firstP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
+    await first;
+    const cancelP = client.callTool({ name: "cancel", arguments: { sessionId: "sess-shared", force: true } });
+    await seen;
+    const resumeP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "more", resumeSessionId: "sess-shared" } });
+    await resumed;
+    assert.equal(payload(await cancelP).status, "killed");
+    assert.deepEqual(stops, [1], "only the turn the cancel named is stopped");
+    release[2]();
+    await firstP;
+    assert.equal(payload(await resumeP).cancelRequested, undefined, "the resume was not cancelled");
+  } finally {
+    await client.close();
+  }
+});
+
 test("a plain cancel keeps the session cancellable, so force still escalates", async () => {
   let stopCalled = false;
   let releaseStop;
