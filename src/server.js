@@ -243,9 +243,10 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, pend
  *   runDelegate?: (opts: any) => Promise<any>,
  *   runDoctor?: (opts: any) => Promise<any>,
  *   forceGraceMs?: number,
+ *   pending?: Set<any>,
  * }} [opts]
  */
-export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000 } = {}) {
+export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000, pending = pendingDelegations } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
   const runDoctor = runDoctorInjected || runDoctorDefault;
   const server = new McpServer(
@@ -267,7 +268,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: true,
       },
     },
-    async (args, extra) => runDelegateTool({ args, extra, runDelegate, inFlight, pending: pendingDelegations, seenSessions })
+    async (args, extra) => runDelegateTool({ args, extra, runDelegate, inFlight, pending, seenSessions })
   );
 
   server.registerTool(
@@ -341,15 +342,23 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: false,
       },
     },
-    async ({ deep }) => {
-      const out = await runDoctor({
-        deep,
-        getClientInfo: () => ({
-          capabilities: server.server.getClientCapabilities(),
-          version: server.server.getClientVersion(),
-        }),
-      });
-      return { content: [{ type: "text", text: JSON.stringify(out) }] };
+    async ({ deep }, extra) => {
+      // doctor's processes sit in pending while it runs, where shutdown already looks.
+      const handles = [];
+      try {
+        const out = await runDoctor({
+          deep,
+          signal: extra?.signal,
+          onClientReady: (client) => { const handle = { client }; handles.push(handle); pending.add(handle); },
+          getClientInfo: () => ({
+            capabilities: server.server.getClientCapabilities(),
+            version: server.server.getClientVersion(),
+          }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(out) }] };
+      } finally {
+        for (const handle of handles) pending.delete(handle);
+      }
     }
   );
 

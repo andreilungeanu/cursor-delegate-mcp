@@ -1143,3 +1143,26 @@ test("cancel with force returns as soon as the turn settles, not after the whole
     await client.close();
   }
 });
+
+test("the doctor tool registers its agent where shutdown looks, and passes the host's abort signal", async () => {
+  const pending = new Set();
+  let seen;
+  const runDoctor = async ({ onClientReady, signal }) => {
+    const client = { stop: () => true };
+    onClientReady(client);
+    seen = { registered: [...pending].some((h) => h.client === client), signal };
+    return { plugin: { version: "x" }, client: { name: null, version: null, capabilities: {} }, agent: { found: true, command: "cursor-agent", version: null }, runtime: { node: "", platform: "", arch: "", cwd: "", transport: "stdio" }, env: {} };
+  };
+  const server = buildServer({ runDoctor, pending });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await client.callTool({ name: "doctor", arguments: { deep: true } });
+    assert.equal(seen.registered, true, "shutdown must be able to reach doctor's agent");
+    assert.ok(seen.signal instanceof AbortSignal, "the host's abort signal must reach doctor");
+    assert.equal(pending.size, 0, "the handle is dropped once doctor returns");
+  } finally {
+    await client.close();
+  }
+});

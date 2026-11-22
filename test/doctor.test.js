@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { runDoctor as rawRunDoctor } from "../src/doctor.js";
+import { AcpClient } from "../src/acp-client.js";
+import { isChildAlive } from "../src/proc.js";
 import { doctorOutputShape, doctorAgentShape, doctorHandshakeShape } from "../src/server.js";
 import { VERSION } from "../src/version.js";
 
@@ -401,4 +403,54 @@ test("runDoctor deep:true reports the negotiated capability matrix", async () =>
   assert.deepEqual(out.agent.handshake.models, ["composer-2.5", "claude-opus-4-8"]);
   assert.deepEqual(out.agent.handshake.modes, ["agent", "plan", "ask"]);
   assert.equal(out.agent.handshake.agentCapabilities.sessionCapabilities.list !== undefined, true);
+});
+
+// doctor ran its handshake with no way in from the host: an interrupt left the agent to the
+// handshake timeout, and shutdown could not see it at all.
+test("runDoctor deep stops the agent at once when the host aborts", async () => {
+  const controller = new AbortController();
+  let client;
+  let readied;
+  const started = Date.now();
+  setTimeout(() => controller.abort(), 200);
+  const out = await rawRunDoctor({
+    deep: true, signal: controller.signal, handshakeTimeoutMs: 10000,
+    spawnSpec: { command: process.execPath, args: ["--version"], options: { shell: false } },
+    clientFactory: (opts) => (client = new AcpClient({
+      ...opts,
+      spawnSpec: { command: process.execPath, args: [fileURLToPath(new URL("./fixtures/handshake-hang-stub.js", import.meta.url))], options: { shell: false } },
+    })),
+    onClientReady: (c) => { readied = c; },
+  });
+  assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
+  assert.equal(out.agent.handshake.ok, false);
+  assert.match(out.agent.handshake.error, /aborted/);
+  assert.equal(readied, client, "the agent must be handed out so shutdown can reach it");
+  assert.ok(!isChildAlive(client.child));
+});
+
+// The version probe had no way in either: an abort during it waited out the probe's timeout, and
+// the handshake after it then spawned an agent for a host that had gone.
+test("runDoctor stops the version probe on a host abort, and spawns no handshake agent after it", async () => {
+  const controller = new AbortController();
+  const readied = [];
+  let spawned = 0;
+  const started = Date.now();
+  setTimeout(() => controller.abort(), 300);
+  const out = await rawRunDoctor({
+    deep: true, signal: controller.signal, versionTimeoutMs: 10000, handshakeTimeoutMs: 10000,
+    spawnSpec: { command: fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url)), args: ["acp"], options: { shell: false } },
+    clientFactory: () => { spawned++; throw new Error("no agent may be spawned after the abort"); },
+    onClientReady: (c) => { readied.push(c); },
+  });
+  assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
+  assert.match(out.agent.error ?? "", /aborted/);
+  assert.equal(out.agent.handshake.ok, false);
+  assert.match(out.agent.handshake.error, /aborted/);
+  assert.equal(spawned, 0);
+  assert.equal(readied.length, 1, "the probe must be handed out so shutdown can reach it");
+  const { pid } = readied[0];
+  assert.ok(pid > 0);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.throws(() => process.kill(pid, 0), "the probe process must be gone");
 });

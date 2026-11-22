@@ -2,7 +2,7 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { AcpClient } from "./acp-client.js";
 import { commandExists, resolveAcpSpawn, spawnArgv } from "./spawn.js";
-import { DETACHED, treeKill } from "./proc.js";
+import { DETACHED, isChildAlive, treeKill } from "./proc.js";
 import { readPackageVersion } from "./version.js";
 import { describeOptions } from "./model-options.js";
 
@@ -33,7 +33,12 @@ function envReport(name, fallback = null) {
 
 // Time-boxed, like the deep handshake: doctor runs when delegation is already broken, and a
 // launcher that never answers must not hang it.
-export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS) {
+/**
+ * @param {{ command: string, args: string[], options?: any }} spawnSpec
+ * @param {number} [timeoutMs]
+ * @param {{ signal?: AbortSignal, onSpawn?: (probe: { pid: number | undefined, stop: () => Promise<void> }) => void }} [opts]
+ */
+export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS, { signal, onSpawn } = {}) {
   const { command, args, options } = spawnSpec;
   const launcher = String(command || "").replace(/^["']|["']$/g, "");
   const isJsScript = isJsLauncher(launcher);
@@ -53,10 +58,20 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
     const argv = spawnArgv(execCommand, execArgs, options);
     const child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
+    // treeKill: on win32 a plain kill reaches only the wrapper, not the launcher.
+    const stop = () => (child.pid ? treeKill(child.pid, { childAlive: isChildAlive(child) }).catch(() => {}) : Promise.resolve());
+    onSpawn?.({ pid: child.pid, stop });
+    const onAbort = () => {
+      stop();
+      finish({ found: true, version: null, error: "version probe aborted by MCP host" });
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
     // Capped: a version is one line, and a launcher that streams is not kept whole.
     child.stdout?.on("data", (chunk) => {
       if (stdout.length < PROBE_STDOUT_CAP) stdout += chunk.toString();
@@ -74,8 +89,7 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       });
     });
     timer = setTimeout(() => {
-      // treeKill: on win32 a plain kill reaches only the wrapper, not the launcher.
-      if (child.pid) treeKill(child.pid).catch(() => {});
+      stop();
       // It spawned, so it is found; it just never answered.
       finish({ found: true, version: null, error: `version probe timed out after ${timeoutMs}ms` });
     }, timeoutMs);
@@ -83,10 +97,14 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
   });
 }
 
-async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs }) {
+async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs, signal, onClientReady }) {
+  if (signal?.aborted) return { ok: false, error: "Handshake aborted by MCP host" };
   const client = clientFactory({ spawnSpec });
+  // Handed out before the spawn, as delegate does, so a server shutdown can stop it.
+  onClientReady?.(client);
   const workspaceDir = workspace || process.cwd();
   let timer;
+  let onAbort;
   try {
     const details = {};
     const work = (async () => {
@@ -109,18 +127,30 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
         reject(new Error(`Handshake timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     });
-    await Promise.race([work, timeout]);
+    // A host interrupt stops the agent at once rather than leaving it to the timeout.
+    const aborted = new Promise((_, reject) => {
+      onAbort = () => {
+        try { Promise.resolve(client.stop()).catch(() => {}); } catch {}
+        reject(new Error("Handshake aborted by MCP host"));
+      };
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    await Promise.race([work, timeout, aborted]);
     return { ok: true, ...details };
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   } finally {
     clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
     // Awaited so doctor does not return with its agent still alive; a killed child exits in ms.
     try { await Promise.resolve(client.stop()); } catch {}
   }
 }
 
 /**
+ * onClientReady receives each process doctor starts, the version probe and then the handshake
+ * agent, so a server shutdown can stop it.
  * @param {{
  *   getClientInfo?: () => { capabilities?: any, version?: any },
  *   deep?: boolean,
@@ -130,6 +160,8 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
  *   handshakeTimeoutMs?: number,
  *   versionTimeoutMs?: number,
  *   readVersion?: () => string,
+ *   signal?: AbortSignal,
+ *   onClientReady?: (client: { stop: () => any }) => void,
  * }} [opts]
  */
 export async function runDoctor({
@@ -141,9 +173,11 @@ export async function runDoctor({
   handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS,
   versionTimeoutMs = VERSION_PROBE_TIMEOUT_MS,
   readVersion = readPackageVersion,
+  signal,
+  onClientReady,
 } = {}) {
   const { capabilities, version } = getClientInfo();
-  const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs);
+  const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs, { signal, onSpawn: onClientReady });
 
   /** @type {{ plugin: any, client: any, agent: any & { handshake?: any }, runtime: any, env: any }} */
   const out = {
@@ -183,6 +217,8 @@ export async function runDoctor({
       clientFactory,
       workspace,
       timeoutMs: handshakeTimeoutMs,
+      signal,
+      onClientReady,
     });
   }
 
