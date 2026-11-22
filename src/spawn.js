@@ -1,5 +1,5 @@
 import process from "node:process";
-import { existsSync, statSync } from "node:fs";
+import { lstatSync, statSync } from "node:fs";
 import path from "node:path";
 
 export function splitArgs(raw) {
@@ -86,7 +86,16 @@ function findCommand(command, env, exact = false) {
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
   const extKey = Object.keys(env).find((k) => k.toUpperCase() === "PATHEXT");
   const exts = exact ? [""] : ["", ...String((extKey && env[extKey]) || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)];
-  const isFile = (p) => { try { return existsSync(p) && statSync(p).isFile(); } catch { return false; } };
+  const isFile = (p) => {
+    try {
+      return statSync(p).isFile();
+    } catch (e) {
+      // A Store app's alias (WindowsApps\pwsh.exe) is a link into a folder this user cannot stat,
+      // so stat fails with EACCES, yet cmd runs it. A link to a missing file fails with ENOENT.
+      if (process.platform !== "win32" || (e.code !== "EACCES" && e.code !== "EPERM")) return false;
+      try { return lstatSync(p).isSymbolicLink(); } catch { return false; }
+    }
+  };
   const hit = (base) => {
     for (const ext of exts) {
       for (const p of [base + ext, base + ext.toLowerCase()]) if (isFile(p)) return p;

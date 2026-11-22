@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { splitArgs, resolveAcpSpawn, commandExists, spawnArgv } from "../src/spawn.js";
@@ -203,6 +203,45 @@ test("commandExists finds a launcher on PATH with and without a PATHEXT extensio
     assert.equal(commandExists(path.join(dir, "missingcursor"), env), false);
     assert.equal(commandExists("fakecursor", { PATH: "/nowhere" }), false, "only the given env's PATH is searched");
     assert.equal(commandExists("", env), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A Store app's alias in WindowsApps is a link whose target sits in a folder this user cannot
+// stat, so stat fails with EACCES while cmd still runs it.
+function findAppExecAlias() {
+  const dir = path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WindowsApps");
+  let names = [];
+  try { names = readdirSync(dir).filter((n) => /\.exe$/i.test(n)); } catch {}
+  for (const name of names) {
+    const file = path.join(dir, name);
+    try {
+      if (!lstatSync(file).isSymbolicLink()) continue;
+      statSync(file);
+    } catch (e) {
+      if (e.code === "EACCES" || e.code === "EPERM") return { dir, name };
+    }
+  }
+  return null;
+}
+
+test("commandExists finds a Store app execution alias", { skip: process.platform !== "win32" ? "Windows launcher" : !findAppExecAlias() && "no app execution alias on this machine" }, () => {
+  const { dir, name } = findAppExecAlias();
+  const env = { Path: dir, PATHEXT: ".EXE" };
+  assert.equal(commandExists(name.replace(/\.exe$/i, ""), env), true, "bare name resolves through PATHEXT");
+  assert.equal(commandExists(name, env), true, "name with its extension");
+  assert.equal(commandExists(path.join(dir, name), env), true, "a path is checked as given");
+});
+
+test("commandExists does not find a link whose target is gone", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmd-exists-"));
+  try {
+    // A junction needs no privilege on Windows; elsewhere the type is ignored.
+    symlinkSync(path.join(dir, "missing"), path.join(dir, "gone.exe"), "junction");
+    const env = { Path: dir, PATHEXT: ".EXE" };
+    assert.equal(commandExists("gone", env), false);
+    assert.equal(commandExists(path.join(dir, "gone.exe"), env), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
