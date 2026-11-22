@@ -21,15 +21,17 @@ if (complete) {
   process.exit(0);
 }
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const install = ["install", "--omit=dev", "--no-audit", "--no-fund"];
+const win32 = process.platform === "win32";
 try {
-  execFileSync(npm, ["install", "--omit=dev", "--no-audit", "--no-fund"], {
+  // On win32 one command line and no args array: Node 24 warns (DEP0190) on args under shell:true.
+  execFileSync(win32 ? ["npm.cmd", ...install].join(" ") : "npm", win32 ? [] : install, {
     cwd: root,
     // npm's stdout to stderr: Claude Code adds a SessionStart hook's stdout to the session context.
     stdio: ["ignore", 2, "inherit"],
     // npm.cmd is a batch file, which Node spawns only through a shell (EINVAL otherwise). The
     // arguments are fixed, so the shell carries no caller input.
-    shell: process.platform === "win32",
+    shell: win32,
   });
 } catch (err) {
   console.error(`cursor-delegate-mcp: dependency install failed: ${err?.message || err}`);

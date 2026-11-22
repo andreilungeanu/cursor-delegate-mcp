@@ -258,6 +258,8 @@ test("the SessionStart hook keeps npm's output off stdout", async () => {
   const { stdout, stderr } = await runHook(root);
   assert.equal(stdout, "", "nothing from the install may reach the session context");
   assert.match(stderr, /added \d+ packages?/, "npm's summary is still there to diagnose from");
+  // Node 24 warns (DEP0190) when npm.cmd's arguments go as an array under shell:true.
+  assert.doesNotMatch(stderr, /DEP0190/);
 });
 
 // npm writes a lockfile when it runs, so its absence is the observable proof the hook

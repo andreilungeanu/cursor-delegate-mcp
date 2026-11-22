@@ -153,6 +153,26 @@ test("a .ps1 ACP_AGENT_COMMAND that does not exist is reported as spawn-failed",
   await assert.rejects(() => new AcpClient({ spawnSpec: spec }).start(), (err) => err.reason === "spawn-failed");
 });
 
+// Node 24 deprecates an args array under shell:true (DEP0190) and warns on the first launch. Older
+// Node stays silent, so this goes red only on 24+. One process per site: Node warns once each.
+test("launching through cmd.exe prints no DEP0190 warning, from the client or doctor", { skip: process.platform !== "win32" && "cmd.exe launch" }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { pathToFileURL } = await import("node:url");
+  const src = (name) => JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "..", "src", name)).href);
+  const sites = {
+    client: `const { AcpClient } = await import(${src("acp-client.js")});
+      const c = new AcpClient({ spawnSpec: { command: "node", args: ["-v"], options: { shell: true } } });
+      await new Promise((r) => { c.once("exit", r); c.start(); });`,
+    doctor: `const { runDoctor } = await import(${src("doctor.js")});
+      await runDoctor({ spawnSpec: { command: "node", args: ["acp"], options: { shell: true } } });`,
+  };
+  for (const [site, script] of Object.entries(sites)) {
+    const out = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" });
+    assert.equal(out.status, 0, `${site}: ${out.stderr}`);
+    assert.doesNotMatch(out.stderr, /DEP0190/, site);
+  }
+});
+
 // cmd runs x.ps1.cmd for "x.ps1" through PATHEXT; only the .ps1 file itself goes to PowerShell.
 test("only an existing .ps1 file itself is run through PowerShell", { skip: process.platform !== "win32" && "Windows launcher" }, () => {
   const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));

@@ -67,7 +67,8 @@ export function spawnArgv(command, args, options) {
       options: { ...options, shell: false },
     };
   }
-  return { command: cmdQuote(command), args: args.map(cmdQuote), options };
+  // One line and no args array: Node 24 warns (DEP0190) on args under shell:true.
+  return { command: [command, ...args].map(cmdQuote).join(" "), args: [], options };
 }
 
 // Through a shell the spawn always succeeds (cmd.exe exits 1, "is not recognized"), so a missing
