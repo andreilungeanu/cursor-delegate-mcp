@@ -6,6 +6,43 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-11-22
+
+### Changed
+
+- On Windows, `cursor-agent` starts without cmd.exe. `cursor-agent.cmd` (and its copy `agent.cmd`)
+  only forwards to `cursor-agent.ps1`, which the bridge now runs through `powershell.exe -File`, so
+  `!`, `%VAR%`, `^` and quotes in `ACP_AGENT_ARGS` reach the agent unchanged.
+
+### Fixed
+
+- Progress lines and stall errors name the command or path of the last tool call, which
+  cursor-agent sends on the `tool_call_update`, capped at 200 characters.
+- Windows launch:
+  - A launcher path or `ACP_AGENT_ARGS` argument with spaces arrives whole, including a quoted
+    section inside an argument (`--log-file="C:\a b\x.log"`).
+  - A `.ps1` `ACP_AGENT_COMMAND` runs through PowerShell instead of opening with its file
+    association.
+  - A Store app execution alias on `PATH`, such as `pwsh`, is found.
+  - Node 24 prints no DEP0190 deprecation warning.
+- `doctor` reports the agent's version for a launcher prefix such as `node index.js acp`, and for a
+  `.ps1` launcher.
+- `doctor` stops its version probe and handshake when the host aborts and returns once they have
+  exited. A server shutdown stops them too.
+- `cancel`:
+  - a cancel during session setup keeps the prompt from being sent;
+  - `force` kills only the turns running when it arrived, not a resume that started during its
+    grace;
+  - a blank `sessionId` is rejected, and surrounding whitespace is trimmed.
+- On SIGHUP (a closed terminal) the server stops its agents before exiting. The stdin close that
+  follows a hangup does not cut that wait short.
+- The SessionStart hook sends npm's output to stderr, keeping the install summary out of the
+  session context.
+
+### Internal
+
+- Lockfile: hono 4.13.18.
+
 ## [2.9.0] - 2026-11-22
 
 ### Fixed
