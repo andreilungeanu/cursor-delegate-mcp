@@ -1,5 +1,6 @@
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { AcpClient } from "./acp-client.js";
 import { commandExists, resolveAcpSpawn, spawnArgv } from "./spawn.js";
 import { DETACHED, isChildAlive, treeKill } from "./proc.js";
@@ -9,6 +10,8 @@ import { describeOptions } from "./model-options.js";
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const VERSION_PROBE_TIMEOUT_MS = 10_000;
 const PROBE_STDOUT_CAP = 64 * 1024;
+// How long an aborted probe waits for its kill and close, as stop() bounds an agent's.
+const PROBE_KILL_WAIT_MS = 2000;
 const DEFAULT_LOG_SIZE = "2000";
 
 function formatArg(value) {
@@ -50,8 +53,14 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
   const execArgs = isJsScript ? [launcher, ...versionArgs] : versionArgs;
   // Through a shell, a missing launcher still spawns (the shell does) and would read as found.
   if (options?.shell && !isJsScript && !commandExists(launcher, options.env)) return Promise.resolve({ found: false, version: null });
+  const aborted = { version: null, error: "version probe aborted by MCP host" };
+  // Interrupted already: nothing is spawned, and found comes from the lookup alone.
+  if (signal?.aborted) {
+    return Promise.resolve({ found: isJsScript ? existsSync(launcher) : commandExists(launcher, options?.env), ...aborted });
+  }
   return new Promise((resolve) => {
     let settled = false;
+    let aborting = false;
     let stdout = "";
     let timer;
     const finish = (result) => {
@@ -66,12 +75,16 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
     // treeKill: on win32 a plain kill reaches only the wrapper, not the launcher.
     const stop = () => (child.pid ? treeKill(child.pid, { childAlive: isChildAlive(child) }).catch(() => {}) : Promise.resolve());
     onSpawn?.({ pid: child.pid, stop });
+    const closed = new Promise((r) => child.once("close", r));
+    // Returns once the probe has closed, so doctor does not leave it running; bounded like stop().
     const onAbort = () => {
-      stop();
-      finish({ found: true, version: null, error: "version probe aborted by MCP host" });
+      // The timeout would otherwise fire during the kill and return first.
+      clearTimeout(timer);
+      aborting = true;
+      const bound = new Promise((r) => { setTimeout(r, PROBE_KILL_WAIT_MS).unref?.(); });
+      Promise.race([Promise.all([stop(), closed]), bound]).then(() => finish({ found: true, ...aborted }));
     };
-    if (signal?.aborted) onAbort();
-    else signal?.addEventListener("abort", onAbort, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
     // Capped: a version is one line, and a launcher that streams is not kept whole.
     child.stdout?.on("data", (chunk) => {
       if (stdout.length < PROBE_STDOUT_CAP) stdout += chunk.toString();
@@ -81,6 +94,8 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
     child.stderr?.on("error", () => {});
     child.on("error", () => finish({ found: false, version: null }));
     child.on("close", (code) => {
+      // An aborted probe reports the abort, not the exit its kill caused.
+      if (aborting) return;
       const version = code === 0 ? stdout.trim() || null : null;
       finish({
         found: true,

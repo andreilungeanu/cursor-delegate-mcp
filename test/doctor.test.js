@@ -451,6 +451,36 @@ test("runDoctor stops the version probe on a host abort, and spawns no handshake
   assert.equal(readied.length, 1, "the probe must be handed out so shutdown can reach it");
   const { pid } = readied[0];
   assert.ok(pid > 0);
-  await new Promise((r) => setTimeout(r, 200));
-  assert.throws(() => process.kill(pid, 0), "the probe process must be gone");
+  // Checked as doctor returns, not after a grace: returning first left the probe running.
+  assert.throws(() => process.kill(pid, 0), "the probe process must be gone when doctor returns");
+});
+
+// An abort just before the timeout: the kill takes a while (taskkill on Windows), and a timer
+// still armed fired during it and returned "timed out" with the probe still running.
+test("a version probe aborted just before its timeout reports the abort, once the probe is gone", async () => {
+  const controller = new AbortController();
+  const readied = [];
+  setTimeout(() => controller.abort(), 300);
+  const out = await rawRunDoctor({
+    signal: controller.signal, versionTimeoutMs: 320,
+    spawnSpec: { command: fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url)), args: ["acp"], options: { shell: false } },
+    onClientReady: (c) => { readied.push(c); },
+  });
+  assert.match(out.agent.error ?? "", /aborted/);
+  assert.throws(() => process.kill(readied[0].pid, 0), "the probe process must be gone when doctor returns");
+});
+
+test("runDoctor spawns no version probe once the host has aborted", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const readied = [];
+  const out = await rawRunDoctor({
+    signal: controller.signal,
+    spawnSpec: { command: fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url)), args: ["acp"], options: { shell: false } },
+    onClientReady: (c) => { readied.push(c); },
+  });
+  assert.equal(readied.length, 0, "nothing may be spawned for a doctor that was already aborted");
+  assert.equal(out.agent.found, true, "found comes from the lookup alone");
+  assert.equal(out.agent.version, null);
+  assert.match(out.agent.error ?? "", /aborted/);
 });
