@@ -2,13 +2,25 @@ import process from "node:process";
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
+// Splits on whitespace outside quotes. A quote opens a section only at the start of an argument or
+// right after "=", and only when it closes: --log-file="C:\a b\x.log" is one argument, quotes
+// removed, while the apostrophe in O'Brien stays a character. Backslashes are literal.
 export function splitArgs(raw) {
+  const s = String(raw || "");
   const args = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  for (const m of String(raw || "").matchAll(re)) {
-    args.push(m[1] ?? m[2] ?? m[3]);
+  let i = 0;
+  for (;;) {
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (i >= s.length) return args;
+    let arg = "";
+    while (i < s.length && !/\s/.test(s[i])) {
+      const end = (s[i] === '"' || s[i] === "'") && (arg === "" || arg.endsWith("=")) ? s.indexOf(s[i], i + 1) : -1;
+      if (end === -1) { arg += s[i++]; continue; }
+      arg += s.slice(i + 1, end);
+      i = end + 1;
+    }
+    args.push(arg);
   }
-  return args;
 }
 
 // On Windows cursor-agent writes hook commands as PowerShell but runs them in Git Bash when it sees
