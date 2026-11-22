@@ -67,6 +67,8 @@ function freshFields() {
     todos: new Map(),
     sawTodoFrame: false,
     touched: new Set(),
+    // The newest tool call's id, title and path; its updates refine the title and path.
+    lastTool: null,
     lastToolLabel: null,
     sessionTitle: undefined,
   };

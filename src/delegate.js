@@ -388,6 +388,18 @@ export async function runDelegate({
   // into it with the rest below.
   const frameWarnings = [];
 
+  // Collapsed onto one line the way both readers of this take it: a progress notification and
+  // the "last tool call" line in a stall error. A terminal tool's command arrives verbatim, so a
+  // multi-line script keeps its newlines. The path is left off when the title already names it
+  // ("Edit `src/a.js`"). A start is always reported; a refresh only when it changes the label.
+  const labelTool = (started) => {
+    const { title, path } = state.lastTool;
+    const label = (String(title) + (path && !String(title).includes(path) ? " — " + path : "")).replace(/\s+/g, " ").trim();
+    if (!started && label === state.lastToolLabel) return;
+    state.lastToolLabel = label;
+    try { onProgress?.(("running: " + label).slice(0, 200)); } catch {}
+  };
+
   // session/load replays the previous turn as ordinary update frames, tool_call and diff blocks
   // included. state.reset() clears what they touch but cannot unsend a progress notification, so
   // the guard below is what stops a resume reporting last turn's edits as if they were happening.
@@ -420,13 +432,8 @@ export async function runDelegate({
     }
     if (up.sessionUpdate === "tool_call") {
       state.startTool(up.toolCallId, up.status);
-      const label = up.title || up.kind || "tool";
-      const path = up.locations?.[0]?.path;
-      // Collapsed onto one line the way both readers of this take it: a progress notification
-      // and the "last tool call" line in a stall error. A terminal tool's title is the command
-      // the agent sent, which it sends verbatim — a multi-line script arrives with its newlines.
-      state.lastToolLabel = (String(label) + (path ? " — " + path : "")).replace(/\s+/g, " ").trim();
-      try { onProgress?.(("running: " + state.lastToolLabel).slice(0, 200)); } catch {}
+      state.lastTool = { id: up.toolCallId, title: up.title || up.kind || "tool", path: up.locations?.[0]?.path };
+      labelTool(true);
     }
     if (up.sessionUpdate === "agent_message_chunk" && up.content?.text) {
       const text = up.content.text;
@@ -435,6 +442,16 @@ export async function runDelegate({
     }
     if (up.sessionUpdate === "tool_call_update") {
       state.updateToolStatus(up.toolCallId, up.status);
+      // tool_call names only the tool's kind ("Terminal", "Edit File"); the command or path
+      // arrives on a later update for the same id. Only the newest call is relabelled, so a late
+      // frame from an earlier one does not replace what is running now.
+      const tool = state.lastTool;
+      if (tool && up.toolCallId != null && up.toolCallId === tool.id) {
+        const path = up.locations?.[0]?.path;
+        if (typeof up.title === "string" && up.title.trim()) tool.title = up.title;
+        if (typeof path === "string" && path) tool.path = path;
+        labelTool(false);
+      }
       // Array.isArray, not `|| []`: a non-array content is truthy and iterating it throws
       // "object is not iterable" here, in the readline callback, where nothing awaits it. That
       // is an uncaught exception — the whole server, not this one turn — and it also stops the

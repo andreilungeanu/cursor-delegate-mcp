@@ -1276,6 +1276,59 @@ test("a multi-line tool title is reported as one line", async () => {
   assert.equal(line, "running: npm run build --workspace=api --silent");
 });
 
+// cursor-agent's tool_call carries only the tool kind ("Terminal", "Edit File"); the command or
+// path follows on the next tool_call_update for the same id. Frame shapes as measured in
+// docs/improvement-research-2026-11-09.md (F2).
+test("the command and path from a tool_call_update replace the generic tool_call title", async () => {
+  const progress = await collectProgress([
+    { sessionUpdate: "tool_call", toolCallId: "t1", title: "Terminal", kind: "execute", status: "pending", rawInput: {} },
+    { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "`npm test`", rawInput: { command: "npm test" } },
+    { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" },
+    { sessionUpdate: "tool_call", toolCallId: "t2", title: "Edit File", kind: "edit", status: "pending", rawInput: {} },
+    { sessionUpdate: "tool_call_update", toolCallId: "t2", title: "Edit `src/a.js`", rawInput: { path: "src/a.js" }, locations: [{ path: "src/a.js" }] },
+  ]);
+  const running = progress.filter((m) => m.startsWith("running: "));
+  assert.deepEqual(running, [
+    "running: Terminal",
+    "running: `npm test`",
+    "running: Edit File",
+    "running: Edit `src/a.js`",
+  ], "each refresh reported once; the path is not repeated when the title already names it");
+});
+
+test("a late update from an earlier tool call does not relabel the newer one", async () => {
+  const progress = await collectProgress([
+    { sessionUpdate: "tool_call", toolCallId: "t1", title: "Terminal", kind: "execute", status: "pending" },
+    { sessionUpdate: "tool_call", toolCallId: "t2", title: "Read File", kind: "read", status: "pending", locations: [{ path: "b.js" }] },
+    { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "`npm test`" },
+  ]);
+  const running = progress.filter((m) => m.startsWith("running: "));
+  assert.deepEqual(running, ["running: Terminal", "running: Read File — b.js"]);
+});
+
+test("a timeout names the command from the tool_call_update as the last tool call", async () => {
+  await assert.rejects(
+    () => runDelegate({
+      spec: "hang",
+      workspace: process.cwd(),
+      clientFactory: hangingFactory({
+        emit: (client) => {
+          client.emit("update", { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Terminal", kind: "execute", status: "pending", rawInput: {} } });
+          client.emit("update", { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "`npm test`", rawInput: { command: "npm test" } } });
+        },
+      }),
+      handshakeMs: 10000,
+      hardCapMs: 300,
+      heartbeatMs: 0,
+    }),
+    (err) => {
+      assert.equal(err.reason, "hard-cap");
+      assert.match(err.message, /last tool call: `npm test`\./);
+      return true;
+    }
+  );
+});
+
 test("runDelegate returns the complete stream when the turn uses no tools", async () => {
   const out = await replayResult([msgChunk("Code:\n"), msgChunk("```js\nrun();\n```")]);
   assert.equal(out.result, "Code:\n```js\nrun();\n```");
