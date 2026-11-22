@@ -251,6 +251,15 @@ test("the SessionStart hook can spawn npm on this platform", async () => {
   }
 });
 
+// Claude Code adds a SessionStart hook's stdout to the session's context and never shows Claude
+// the stderr of one that exits 0, so npm's install summary belongs on stderr.
+test("the SessionStart hook keeps npm's output off stdout", async () => {
+  const root = await buildProbe();
+  const { stdout, stderr } = await runHook(root);
+  assert.equal(stdout, "", "nothing from the install may reach the session context");
+  assert.match(stderr, /added \d+ packages?/, "npm's summary is still there to diagnose from");
+});
+
 // npm writes a lockfile when it runs, so its absence is the observable proof the hook
 // skipped and its presence the proof it did not.
 const installRan = (root) => existsSync(join(root, "package-lock.json"));
