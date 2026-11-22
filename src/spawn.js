@@ -1,5 +1,5 @@
 import process from "node:process";
-import { lstatSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 export function splitArgs(raw) {
@@ -54,8 +54,9 @@ export function spawnArgv(command, args, options) {
   const env = options.env || process.env;
   // cmd.exe hands a .ps1 to its file association instead of running it, so start it the way
   // cursor-agent.cmd starts cursor-agent.ps1. Only that exact file: x.ps1.cmd is cmd's to run.
+  // A .cmd that only does that runs its .ps1 the same way, skipping cmd.exe.
   const name = String(command).replace(/^["']|["']$/g, "");
-  const script = /\.ps1$/i.test(name) ? findCommand(name, env, true) : null;
+  const script = /\.ps1$/i.test(name) ? findCommand(name, env, true) : forwardedScript(findCommand(name, env), env);
   if (script) {
     const rootKey = Object.keys(env).find((k) => k.toUpperCase() === "SYSTEMROOT");
     const powershell = rootKey && env[rootKey]
@@ -69,6 +70,28 @@ export function spawnArgv(command, args, options) {
   }
   // One line and no args array: Node 24 warns (DEP0190) on args under shell:true.
   return { command: [command, ...args].map(cmdQuote).join(" "), args: [], options };
+}
+
+// cursor-agent.cmd (and agent.cmd, a copy) turns on delayed expansion, then runs cursor-agent.ps1
+// from its own folder through powershell.exe -File; the .ps1 repeats the .cmd's update step.
+// Through cmd.exe and that .cmd, !, %VAR%, ^ and quotes in the args are rewritten before the agent
+// sees them. The .ps1 when the .cmd's PowerShell line forwards its args (%*) to a script in the
+// .cmd's folder (%~dp0, or a variable set from it), else null.
+function forwardedScript(file, env) {
+  if (!file || !/\.(cmd|bat)$/i.test(file)) return null;
+  let text;
+  try {
+    if (statSync(file).size > 64 * 1024) return null;
+    text = readFileSync(file, "latin1");
+  } catch {
+    return null;
+  }
+  const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const dirVars = [...text.matchAll(/^\s*set\s+"?(\w+)=%~dp0"?\s*$/gim)].map((m) => `%${m[1]}%`);
+  const ownDir = ["%~dp0", ...dirVars].map(escape).join("|");
+  const forwards = new RegExp(`powershell(?:\\.exe)?"?[^\\r\\n]*\\s-File\\s+"(?:${ownDir})\\\\?([^"\\\\/:\\r\\n]+\\.ps1)"\\s+%\\*`, "i");
+  const target = text.match(forwards)?.[1];
+  return target ? findCommand(path.join(path.dirname(file), target), env, true) : null;
 }
 
 // Through a shell the spawn always succeeds (cmd.exe exits 1, "is not recognized"), so a missing

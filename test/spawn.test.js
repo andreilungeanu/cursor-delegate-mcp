@@ -173,6 +173,75 @@ test("launching through cmd.exe prints no DEP0190 warning, from the client or do
   }
 });
 
+// The shape of cursor-agent.cmd: delayed expansion on, then a .ps1 from its own folder through
+// powershell.exe. Cursor's agent.cmd is a copy, so it runs cursor-agent.ps1.
+const forwardingCmd = (base, dir = "%SCRIPT_DIR%") => [
+  "@echo off",
+  "setlocal enabledelayedexpansion",
+  'set "SCRIPT_DIR=%~dp0"',
+  'if "%SCRIPT_DIR:~-1%"=="\\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"',
+  `%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${dir}\\${base}.ps1" %*`,
+  "",
+].join("\r\n");
+
+function withPathDir(dir, vars, fn) {
+  const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") || "PATH";
+  return withAgentEnv({ ...vars, [pathKey]: dir + path.delimiter + process.env[pathKey] }, fn);
+}
+
+test("a .cmd that only forwards to its .ps1 runs the .ps1 through PowerShell, so cmd leaves its arguments alone", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
+  const { AcpClient } = await import("../src/acp-client.js");
+  const dir = mkdtempSync(path.join(tmpdir(), "fwd agent "));
+  try {
+    writeFileSync(path.join(dir, "fwdagent.cmd"), forwardingCmd("fwdagent"));
+    writeFileSync(path.join(dir, "fwdagent.ps1"), PS1_AGENT);
+    const spec = withPathDir(dir, { ACP_AGENT_COMMAND: "fwdagent", ACP_AGENT_ARGS: "a!b %OS% ^caret acp" }, () => resolveAcpSpawn());
+    const argv = spawnArgv(spec.command, spec.args, spec.options);
+    assert.match(argv.command, /powershell\.exe$/i, "the .cmd's own .ps1 runs without cmd.exe");
+    assert.equal(argv.args.at(-5), path.join(dir, "fwdagent.ps1"));
+    const client = new AcpClient({ spawnSpec: spec });
+    const exit = new Promise((resolve) => client.once("exit", resolve));
+    await client.start();
+    const info = await exit;
+    assert.equal(info.code, 3, info.stderr);
+    assert.deepEqual(JSON.parse(info.stderr), ["a!b", "%OS%", "^caret", "acp"]);
+    await client.stop();
+    // Like agent.cmd: a .cmd that forwards to a differently named .ps1 in its folder.
+    writeFileSync(path.join(dir, "fwdalias.cmd"), forwardingCmd("fwdagent", "%~dp0"));
+    const alias = withPathDir(dir, { ACP_AGENT_COMMAND: "fwdalias", ACP_AGENT_ARGS: undefined }, () => resolveAcpSpawn());
+    const aliasArgv = spawnArgv(alias.command, alias.args, alias.options);
+    assert.match(aliasArgv.command, /powershell\.exe$/i);
+    assert.equal(aliasArgv.args.at(-2), path.join(dir, "fwdagent.ps1"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a .cmd stays on cmd.exe unless it only forwards to an existing .ps1 in its own folder", { skip: process.platform !== "win32" && "Windows launcher" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "fwd agent "));
+  const far = mkdtempSync(path.join(tmpdir(), "fwd far "));
+  try {
+    // Forwards, but the .ps1 is missing.
+    writeFileSync(path.join(dir, "noscript.cmd"), forwardingCmd("noscript"));
+    // Has a .ps1 beside it, but runs something else.
+    writeFileSync(path.join(dir, "other.cmd"), '@echo off\r\nnode "%~dp0other.js" %*\r\n');
+    writeFileSync(path.join(dir, "other.ps1"), PS1_AGENT);
+    // Forwards to a script in another folder, with a same-named .ps1 beside it.
+    writeFileSync(path.join(far, "farscript.ps1"), PS1_AGENT);
+    writeFileSync(path.join(dir, "farscript.cmd"), forwardingCmd("farscript", far));
+    writeFileSync(path.join(dir, "farscript.ps1"), PS1_AGENT);
+    for (const name of ["noscript", "other", "farscript"]) {
+      const spec = withPathDir(dir, { ACP_AGENT_COMMAND: name, ACP_AGENT_ARGS: undefined }, () => resolveAcpSpawn());
+      const argv = spawnArgv(spec.command, spec.args, spec.options);
+      assert.doesNotMatch(argv.command, /powershell\.exe$/i, name);
+      assert.deepEqual(argv.args, [], name);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(far, { recursive: true, force: true });
+  }
+});
+
 // cmd runs x.ps1.cmd for "x.ps1" through PATHEXT; only the .ps1 file itself goes to PowerShell.
 test("only an existing .ps1 file itself is run through PowerShell", { skip: process.platform !== "win32" && "Windows launcher" }, () => {
   const dir = mkdtempSync(path.join(tmpdir(), "ps1 agent "));
