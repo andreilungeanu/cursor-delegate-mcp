@@ -375,9 +375,10 @@ export function installSignalCleanup(map, {
   stdin = process.stdin,
 } = {}) {
   let shuttingDown = false;
-  const shutdown = (code) => {
-    // A second trigger skips the wait: the kills are already dispatched.
-    if (shuttingDown) return exit(code);
+  const shutdown = (code, fromSignal = false) => {
+    // A second signal skips the wait: the kills are already dispatched. A stdin EOF is not a
+    // second ask, since a hangup closes stdin right after its SIGHUP.
+    if (shuttingDown) return fromSignal ? exit(code) : undefined;
     shuttingDown = true;
     // Set now: the loop may run dry before the scheduled exit gets a turn.
     setExitCode(code);
@@ -395,10 +396,11 @@ export function installSignalCleanup(map, {
     Promise.all(stops).then(leave, leave);
   };
   // On POSIX each agent has its own process group, so a signal to this process misses it; the
-  // handler kills the agents before exiting.
+  // handler kills the agents before exiting. SIGHUP is a closed terminal, whose default would end
+  // the server and leave them running.
   if (DETACHED) {
-    const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143]]);
-    for (const [signal, code] of signals) process.on(signal, () => shutdown(code));
+    const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]);
+    for (const [signal, code] of signals) process.on(signal, () => shutdown(code, true));
   }
   // A stdio host closes stdin before it resorts to a signal, and the SDK transport ignores EOF
   // (it listens for `data` and `error` only).
