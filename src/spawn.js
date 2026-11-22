@@ -54,6 +54,16 @@ function cmdQuote(value) {
   return `"${s.replace(/(\\+)$/, "$1$1")}"`;
 }
 
+// Windows PowerShell 5.1 pastes each argument into the command line unescaped, drops an empty one,
+// and quotes one only if it has whitespace outside an even count of ". Escaped for node's parser;
+// with whitespace a quote goes as "", which keeps that count even and reads as " inside the quotes.
+function escapeForPs51(arg) {
+  if (arg === "") return '""';
+  const spaced = /\s/.test(arg);
+  const s = arg.replace(/(\\*)"/g, (_, bs) => `${bs}${bs}${spaced ? '""' : '\\"'}`);
+  return spaced ? s.replace(/(\\+)$/, "$1$1") : s;
+}
+
 /**
  * What to hand spawn() for a spec, at each spawn site so doctor reads the spec as configured.
  * @param {string} command @param {string[]} args
@@ -65,7 +75,8 @@ export function spawnArgv(command, args, options) {
   // cmd.exe opens a .ps1 with its file association, so a .ps1, or the one a forwarding .cmd runs,
   // goes to powershell.exe -File as cursor-agent.cmd does. Only x.ps1 itself: x.ps1.cmd stays cmd's.
   const name = String(command).replace(/^["']|["']$/g, "");
-  const script = /\.ps1$/i.test(name) ? findCommand(name, env, true) : forwardedScript(findCommand(name, env), env);
+  const direct = /\.ps1$/i.test(name);
+  const script = direct ? findCommand(name, env, true) : forwardedScript(findCommand(name, env), env);
   if (script) {
     const rootKey = Object.keys(env).find((k) => k.toUpperCase() === "SYSTEMROOT");
     const powershell = rootKey && env[rootKey]
@@ -73,7 +84,8 @@ export function spawnArgv(command, args, options) {
       : "powershell.exe";
     return {
       command: powershell,
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
+      // cursor-agent.ps1 passes $args on to node; a .ps1 named directly may read them itself.
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...(direct ? args : args.map(escapeForPs51))],
       options: { ...options, shell: false },
     };
   }

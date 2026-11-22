@@ -105,16 +105,17 @@ test("a .ps1 ACP_AGENT_COMMAND runs through PowerShell with its arguments intact
   try {
     const script = path.join(dir, "agent.ps1");
     writeFileSync(script, PS1_AGENT);
-    const spec = withAgentEnv({ ACP_AGENT_COMMAND: script, ACP_AGENT_ARGS: '"two words" acp' }, () => resolveAcpSpawn());
+    // A script named directly reads $args itself, so a quote or an empty argument is not escaped.
+    const spec = withAgentEnv({ ACP_AGENT_COMMAND: script, ACP_AGENT_ARGS: `"two words" 'say "hi"' "" acp` }, () => resolveAcpSpawn());
     const argv = spawnArgv(spec.command, spec.args, spec.options);
     assert.match(argv.command, /powershell\.exe$/i, "the script must not go to cmd.exe");
-    assert.deepEqual(argv.args.slice(-3), [script, "two words", "acp"]);
+    assert.deepEqual(argv.args.slice(-5), [script, "two words", 'say "hi"', "", "acp"]);
     const client = new AcpClient({ spawnSpec: spec });
     const exit = new Promise((resolve) => client.once("exit", resolve));
     await client.start();
     const info = await exit;
     assert.equal(info.code, 3, info.stderr);
-    assert.deepEqual(JSON.parse(info.stderr), ["two words", "acp"]);
+    assert.deepEqual(JSON.parse(info.stderr), ["two words", 'say "hi"', "", "acp"]);
     await client.stop();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -219,6 +220,30 @@ test("a .cmd that only forwards to its .ps1 runs the .ps1 through PowerShell, so
     const aliasArgv = spawnArgv(alias.command, alias.args, alias.options);
     assert.match(aliasArgv.command, /powershell\.exe$/i);
     assert.equal(aliasArgv.args.at(-2), path.join(dir, "fwdagent.ps1"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The .ps1 starts node the way cursor-agent.ps1 does: `& node.exe script $args`.
+test("arguments reach node intact through a forwarding .cmd whose .ps1 starts node", { skip: process.platform !== "win32" && "Windows launcher" }, async () => {
+  const { AcpClient } = await import("../src/acp-client.js");
+  const dir = mkdtempSync(path.join(tmpdir(), "fwd agent "));
+  try {
+    writeFileSync(path.join(dir, "argv.js"), "process.stderr.write(JSON.stringify(process.argv.slice(2))); process.exit(3);");
+    writeFileSync(path.join(dir, "nodeagent.cmd"), forwardingCmd("nodeagent"));
+    writeFileSync(path.join(dir, "nodeagent.ps1"), `& "${process.execPath}" "$PSScriptRoot\\argv.js" $args\r\nexit $LASTEXITCODE`);
+    const raw = String.raw`acp --config={"a":1} say 5" "" 'say "hi" now' '"b c"' 'C:\a b\' 'a\"b' 'x\" y' 'a b\"' x\ "C:\a b" end ""`;
+    const expected = ["acp", '--config={"a":1}', "say", '5"', "", 'say "hi" now', '"b c"', "C:\\a b\\", 'a\\"b', 'x\\" y', 'a b\\"', "x\\", "C:\\a b", "end", ""];
+    const spec = withPathDir(dir, { ACP_AGENT_COMMAND: "nodeagent", ACP_AGENT_ARGS: raw }, () => resolveAcpSpawn());
+    assert.deepEqual(spec.args, expected);
+    const client = new AcpClient({ spawnSpec: spec });
+    const exit = new Promise((resolve) => client.once("exit", resolve));
+    await client.start();
+    const info = await exit;
+    assert.equal(info.code, 3, info.stderr);
+    assert.deepEqual(JSON.parse(info.stderr), expected);
+    await client.stop();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
