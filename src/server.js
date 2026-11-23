@@ -158,7 +158,7 @@ export const doctorOutputShape = {
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
-  resumeSessionId: z.string().optional().describe("Continue an existing ACP session."),
+  resumeSessionId: z.string().optional().describe("Continue an existing ACP session. When delegate ran as an MCP task, its server-side task id works too."),
   workspace: z.string().trim().min(1, "workspace must not be blank").describe("The agent's working directory, not a limit. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe("Bare ACP family id, version included: composer-2.5, grok-4.5, claude-opus-5, gpt-5.6-sol. doctor deep:true lists every id."),
   fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
@@ -193,7 +193,7 @@ export function progressNotifier(ctx) {
  *   seenSessions?: Set<string>,
  *   signal?: AbortSignal,
  *   onProgress?: (message: string) => void,
- *   onPromptSent?: (sessionId: string) => void,
+ *   onPromptSent?: (sessionId: string, handle: any) => void,
  *   onTurnEnd?: () => void,
  * }} deps
  * @returns {Promise<import("@modelcontextprotocol/server").CallToolResult>}
@@ -219,7 +219,7 @@ export async function runDelegateTool({
       contextFiles,
       onProgress,
       signal,
-      onPromptSent,
+      onPromptSent: onPromptSent && ((sessionId) => onPromptSent(sessionId, handle)),
       onClientReady: (client) => {
         handle = { client, cancelRequested: false };
         pending.add(handle);
@@ -282,6 +282,15 @@ export function buildServer({
     }
   );
   if (servesTasks) registerTaskHandlers(server, tasks);
+  // A task id names its own run, which a later turn on the same session is not; a session id names
+  // every turn running on it.
+  /** @param {string} id */
+  const targetOf = (id) => {
+    const task = tasks.get(id);
+    if (!task?.sessionId) return { sessionId: id, handles: flights.get(id) };
+    const running = task.status === "working" && flights.get(task.sessionId)?.has(task.handle);
+    return { sessionId: task.sessionId, handles: new Set(running ? [task.handle] : []) };
+  };
 
   server.registerTool(
     "delegate",
@@ -298,8 +307,10 @@ export function buildServer({
       },
     },
     async (args, ctx) => {
+      // Claude Code tells the model a task's id and never its session id, even after a stop.
+      const resumeSessionId = tasks.get(args.resumeSessionId)?.sessionId ?? args.resumeSessionId;
       /** @param {Record<string, any>} [over] */
-      const run = (over) => runDelegateTool({ args, ctx, runDelegate, inFlight: flights, pending, seenSessions, ...over });
+      const run = (over) => runDelegateTool({ args: { ...args, resumeSessionId }, ctx, runDelegate, inFlight: flights, pending, seenSessions, ...over });
       if (!servesTasks || !listsTasks(ctx)) return run();
       return /** @type {any} */ (runAsTask({ run, signal: ctx?.mcpReq?.signal, notify: progressNotifier(ctx), store: tasks }));
     }
@@ -312,7 +323,7 @@ export function buildServer({
         "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's recent session history).",
       inputSchema: z.object({
         // Blank is a malformed call, not a stale id.
-        sessionId: z.string().trim().min(1, "sessionId must not be blank"),
+        sessionId: z.string().trim().min(1, "sessionId must not be blank").describe("When delegate runs as an MCP task, its server-side task id works too."),
         force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
       }),
       annotations: {
@@ -323,16 +334,16 @@ export function buildServer({
         openWorldHint: false,
       },
     },
-    async ({ sessionId, force }) => {
-      const handles = flights.get(sessionId);
+    async ({ sessionId: id, force }) => {
+      const { sessionId, handles } = targetOf(id);
       if (!handles || handles.size === 0) {
         // A finished session is still resumable; only an unknown id is not-found.
         const known = seenSessions.has(sessionId);
         return cancelResult(known ? "not-running" : "not-found", sessionId);
       }
-      // Every turn on the id (the caller named a session), taken now: a resume that registers during
-      // the grace or the kill is not swept in. An ended turn stays registered while its agent is
-      // stopped; its result is decided, so a cancel leaves it alone.
+      // Every turn the id names, taken now: a resume that registers during the grace or the kill is
+      // not swept in. An ended turn stays registered while its agent is stopped; its result is
+      // decided, so a cancel leaves it alone.
       const targeted = [...handles].filter((handle) => !handle.ended);
       if (targeted.length === 0) return cancelResult("not-running", sessionId);
       for (const handle of targeted) handle.cancelRequested = true;

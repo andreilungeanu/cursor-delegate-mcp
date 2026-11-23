@@ -20,7 +20,7 @@ export function listsTasks(ctx) {
  * @typedef {{
  *   taskId: string, status: "working" | "completed" | "failed" | "cancelled",
  *   createdAt: number, lastUpdatedAt: number, endedAt?: number, statusMessage?: string,
- *   sessionId?: string, turnEnded: boolean, ac: AbortController,
+ *   sessionId?: string, handle?: any, turnEnded: boolean, ac: AbortController,
  *   result?: any, error?: { code: number, message: string },
  * }} Task
  */
@@ -100,7 +100,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS, maxFinis
  * Runs a delegation that answers its request with a task once the prompt is sent. A run that
  * settles before then, setup failures included, answers with its result as a blocking call does.
  * @param {{
- *   run: (over: { signal: AbortSignal, onProgress: (m: string) => void, onPromptSent: (id: string) => void, onTurnEnd: () => void }) => Promise<any>,
+ *   run: (over: { signal: AbortSignal, onProgress: (m: string) => void, onPromptSent: (id: string, handle?: any) => void, onTurnEnd: () => void }) => Promise<any>,
  *   signal?: AbortSignal, notify?: (message: string) => void, store: ReturnType<typeof createTaskStore>,
  * }} opts
  */
@@ -124,7 +124,7 @@ export async function runAsTask({ run, signal, notify = () => {}, store }) {
       // Once the task is the answer, progress belongs to the task, not the request.
       if (!answered) notify(message);
     },
-    onPromptSent: (sessionId) => { task.sessionId = sessionId; markSent(); },
+    onPromptSent: (sessionId, handle) => { task.sessionId = sessionId; task.handle = handle; markSent(); },
     onTurnEnd: () => { task.turnEnded = true; },
   }).then((result) => ({ result }), (error) => ({ error }));
   const first = await Promise.race([sent, outcome]);

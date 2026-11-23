@@ -319,6 +319,43 @@ test("tasks/cancel stops only its own task when two run on one session", async (
   }
 });
 
+test("cancel by task id reaches only that task's run, and a finished task's id reaches none", async () => {
+  const pids = [];
+  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks: createTaskStore(), forceGraceMs: 50 });
+  const cancel = async (args) => payload((await raw.send("tools/call", { name: "cancel", arguments: args }).reply).result);
+  try {
+    // Two agents, each opening its own sess-escalate: one session id, two runs.
+    const [a, b] = (await Promise.all([raw.call().reply, raw.call().reply])).map((r) => r.result);
+    assert.deepEqual(await cancel({ sessionId: a.taskId, force: true }), { status: "killed", sessionId: "sess-escalate" });
+    assert.equal(pids.filter(isAlive).length, 1, "the other task's agent must keep running");
+    await waitForTask(raw, a.taskId);
+    assert.deepEqual(await cancel({ sessionId: a.taskId, force: true }), { status: "not-running", sessionId: "sess-escalate" });
+    assert.deepEqual(await cancel({ sessionId: b.taskId }), { status: "cancelled", sessionId: "sess-escalate" });
+    assert.equal((await raw.send("tasks/get", { taskId: b.taskId }).reply).result.status, "working");
+    await raw.send("tasks/cancel", { taskId: b.taskId }).reply;
+    assert.ok(await waitUntil(() => pids.every((pid) => !isAlive(pid))));
+  } finally {
+    await raw.close();
+  }
+});
+
+test("a task's id resumes the session its run opened, after tasks/cancel stopped it", async () => {
+  const pids = [];
+  const stopped = realOver("escalation-stub.js", {}, pids);
+  const resumed = realOver("fake-acp.js");
+  const raw = await connectRaw({ runDelegate: (opts) => (opts.resumeSessionId ? resumed : stopped)(opts), tasks: createTaskStore() });
+  try {
+    const { result: task } = await raw.call().reply;
+    await raw.send("tasks/cancel", { taskId: task.taskId }).reply;
+    assert.ok(await waitUntil(() => !isAlive(pids[0])), "the agent must be stopped");
+    const out = payload((await raw.call({ resumeSessionId: task.taskId }, { tasks: false }).reply).result);
+    assert.equal(out.sessionId, "sess-escalate");
+    assert.equal(out.resumed, true);
+  } finally {
+    await raw.close();
+  }
+});
+
 test("the shutdown on stdin EOF stops the agent of a task already answered", async () => {
   const pids = [];
   const inFlight = new Map();
