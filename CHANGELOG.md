@@ -6,6 +6,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-24
+
+### Changed
+
+- A stopped task's status message stays `cancelled; resume with resumeSessionId <id>` after the
+  run ends, where it became the run's `delegate failed [aborted]` error. It gains a note when the
+  run had started a fresh session after a failed resume, or when the stop did not see cursor-agent
+  exit.
+- A process the server would start after shutdown began fails with `spawn-failed` instead of
+  starting.
+- A stop counts as done once cursor-agent's exit was seen and its tree kill finished. On Windows it
+  waits for `taskkill` to finish with the tree.
+- A shutdown signal that arrives after stdin closed sets the exit code and waits for the agents to
+  be stopped, where it exited at once. Only a second signal skips that wait.
+- An aborted `doctor` version probe returns once its stop saw the probe exit: up to 4 s, where it
+  was 2 s.
+
+### Fixed
+
+- A shutdown signal during `doctor` with `deep: true` stops the agent doctor starts for its
+  handshake, rather than exiting with it running.
+- A delegation that fails, times out or is aborted during setup sends cursor-agent nothing more: a
+  reply that arrives afterwards no longer goes on to change the session's model, effort or mode, or
+  to send the prompt. In task mode a handshake timeout fails the call, rather than answering it
+  with a task id.
+- A cancel before the prompt ends the delegation at once with `stopReason: "cancelled"`, rather
+  than waiting on the setup request in flight.
+- A delegation aborted or timed out during setup sends no progress notifications after its call
+  returned.
+- Text cursor-agent sends while `contextFiles` are read stays out of `result`.
+- The note that cursor-agent may still be running and the resume hint reach the caller whatever
+  cursor-agent's side threw, a frozen error or a value that is not an Error included.
+
 ## [3.0.1] - 2026-11-23
 
 ### Fixed
