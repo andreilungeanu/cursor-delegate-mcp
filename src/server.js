@@ -424,8 +424,8 @@ export function installSignalCleanup(map, {
     const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]);
     for (const [signal, code] of signals) process.on(signal, () => shutdown(code, true));
   }
-  // A stdio host closes stdin before it resorts to a signal. On EOF the SDK closes its transport
-  // and aborts in-flight requests, but nothing there stops cursor-agent.
+  // A stdio host closes stdin before it resorts to a signal. The SDK aborts in-flight requests on
+  // EOF; this also stops their agents directly, waits for the kills, and exits.
   stdin.on("end", () => shutdown(0));
 }
 

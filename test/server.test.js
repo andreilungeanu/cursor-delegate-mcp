@@ -1109,9 +1109,7 @@ test("a stop that rejects on shutdown still exits and raises no unhandled reject
   }
 });
 
-// The MCP stdio shutdown sequence is: close the server's stdin, wait for it to exit, then
-// signal. The SDK transport does not listen for EOF, so without this handler a host that shuts
-// down politely leaves the server — and any delegation still running in it — alive.
+// The MCP stdio shutdown sequence is: close the server's stdin, wait for it to exit, then signal.
 test("installSignalCleanup stops registered agents and exits when stdin closes", async () => {
   const stopped = [];
   const exited = [];
