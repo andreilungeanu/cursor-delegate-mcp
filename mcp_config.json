@@ -3,7 +3,8 @@
     "cursor-delegate": {
       "command": "npx",
       "args": ["-y", "npm:cursor-delegate-mcp@2.11.0"],
-      "timeoutSeconds": 21660
+      "timeoutSeconds": 21660,
+      "tools": { "delegate": { "background": "always" } }
     }
   }
 }

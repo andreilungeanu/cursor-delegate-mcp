@@ -95,6 +95,8 @@ test("Antigravity plugin manifest and MCP config reference real files and outlas
     timeoutSec * 1000 >= DEFAULT_HARD_CAP_MS + 60000,
     "Antigravity timeoutSeconds must exceed the bridge hard cap by at least a minute"
   );
+  // Antigravity hands a background call back to the model at once and wakes it with the result.
+  assert.deepEqual(server.tools, { delegate: { background: "always" } });
 });
 
 test("Antigravity plugin manifest uses accepted schema fields", () => {

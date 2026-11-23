@@ -181,7 +181,8 @@ OpenCode does **not** use `mcpServers`. Local servers go under `mcp`, with `type
     "cursor-delegate": {
       "command": "npx",
       "args": ["-y", "cursor-delegate-mcp"],
-      "timeoutSeconds": 21660
+      "timeoutSeconds": 21660,
+      "tools": { "delegate": { "background": "always" } }
     }
   }
 }
