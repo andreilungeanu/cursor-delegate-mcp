@@ -1,17 +1,14 @@
 import process from "node:process";
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { AcpClient } from "./acp-client.js";
-import { commandExists, resolveAcpSpawn, spawnArgv } from "./spawn.js";
-import { DETACHED, isChildAlive, treeKill } from "./proc.js";
+import { commandExists, resolveAcpSpawn } from "./spawn.js";
+import { children, spawnChild } from "./proc.js";
 import { readPackageVersion } from "./version.js";
 import { describeOptions } from "./model-options.js";
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 const VERSION_PROBE_TIMEOUT_MS = 10_000;
 const PROBE_STDOUT_CAP = 64 * 1024;
-// How long an aborted probe waits for its kill and close, as stop() bounds an agent's.
-const PROBE_KILL_WAIT_MS = 2000;
 const DEFAULT_LOG_SIZE = "2000";
 
 function formatArg(value) {
@@ -39,9 +36,13 @@ function envReport(name, fallback = null) {
 /**
  * @param {{ command: string, args: string[], options?: any }} spawnSpec
  * @param {number} [timeoutMs]
- * @param {{ signal?: AbortSignal, onSpawn?: (probe: { pid: number | undefined, stop: () => Promise<void> }) => void }} [opts]
+ * @param {{
+ *   signal?: AbortSignal,
+ *   onSpawn?: (probe: { pid: number | undefined, stop: () => Promise<boolean> }) => void,
+ *   registry?: import("./proc.js").ChildRegistry,
+ * }} [opts]
  */
-export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS, { signal, onSpawn } = {}) {
+export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS, { signal, onSpawn, registry = children } = {}) {
   const { command, args, options } = spawnSpec;
   const launcher = String(command || "").replace(/^["']|["']$/g, "");
   const isJsScript = isJsLauncher(launcher);
@@ -58,6 +59,8 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
   if (signal?.aborted) {
     return Promise.resolve({ found: isJsScript ? existsSync(launcher) : commandExists(launcher, options?.env), ...aborted });
   }
+  const probe = spawnChild(execCommand, execArgs, options, { stdio: ["ignore", "pipe", "pipe"] }, registry);
+  const { child } = probe;
   return new Promise((resolve) => {
     let settled = false;
     let aborting = false;
@@ -70,19 +73,13 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
-    const argv = spawnArgv(execCommand, execArgs, options);
-    const child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio: ["ignore", "pipe", "pipe"] });
-    // treeKill: on win32 a plain kill reaches only the wrapper, not the launcher.
-    const stop = () => (child.pid ? treeKill(child.pid, { childAlive: isChildAlive(child) }).catch(() => {}) : Promise.resolve());
-    onSpawn?.({ pid: child.pid, stop });
-    const closed = new Promise((r) => child.once("close", r));
-    // Settles once the probe has closed, so doctor does not return with it running.
+    onSpawn?.({ pid: child.pid, stop: () => probe.stop() });
+    // Settles once the stop saw the probe exit, so doctor does not return with it running.
     const onAbort = () => {
       // Else it fires during the kill and reports a timeout.
       clearTimeout(timer);
       aborting = true;
-      const bound = new Promise((r) => { setTimeout(r, PROBE_KILL_WAIT_MS).unref?.(); });
-      Promise.race([Promise.all([stop(), closed]), bound]).then(() => finish({ found: true, ...aborted }));
+      probe.stop().then(() => finish({ found: true, ...aborted }));
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     // Capped: a version is one line, and a launcher that streams is not kept whole.
@@ -94,6 +91,8 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
     child.stderr?.on("error", () => {});
     child.on("error", () => finish({ found: false, version: null }));
     child.on("close", (code) => {
+      // Closed: its pid may be reused, so no later stop may kill it.
+      probe.release();
       // An aborted probe reports the abort, not the exit its kill caused.
       if (aborting) return;
       const version = code === 0 ? stdout.trim() || null : null;
@@ -104,7 +103,8 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       });
     });
     timer = setTimeout(() => {
-      stop();
+      // Not awaited, so the timeout returns on time; the probe stays tracked until its stop settles.
+      probe.stop();
       // It spawned, so it is found; it just never answered.
       finish({ found: true, version: null, error: `version probe timed out after ${timeoutMs}ms` });
     }, timeoutMs);

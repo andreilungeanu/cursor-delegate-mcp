@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { runDoctor as rawRunDoctor } from "../src/doctor.js";
+import { probeAgentVersion, runDoctor as rawRunDoctor } from "../src/doctor.js";
 import { AcpClient } from "../src/acp-client.js";
-import { isChildAlive } from "../src/proc.js";
+import { createChildRegistry, isChildAlive } from "../src/proc.js";
 import { doctorOutputShape, doctorAgentShape, doctorHandshakeShape } from "../src/server.js";
 import { VERSION } from "../src/version.js";
 
@@ -465,6 +465,22 @@ test("a version probe aborted just before its timeout reports the abort, once th
   });
   assert.match(out.agent.error ?? "", /aborted/);
   assert.throws(() => process.kill(readied[0].pid, 0), "the probe process must be gone when doctor returns");
+});
+
+test("a version probe that closed is left out of shutdown's stops", async () => {
+  const registry = createChildRegistry();
+  let kills = 0;
+  const counting = {
+    ...registry,
+    track: (start) => registry.track(() => {
+      const k = start();
+      return { ...k, kill: (ms) => { kills++; return k.kill(ms); } };
+    }),
+  };
+  const probe = await probeAgentVersion({ command: process.execPath, args: [], options: { shell: false } }, 10000, { registry: counting });
+  assert.equal(probe.version, process.version);
+  await registry.stopAll();
+  assert.equal(kills, 0, "its pid may belong to another process by now");
 });
 
 test("runDoctor spawns no version probe once the host has aborted", async () => {

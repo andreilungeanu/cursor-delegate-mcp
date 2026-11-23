@@ -8,8 +8,8 @@ export function isChildAlive(child) {
 }
 
 // POSIX only: a process group leader (setsid) lets treeKill reach the agent's children. On win32
-// it would mean a new console, and taskkill /T walks the tree anyway. Applied at each spawn site,
-// not in resolveAcpSpawn, so an injected spec gets it too.
+// it would mean a new console, and taskkill /T walks the tree anyway. Applied in spawnChild, not
+// in resolveAcpSpawn, so an injected spec gets it too.
 export const DETACHED = process.platform !== "win32";
 
 // On win32 child.kill() reaches only the wrapper; taskkill /T takes the whole tree.
