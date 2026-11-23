@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -13,6 +14,7 @@ const run = promisify(execFile);
 const ENTRY = fileURLToPath(new URL("../src/server.js", import.meta.url));
 const PKG = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
 const GRANDCHILD_AGENT = fileURLToPath(new URL("./fixtures/fake-acp-with-grandchild.js", import.meta.url));
+const STREAMING_AGENT = fileURLToPath(new URL("./fixtures/streaming-stub.js", import.meta.url));
 
 const isAlive = (pid) => {
   try { process.kill(pid, 0); return true; } catch (err) { return err.code === "EPERM"; }
@@ -51,6 +53,80 @@ test("a host that closes right after a delegate result leaves no agent process b
     await new Promise((r) => setTimeout(r, 1000));
     assert.deepEqual(pids.filter(isAlive), [], "the agent and its descendants must be gone");
   } finally {
+    for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The bin over stdio in raw 2026-07-28 JSON-RPC, as Claude Code speaks it: the SDK client fails a
+// call answered with a task.
+function rawServer(env) {
+  const child = spawn(process.execPath, [ENTRY], { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "ignore"] });
+  const replies = new Map();
+  let nextId = 0;
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    const m = JSON.parse(line);
+    if (m.id != null && replies.has(m.id)) { replies.get(m.id)(m); replies.delete(m.id); }
+  });
+  const send = (method, params = {}) => {
+    const id = ++nextId;
+    const reply = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no reply to ${method} in 15 s`)), 15000);
+      replies.set(id, (m) => { clearTimeout(timer); resolve(m); });
+    });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params: { ...params, _meta: {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientCapabilities": { extensions: { "io.modelcontextprotocol/tasks": {} } },
+      "io.modelcontextprotocol/clientInfo": { name: "raw-host", version: "1" },
+    } } }) + "\n");
+    return reply;
+  };
+  const exited = new Promise((resolve) => child.on("exit", resolve));
+  return { child, send, exited };
+}
+
+test("the binary answers a delegate call listing the tasks extension with a task that completes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cdm-task-"));
+  const { child, send, exited } = rawServer({ ACP_AGENT_COMMAND: process.execPath, ACP_AGENT_ARGS: `"${STREAMING_AGENT}"` });
+  try {
+    const discover = await send("server/discover");
+    assert.deepEqual(discover.result.capabilities.extensions?.["io.modelcontextprotocol/tasks"], {});
+    const call = await send("tools/call", { name: "delegate", arguments: { workspace: dir, spec: "x" } });
+    assert.equal(call.result.resultType, "task", JSON.stringify(call));
+    let task;
+    const deadline = Date.now() + 15000;
+    do {
+      await new Promise((r) => setTimeout(r, 100));
+      task = (await send("tasks/get", { taskId: call.result.taskId })).result;
+    } while (task.status === "working" && Date.now() < deadline);
+    assert.equal(task.status, "completed");
+    assert.equal(JSON.parse(task.result.content[0].text).sessionId, "sess-stream");
+  } finally {
+    child.stdin.end();
+    await exited;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a host that closes mid-task leaves no agent process behind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cdm-task-close-"));
+  const pidFile = join(dir, "pids");
+  const { child, send, exited } = rawServer({
+    ACP_AGENT_COMMAND: process.execPath, ACP_AGENT_ARGS: `"${GRANDCHILD_AGENT}"`, AGENT_BASE: "./escalation-stub.js", PID_FILE: pidFile,
+  });
+  let pids = [];
+  try {
+    await send("server/discover");
+    const call = await send("tools/call", { name: "delegate", arguments: { workspace: dir, spec: "x" } });
+    assert.equal(call.result.resultType, "task", JSON.stringify(call));
+    pids = readFileSync(pidFile, "utf8").trim().split(/\s+/).map(Number);
+    assert.deepEqual(pids.filter(isAlive), pids, "the agent should be running when the host leaves");
+    child.stdin.end();
+    await exited;
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.deepEqual(pids.filter(isAlive), [], "the agent and its descendants must be gone");
+  } finally {
+    child.kill();
     for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
     rmSync(dir, { recursive: true, force: true });
   }

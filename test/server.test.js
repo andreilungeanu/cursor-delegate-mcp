@@ -10,6 +10,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { AcpClient } from "../src/acp-client.js";
 import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
 import { runDelegateTool, buildServer, delegateInputSchema, installSignalCleanup } from "../src/server.js";
+import { TASKS_EXTENSION, createTaskStore } from "../src/tasks.js";
 
 // Every tool returns its payload as one compact JSON text block and no structuredContent, so
 // every assertion on their fields goes through here.
@@ -33,7 +34,7 @@ function stubClientFactory(stubFile) {
 const ERAS = [["2025", undefined], ["2026-07-28", { mode: { pin: "2026-07-28" } }]];
 async function connectEra(versionNegotiation, serverOpts) {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const served = serveStdio(() => buildServer(serverOpts), { transport: serverTransport });
+  const served = serveStdio(({ era }) => buildServer({ ...serverOpts, era }), { transport: serverTransport });
   const client = new Client(
     { name: "era-host", version: "3" },
     { capabilities: { elicitation: { form: {} } }, ...(versionNegotiation ? { versionNegotiation } : {}) }
@@ -107,6 +108,307 @@ for (const [era, versionNegotiation] of ERAS) {
     }
   });
 }
+
+// Agents started through realOver. Closing a raw connection kills any still running, so a failed
+// assertion cannot leave a hung agent holding the test process open.
+const agentPids = [];
+
+// A 2026-07-28 host in raw JSON-RPC: the SDK client fails a call answered with a task.
+async function connectRaw(serverOpts) {
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const served = serveStdio(({ era }) => buildServer({ ...serverOpts, era }), { transport: serverTransport });
+  const replies = new Map();
+  const progress = [];
+  let nextId = 0;
+  clientTransport.onmessage = (m) => {
+    if (m.id != null && replies.has(m.id)) { replies.get(m.id)(m); replies.delete(m.id); }
+    else if (m.method === "notifications/progress") progress.push(m.params);
+  };
+  await clientTransport.start();
+  const send = (method, params = {}, { tasks = true } = {}) => {
+    const id = ++nextId;
+    const reply = new Promise((resolve) => replies.set(id, resolve));
+    clientTransport.send({ jsonrpc: "2.0", id, method, params: { ...params, _meta: {
+      ...params._meta,
+      [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+      [CLIENT_CAPABILITIES_META_KEY]: { extensions: tasks ? { [TASKS_EXTENSION]: {} } : {} },
+      [CLIENT_INFO_META_KEY]: { name: "raw-host", version: "1" },
+    } } });
+    return { id, reply };
+  };
+  await send("server/discover").reply;
+  return {
+    send,
+    progress,
+    call: (args = {}, { progressToken, tasks } = {}) => send("tools/call", {
+      name: "delegate",
+      arguments: { workspace: process.cwd(), spec: "x", ...args },
+      ...(progressToken != null ? { _meta: { progressToken } } : {}),
+    }, { tasks }),
+    cancelRequest: (requestId) => clientTransport.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId, reason: "test" } }),
+    close: async () => {
+      await clientTransport.close();
+      await served.close();
+      for (const pid of agentPids.splice(0)) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    },
+  };
+}
+
+async function waitForTask(raw, taskId, done = (t) => t.status !== "working", timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { result, error } = await raw.send("tasks/get", { taskId }).reply;
+    if (error) throw new Error(`tasks/get ${taskId}: ${JSON.stringify(error)}`);
+    if (done(result)) return result;
+    if (Date.now() > deadline) throw new Error(`task ${taskId} still ${result.status}: ${result.statusMessage}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (err) { return err.code === "EPERM"; } };
+async function waitUntil(check, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!check() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+  return check();
+}
+
+// The real runDelegate over a fixture process, recording each agent's pid.
+function realOver(stubFile, extra = {}, pids = []) {
+  return (opts) => realRunDelegate({
+    ...opts,
+    handshakeMs: 10000,
+    ...extra,
+    clientFactory: (o) => {
+      const client = stubClientFactory(stubFile)(o);
+      const start = client.start.bind(client);
+      client.start = async () => { const r = await start(); pids.push(client.child.pid); agentPids.push(client.child.pid); return r; };
+      return client;
+    },
+  });
+}
+
+test("a 2026-07-28 connection advertises the tasks extension and a 2025-era one does not", async () => {
+  const raw = await connectRaw({});
+  try {
+    const { result } = await raw.send("server/discover").reply;
+    assert.deepEqual(result.capabilities.extensions?.[TASKS_EXTENSION], {});
+  } finally {
+    await raw.close();
+  }
+  const { client, close } = await connectEra(undefined, {});
+  try {
+    assert.equal(client.getServerCapabilities()?.extensions, undefined);
+  } finally {
+    await close();
+  }
+});
+
+test("delegate answers a request listing the tasks extension with a task whose result matches a blocking call", async () => {
+  const raw = await connectRaw({ runDelegate: realOver("fake-acp.js"), tasks: createTaskStore() });
+  try {
+    const answers = await Promise.all([raw.call().reply, raw.call().reply]);
+    for (const { result } of answers) {
+      assert.equal(result.resultType, "task");
+      assert.match(result.taskId, /^[\x21-\x7e]{1,128}$/);
+      assert.equal(result.status, "working");
+      assert.equal(result.statusMessage, "session ready: sess-1");
+      assert.equal(result.ttlMs, null);
+      assert.equal(result.pollIntervalMs, 3000);
+    }
+    assert.notEqual(answers[0].result.taskId, answers[1].result.taskId);
+    const blocking = await raw.call({}, { tasks: false }).reply;
+    assert.equal(blocking.result.resultType, "complete");
+    for (const { result } of answers) {
+      const done = await waitForTask(raw, result.taskId);
+      assert.equal(done.status, "completed");
+      assert.deepEqual(done.result.content, blocking.result.content);
+      assert.equal(typeof done.ttlMs, "number");
+    }
+  } finally {
+    await raw.close();
+  }
+});
+
+test("a task's progress goes to the request until the task is answered, then to its statusMessage", async () => {
+  const raw = await connectRaw({ runDelegate: realOver("streaming-stub.js", { heartbeatMs: 100 }), tasks: createTaskStore() });
+  try {
+    const { result } = await raw.call({}, { progressToken: "tok" }).reply;
+    assert.equal(result.resultType, "task");
+    const beat = await waitForTask(raw, result.taskId, (t) => /^still working — /.test(t.statusMessage ?? ""));
+    assert.equal(beat.status, "working");
+    await waitForTask(raw, result.taskId);
+    assert.deepEqual(raw.progress.filter((p) => p.progressToken === "tok").map((p) => p.message), ["session ready: sess-stream"]);
+  } finally {
+    await raw.close();
+  }
+});
+
+test("cancelling a task request before its prompt is sent stops the agent and answers nothing", async () => {
+  const pids = [];
+  const raw = await connectRaw({ runDelegate: realOver("session-then-hang-stub.js", { handshakeMs: 30000 }, pids), tasks: createTaskStore() });
+  try {
+    const call = raw.call({}, { progressToken: "setup" });
+    // The stub answers session/new, then nothing: the delegation is past spawn but short of its prompt.
+    assert.ok(await waitUntil(() => raw.progress.some((p) => p.message === "session ready: sess-half-open")), "the session should open");
+    raw.cancelRequest(call.id);
+    assert.ok(await waitUntil(() => !isAlive(pids[0])), "the agent must be stopped");
+    const answered = await Promise.race([call.reply.then(() => true), new Promise((r) => setTimeout(() => r(false), 300))]);
+    assert.equal(answered, false);
+  } finally {
+    await raw.close();
+  }
+});
+
+test("an argument the agent rejects before the prompt comes back at once, not as a task", async () => {
+  const raw = await connectRaw({ runDelegate: realOver("fake-acp.js"), tasks: createTaskStore() });
+  try {
+    const { result } = await raw.call({ effort: "no-such-effort" }).reply;
+    assert.equal(result.resultType, "complete");
+    assert.equal(result.isError, true);
+  } finally {
+    await raw.close();
+  }
+});
+
+test("tasks/cancel stops the agent and leaves the task cancelled with a resume hint", async () => {
+  const pids = [];
+  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks: createTaskStore() });
+  try {
+    const { result } = await raw.call().reply;
+    assert.equal(result.resultType, "task");
+    assert.equal((await raw.send("tasks/update", { taskId: result.taskId, inputResponses: { q: { action: "accept" } } }).reply).error, undefined);
+    for (const method of ["tasks/get", "tasks/update", "tasks/cancel"]) {
+      const { error } = await raw.send(method, { taskId: result.taskId }, { tasks: false }).reply;
+      assert.equal(error?.code, -32021, `${method} from a request without the extension`);
+    }
+    const ack = await raw.send("tasks/cancel", { taskId: result.taskId }).reply;
+    assert.equal(ack.error, undefined);
+    const cancelled = (await raw.send("tasks/get", { taskId: result.taskId }).reply).result;
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.statusMessage, "cancelled; resume with resumeSessionId sess-escalate");
+    assert.equal(typeof cancelled.ttlMs, "number");
+    assert.ok(await waitUntil(() => !isAlive(pids[0])), "the agent must be stopped");
+    const ended = await waitForTask(raw, result.taskId, (t) => t.statusMessage.startsWith("delegate failed [aborted]"));
+    assert.equal(ended.status, "cancelled");
+    assert.match(ended.statusMessage, /resumeSessionId sess-escalate/);
+    assert.equal(ended.ttlMs, cancelled.ttlMs);
+    await raw.send("tasks/cancel", { taskId: result.taskId }).reply;
+    assert.equal((await raw.send("tasks/get", { taskId: result.taskId }).reply).result.status, "cancelled");
+    for (const method of ["tasks/get", "tasks/update", "tasks/cancel"]) {
+      const { error } = await raw.send(method, { taskId: "no-such-task" }).reply;
+      assert.equal(error?.code, -32602, method);
+    }
+  } finally {
+    await raw.close();
+  }
+});
+
+test("tasks/cancel stops only its own task when two run on one session", async () => {
+  const pids = [];
+  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks: createTaskStore() });
+  try {
+    const [a, b] = await Promise.all([raw.call().reply, raw.call().reply]);
+    await raw.send("tasks/cancel", { taskId: a.result.taskId }).reply;
+    await waitForTask(raw, a.result.taskId, (t) => /^delegate failed/.test(t.statusMessage));
+    assert.equal(pids.filter(isAlive).length, 1, "the other task's agent must keep running");
+    assert.equal((await raw.send("tasks/get", { taskId: b.result.taskId }).reply).result.status, "working");
+    await raw.send("tasks/cancel", { taskId: b.result.taskId }).reply;
+    assert.ok(await waitUntil(() => pids.every((pid) => !isAlive(pid))));
+  } finally {
+    await raw.close();
+  }
+});
+
+test("the shutdown on stdin EOF stops the agent of a task already answered", async () => {
+  const pids = [];
+  const inFlight = new Map();
+  const pending = new Set();
+  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks: createTaskStore(), inFlight, pending });
+  const stdin = new EventEmitter();
+  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
+  try {
+    const { result } = await raw.call().reply;
+    assert.equal(result.resultType, "task");
+    installSignalCleanup(inFlight, { pending, exit: () => {}, setExitCode: () => {}, stdin });
+    stdin.emit("end");
+    assert.ok(await waitUntil(() => !isAlive(pids[0])), "the task's agent outlived the shutdown");
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      for (const listener of process.listeners(signal)) {
+        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+      }
+    }
+    await raw.close();
+  }
+});
+
+test("a delegation that fails after its prompt completes its task with the error result", async () => {
+  const runDelegate = async ({ onSessionReady, onPromptSent }) => {
+    onSessionReady("sess-fail", { cancel: async () => {}, stop: () => true });
+    onPromptSent("sess-fail");
+    await new Promise((r) => setTimeout(r, 50));
+    throw Object.assign(new Error("agent died"), { reason: "agent-exit" });
+  };
+  const raw = await connectRaw({ runDelegate, tasks: createTaskStore() });
+  try {
+    const { result } = await raw.call().reply;
+    const done = await waitForTask(raw, result.taskId);
+    assert.equal(done.status, "completed");
+    assert.equal(done.result.isError, true);
+    assert.equal(done.result.content[0].text, "delegate failed [agent-exit]: agent died");
+  } finally {
+    await raw.close();
+  }
+});
+
+test("tasks/cancel after the turn has ended leaves the task to complete", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let turnEnded;
+  const ended = new Promise((r) => { turnEnded = r; });
+  const runDelegate = async ({ onSessionReady, onPromptSent, onTurnEnd, signal }) => {
+    onSessionReady("sess-ended", { cancel: async () => {}, stop: () => true });
+    onPromptSent("sess-ended");
+    onTurnEnd();
+    turnEnded();
+    await gate;
+    return { result: "kept", sessionId: "sess-ended", aborted: signal.aborted };
+  };
+  const raw = await connectRaw({ runDelegate, tasks: createTaskStore() });
+  try {
+    const { result } = await raw.call().reply;
+    await ended;
+    await raw.send("tasks/cancel", { taskId: result.taskId }).reply;
+    release();
+    const done = await waitForTask(raw, result.taskId);
+    assert.equal(done.status, "completed");
+    assert.deepEqual(payload(done.result), { result: "kept", sessionId: "sess-ended", aborted: false });
+  } finally {
+    await raw.close();
+  }
+});
+
+test("a 2025-era request that lists the tasks extension in _meta still gets a plain result", async () => {
+  const runDelegate = async ({ onSessionReady, onPromptSent }) => {
+    onSessionReady("sess-2025", { cancel: async () => {}, stop: () => true });
+    onPromptSent?.("sess-2025");
+    return { result: "plain", sessionId: "sess-2025" };
+  };
+  const { client, close } = await connectEra(undefined, { runDelegate, tasks: createTaskStore() });
+  try {
+    const res = await client.callTool({
+      name: "delegate",
+      arguments: { workspace: process.cwd(), spec: "x" },
+      _meta: {
+        [CLIENT_CAPABILITIES_META_KEY]: { extensions: { [TASKS_EXTENSION]: {} } },
+        [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+      },
+    });
+    assert.equal(payload(res).result, "plain");
+  } finally {
+    await close();
+  }
+});
 
 test("a finished delegation does not evict a concurrent one holding the same session id", async () => {
   // A resume can race the turn it resumes, so two live delegations can share a session id.
