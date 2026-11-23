@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-23
+
+`delegate` no longer holds your agent while Cursor works. In an interactive Claude Code CLI session
+it runs as an MCP task, and the Antigravity plugin runs it in the background: your agent stays free
+to plan, review or start the next delegation, and Cursor's result arrives when its turn ends. Codex
+and other hosts keep the blocking call. One thing changes on upgrade in Claude Code: the
+`delegate` call returns before Cursor has finished, and its result comes back as a task
+notification.
+
+### Added
+
+- The server serves the MCP Tasks extension (`io.modelcontextprotocol/tasks`, 2026-07-28) to a
+  request that lists it: `tasks/get`, `tasks/update` and `tasks/cancel`. A finished task's result
+  is kept for an hour, up to 100 tasks.
+
+### Changed
+
+- **Breaking: in an interactive Claude Code CLI session, `delegate` runs as an MCP task.** The call
+  returns once cursor-agent has the prompt, and the same result arrives as a task notification
+  when the turn ends. Progress shows as the task's status message in `/tasks`, and stopping the
+  task cancels the turn and stops cursor-agent. An argument cursor-agent rejects still fails the
+  call before the prompt. A request that does not list the extension, as Codex's and
+  Antigravity's do not, is answered with the result, as before.
+  `CLAUDE_CODE_DISABLE_MCP_TASK_BACKGROUND=1` makes Claude Code wait for the result in the call.
+- The Antigravity plugin runs `delegate` in the background (`tools.delegate.background: "always"`):
+  Antigravity hands the call back to the model at once and wakes it with the result.
+  `timeoutSeconds` still bounds the call.
+
 ## [2.11.0] - 2026-11-23
 
 ### Added
