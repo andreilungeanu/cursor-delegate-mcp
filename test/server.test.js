@@ -43,13 +43,15 @@ async function connectEra(versionNegotiation, serverOpts) {
 }
 
 for (const [era, versionNegotiation] of ERAS) {
-  test(`doctor reports the host's identity on a ${era}-era connection`, async () => {
+  test(`doctor reports the host's identity and protocol revision on a ${era}-era connection`, async () => {
     const runDoctor = async ({ getClientInfo }) => getClientInfo();
     const { client, close } = await connectEra(versionNegotiation, { runDoctor });
     try {
       const info = payload(await client.callTool({ name: "doctor", arguments: {} }));
       assert.equal(info.version?.name, "era-host");
       assert.deepEqual(info.capabilities?.elicitation, { form: {} });
+      if (era === "2025") assert.match(info.protocolVersion, /^2025-/);
+      else assert.equal(info.protocolVersion, "2026-07-28");
     } finally {
       await close();
     }

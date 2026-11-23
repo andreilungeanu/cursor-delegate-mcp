@@ -34,6 +34,7 @@ Every tool returns its payload as one compact JSON text block and declares no MC
 | `plugin.version` | Installed plugin version. |
 | `client.name` / `client.version` | MCP client identity; `null` when the host sent none. |
 | `client.capabilities` | Raw client capabilities. |
+| `client.protocolVersion` | MCP revision the host speaks: `2026-07-28`, or the 2025-era version it negotiated. Absent when unknown. |
 | `agent.found` | Whether the launcher could be spawned at all. |
 | `agent.command` | Resolved launcher command line, with `ACP_AGENT_COMMAND` / `ACP_AGENT_ARGS` applied. |
 | `agent.version` | `--version` output, or `null`. `found: false` means it is not installed; `found: true` with a `null` version means it exists but did not answer — `agent.error` says why. |

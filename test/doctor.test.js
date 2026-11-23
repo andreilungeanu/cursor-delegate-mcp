@@ -166,9 +166,11 @@ test("runDoctor reports raw client capabilities and identity from injected getCl
     getClientInfo: () => ({
       capabilities: { elicitation: {} },
       version: { name: "test-client", version: "1.0" },
+      protocolVersion: "2026-07-28",
     }),
   });
   assert.deepEqual(withElicit.client.capabilities, { elicitation: {} });
+  assert.equal(withElicit.client.protocolVersion, "2026-07-28");
   assert.equal(withElicit.client.name, "test-client");
   assert.equal(withElicit.client.version, "1.0");
 
@@ -177,6 +179,7 @@ test("runDoctor reports raw client capabilities and identity from injected getCl
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
   assert.deepEqual(withoutElicit.client.capabilities, {});
+  assert.equal("protocolVersion" in withoutElicit.client, false, "absent, not null, when the host named none");
 });
 
 test("runDoctor deep:false does not run handshake", async () => {

@@ -165,7 +165,7 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
 /**
  * onClientReady gets each process doctor starts, probe then agent, so a shutdown can stop it.
  * @param {{
- *   getClientInfo?: () => { capabilities?: any, version?: any },
+ *   getClientInfo?: () => { capabilities?: any, version?: any, protocolVersion?: string },
  *   deep?: boolean,
  *   spawnSpec?: { command: string, args: string[], options?: object },
  *   clientFactory?: (opts: any) => any,
@@ -189,7 +189,7 @@ export async function runDoctor({
   signal,
   onClientReady,
 } = {}) {
-  const { capabilities, version } = getClientInfo();
+  const { capabilities, version, protocolVersion } = getClientInfo();
   const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs, { signal, onSpawn: onClientReady });
 
   /** @type {{ plugin: any, client: any, agent: any & { handshake?: any }, runtime: any, env: any }} */
@@ -199,6 +199,8 @@ export async function runDoctor({
       name: version?.name ?? null,
       version: version?.version ?? null,
       capabilities: capabilities ?? {},
+      // The MCP revision the host speaks: 2026-07-28 or a 2025-era one.
+      ...(typeof protocolVersion === "string" ? { protocolVersion } : {}),
     },
     agent: {
       found: agentProbe.found,
