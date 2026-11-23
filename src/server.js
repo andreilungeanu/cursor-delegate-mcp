@@ -8,7 +8,7 @@ import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION, readPackageVersion } from "./version.js";
-import { DETACHED } from "./proc.js";
+import { DETACHED, children } from "./proc.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 import { TASKS_EXTENSION, createTaskStore, listsTasks, registerTaskHandlers, runAsTask } from "./tasks.js";
 
@@ -43,10 +43,6 @@ function unregisterInFlight(map, sessionId, handle) {
   handles.delete(handle);
   if (handles.size === 0) map.delete(sessionId);
 }
-// Delegations whose session has not opened yet: the agent runs ~3.4s before inFlight can key it.
-// Shutdown walks this; cancel cannot, since the caller has no id for these yet.
-const pendingDelegations = new Set();
-
 // Session ids seen by this process, kept after the turn ends so cancel can tell a finished
 // (still resumable) session from an id that never existed. Bounded.
 const seenSessions = new Set();
@@ -189,7 +185,6 @@ export function progressNotifier(ctx) {
  *   args: any, ctx?: any,
  *   runDelegate: (opts: any) => Promise<any>,
  *   inFlight: Map<string, Set<any>>,
- *   pending?: Set<any>,
  *   seenSessions?: Set<string>,
  *   signal?: AbortSignal,
  *   onProgress?: (message: string) => void,
@@ -199,7 +194,7 @@ export function progressNotifier(ctx) {
  * @returns {Promise<import("@modelcontextprotocol/server").CallToolResult>}
  */
 export async function runDelegateTool({
-  args, ctx, runDelegate, inFlight, pending = new Set(), seenSessions = new Set(),
+  args, ctx, runDelegate, inFlight, seenSessions = new Set(),
   signal = ctx?.mcpReq?.signal, onProgress = progressNotifier(ctx), onPromptSent, onTurnEnd,
 }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, effort, context, contextFiles } = args;
@@ -220,15 +215,9 @@ export async function runDelegateTool({
       onProgress,
       signal,
       onPromptSent: onPromptSent && ((sessionId) => onPromptSent(sessionId, handle)),
-      onClientReady: (client) => {
-        handle = { client, cancelRequested: false };
-        pending.add(handle);
-      },
       onSessionReady: (sessionId, client) => {
         capturedSessionId = sessionId;
-        // The same handle moves across, so a racing shutdown finds it on exactly one side.
-        handle ??= { client, cancelRequested: false };
-        pending.delete(handle);
+        handle = { client, cancelRequested: false };
         registerInFlight(inFlight, sessionId, handle);
         rememberSession(seenSessions, sessionId);
         // Sent now so a host that can call tools concurrently has an id to cancel mid-run.
@@ -248,9 +237,7 @@ export async function runDelegateTool({
       isError: true,
     };
   } finally {
-    // Drops only this delegation's handle, from whichever of pending or the map holds it; the id
-    // stays registered while another turn runs on it.
-    if (handle) pending.delete(handle);
+    // Drops only this delegation's handle; the id stays registered while another turn runs on it.
     if (capturedSessionId) unregisterInFlight(inFlight, capturedSessionId, handle);
   }
 }
@@ -260,14 +247,13 @@ export async function runDelegateTool({
  *   runDelegate?: (opts: any) => Promise<any>,
  *   runDoctor?: (opts: any) => Promise<any>,
  *   forceGraceMs?: number,
- *   pending?: Set<any>,
  *   inFlight?: Map<string, Set<any>>,
  *   era?: "legacy" | "modern",
  *   tasks?: ReturnType<typeof createTaskStore>,
  * }} [opts]
  */
 export function buildServer({
-  runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000, pending = pendingDelegations,
+  runDelegate: runDelegateInjected, runDoctor: runDoctorInjected, forceGraceMs = 5000,
   inFlight: flights = inFlight, era, tasks = taskStore,
 } = {}) {
   const runDelegate = runDelegateInjected || runDelegateDefault;
@@ -310,7 +296,7 @@ export function buildServer({
       // Claude Code tells the model a task's id and never its session id, even after a stop.
       const resumeSessionId = tasks.get(args.resumeSessionId)?.sessionId ?? args.resumeSessionId;
       /** @param {Record<string, any>} [over] */
-      const run = (over) => runDelegateTool({ args: { ...args, resumeSessionId }, ctx, runDelegate, inFlight: flights, pending, seenSessions, ...over });
+      const run = (over) => runDelegateTool({ args: { ...args, resumeSessionId }, ctx, runDelegate, inFlight: flights, seenSessions, ...over });
       if (!servesTasks || !listsTasks(ctx)) return run();
       return /** @type {any} */ (runAsTask({ run, signal: ctx?.mcpReq?.signal, notify: progressNotifier(ctx), store: tasks }));
     }
@@ -391,19 +377,8 @@ export function buildServer({
       },
     },
     async ({ deep }, ctx) => {
-      // doctor's processes sit in pending while it runs, where shutdown already looks.
-      const handles = [];
-      try {
-        const out = await runDoctor({
-          deep,
-          signal: ctx?.mcpReq?.signal,
-          onClientReady: (client) => { const handle = { client }; handles.push(handle); pending.add(handle); },
-          getClientInfo: () => clientInfoOf(server, ctx),
-        });
-        return { content: [{ type: "text", text: JSON.stringify(out) }] };
-      } finally {
-        for (const handle of handles) pending.delete(handle);
-      }
+      const out = await runDoctor({ deep, signal: ctx?.mcpReq?.signal, getClientInfo: () => clientInfoOf(server, ctx) });
+      return { content: [{ type: "text", text: JSON.stringify(out) }] };
     }
   );
 
@@ -432,8 +407,8 @@ if (process.argv[1]) {
 }
 
 // Kill what is still running, then exit, on any way the host has of going away.
-export function installSignalCleanup(map, {
-  pending = new Set(),
+/** @param {import("./proc.js").ChildRegistry} [registry] */
+export function installSignalCleanup(registry = children, {
   exit = (code) => process.exit(code),
   setExitCode = (code) => { process.exitCode = code; },
   schedule = (fn) => setImmediate(fn),
@@ -455,20 +430,11 @@ export function installSignalCleanup(map, {
     exitCode = code;
     // Set now: the loop may run dry before the scheduled exit gets a turn.
     setExitCode(code);
-    const stops = [];
-    // An unseen exit is not memoized, so a second stop dispatches a fresh kill before the exit.
-    const stopOnce = (handle) => Promise.resolve(handle.client.stop()).catch(() => false);
-    const dispatch = (handle) => {
-      try { stops.push(stopOnce(handle).then((exited) => (exited === false ? stopOnce(handle) : exited))); } catch {}
-    };
-    for (const handles of map.values()) for (const handle of handles) dispatch(handle);
-    // Delegations still in their handshake: their agent runs, and only pending reaches it.
-    for (const handle of pending) dispatch(handle);
     // Waits for the kills: on Windows taskkill is a separate process, and exiting first orphans the
-    // launcher and agent below the shell (measured). stop() bounds itself, so the wait is finite.
+    // launcher and agent below the shell (measured). Each stop bounds itself, so the wait is finite.
     // The exit is scheduled onto a clean loop turn rather than run on the settlement stack.
     const leave = () => schedule(() => exit(exitCode));
-    Promise.all(stops).then(leave, leave);
+    registry.stopAll().then(leave, leave);
   };
   // On POSIX each agent has its own process group, which a signal to this process misses, so the
   // handler kills them first. SIGHUP too: a closed terminal, whose default leaves them running.
@@ -488,7 +454,7 @@ if (isMain) {
   if (argv.includes("--version") || argv.includes("-v")) {
     console.log(readPackageVersion());
   } else {
-    installSignalCleanup(inFlight, { pending: pendingDelegations });
+    installSignalCleanup();
     // One factory serves both protocol eras: a 2025-era initialize pins a legacy instance, and only
     // a modern one answers with tasks.
     serveStdio(({ era }) => buildServer({ era }));

@@ -15,6 +15,7 @@ const ENTRY = fileURLToPath(new URL("../src/server.js", import.meta.url));
 const PKG = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
 const GRANDCHILD_AGENT = fileURLToPath(new URL("./fixtures/fake-acp-with-grandchild.js", import.meta.url));
 const STREAMING_AGENT = fileURLToPath(new URL("./fixtures/streaming-stub.js", import.meta.url));
+const HANG_PID_AGENT = fileURLToPath(new URL("./fixtures/hang-pid-stub.js", import.meta.url));
 
 const isAlive = (pid) => {
   try { process.kill(pid, 0); return true; } catch (err) { return err.code === "EPERM"; }
@@ -84,6 +85,38 @@ function rawServer(env) {
   const exited = new Promise((resolve) => child.on("exit", resolve));
   return { child, send, exited };
 }
+
+// The delegation's agent holds shutdown open while doctor's probe is killed, so doctor reaches its
+// handshake during the shutdown, as it does on a busy server.
+test("a signal during doctor's deep probe leaves no agent running after the server exits", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cdm-doctor-signal-"));
+  const pidLog = join(dir, "pids");
+  const { child, send, exited } = rawServer({
+    ACP_AGENT_COMMAND: process.execPath, ACP_AGENT_ARGS: `"${HANG_PID_AGENT}" acp`, CURSOR_TEST_PIDLOG: pidLog,
+  });
+  const started = () => { try { return readFileSync(pidLog, "utf8").trim().split("\n"); } catch { return []; } };
+  const until = async (n) => {
+    const deadline = Date.now() + 10000;
+    while (started().length < n && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+  };
+  try {
+    await send("server/discover");
+    send("tools/call", { name: "delegate", arguments: { workspace: dir, spec: "x" } }).catch(() => {});
+    await until(1);
+    send("tools/call", { name: "doctor", arguments: { deep: true } }).catch(() => {});
+    await until(2);
+    assert.match(started()[1], /--version/, "doctor's version probe is running when the signal lands");
+    child.kill("SIGTERM");
+    await exited;
+    await new Promise((r) => setTimeout(r, 1000));
+    const alive = started().filter((line) => isAlive(Number(line.split(" ")[0])));
+    assert.deepEqual(alive, [], "an agent outlived the server");
+  } finally {
+    child.kill();
+    for (const line of started()) { try { process.kill(Number(line.split(" ")[0]), "SIGKILL"); } catch {} }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("the binary answers a delegate call listing the tasks extension with a task that completes", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cdm-task-"));

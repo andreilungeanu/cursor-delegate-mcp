@@ -249,7 +249,6 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
  *   model?: string, fast?: boolean, effort?: string, context?: string,
  *   contextFiles?: string[], clientFactory?: (opts: any) => any,
  *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
- *   onClientReady?: (client: any) => void,
  *   onSessionReady?: (sessionId: string, client: any) => void,
  *   onPromptSent?: (sessionId: string) => void,
  *   onTurnEnd?: () => void,
@@ -261,7 +260,7 @@ export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, effort, context, contextFiles, clientFactory,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
-  onClientReady, onSessionReady, onPromptSent, onTurnEnd, onProgress, progressThrottleMs = 2000,
+  onSessionReady, onPromptSent, onTurnEnd, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
@@ -342,9 +341,6 @@ export async function runDelegate({
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
   const client = make({ mode, onCreatePlan: state.recordCreatePlan, onTodos: state.recordTodos });
-  // Before the spawn, so the caller can stop the agent from its first moment; onSessionReady comes
-  // ~3.4s later, and a host exiting in between would leave the agent running.
-  onClientReady?.(client);
   const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });

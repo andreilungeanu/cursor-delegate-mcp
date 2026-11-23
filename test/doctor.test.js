@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -408,10 +408,32 @@ test("runDoctor deep:true reports the negotiated capability matrix", async () =>
   assert.equal(out.agent.handshake.agentCapabilities.sessionCapabilities.list !== undefined, true);
 });
 
+// Runs fn with CURSOR_TEST_PIDLOG set, handing it the pids hang-pid-stub.js has logged so far.
+async function withPidLog(fn) {
+  const dir = mkdtempSync(join(tmpdir(), "cdm-pidlog-"));
+  const log = join(dir, "pids");
+  const saved = process.env.CURSOR_TEST_PIDLOG;
+  process.env.CURSOR_TEST_PIDLOG = log;
+  const pids = () => {
+    try { return readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => Number(line.split(" ")[0])); } catch { return []; }
+  };
+  try {
+    return await fn(pids);
+  } finally {
+    if (saved === undefined) delete process.env.CURSOR_TEST_PIDLOG; else process.env.CURSOR_TEST_PIDLOG = saved;
+    for (const pid of pids()) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const HANG_PID_STUB = fileURLToPath(new URL("./fixtures/hang-pid-stub.js", import.meta.url));
+const until = async (predicate) => {
+  const deadline = Date.now() + 5000;
+  while (!predicate() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+};
+
 test("runDoctor deep stops the agent at once when the host aborts", async () => {
   const controller = new AbortController();
   let client;
-  let readied;
   const started = Date.now();
   setTimeout(() => controller.abort(), 200);
   const out = await rawRunDoctor({
@@ -421,50 +443,49 @@ test("runDoctor deep stops the agent at once when the host aborts", async () => 
       ...opts,
       spawnSpec: { command: process.execPath, args: [fileURLToPath(new URL("./fixtures/handshake-hang-stub.js", import.meta.url))], options: { shell: false } },
     })),
-    onClientReady: (c) => { readied = c; },
   });
   assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
   assert.equal(out.agent.handshake.ok, false);
   assert.match(out.agent.handshake.error, /aborted/);
-  assert.equal(readied, client, "the agent must be handed out so shutdown can reach it");
   assert.ok(!isChildAlive(client.child));
 });
 
 test("runDoctor stops the version probe on a host abort, and spawns no handshake agent after it", async () => {
-  const controller = new AbortController();
-  const readied = [];
-  let spawned = 0;
-  const started = Date.now();
-  setTimeout(() => controller.abort(), 300);
-  const out = await rawRunDoctor({
-    deep: true, signal: controller.signal, versionTimeoutMs: 10000, handshakeTimeoutMs: 10000,
-    spawnSpec: { command: fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url)), args: ["acp"], options: { shell: false } },
-    clientFactory: () => { spawned++; throw new Error("no agent may be spawned after the abort"); },
-    onClientReady: (c) => { readied.push(c); },
+  await withPidLog(async (pids) => {
+    const controller = new AbortController();
+    let spawned = 0;
+    const run = rawRunDoctor({
+      deep: true, signal: controller.signal, versionTimeoutMs: 10000, handshakeTimeoutMs: 10000,
+      spawnSpec: { command: HANG_PID_STUB, args: ["acp"], options: { shell: false } },
+      clientFactory: () => { spawned++; throw new Error("no agent may be spawned after the abort"); },
+    });
+    await until(() => pids().length === 1);
+    const started = Date.now();
+    controller.abort();
+    const out = await run;
+    assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
+    assert.match(out.agent.error ?? "", /aborted/);
+    assert.equal(out.agent.handshake.ok, false);
+    assert.match(out.agent.handshake.error, /aborted/);
+    assert.equal(spawned, 0);
+    assert.equal(pids().length, 1);
+    assert.throws(() => process.kill(pids()[0], 0), "the probe process must be gone when doctor returns");
   });
-  assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
-  assert.match(out.agent.error ?? "", /aborted/);
-  assert.equal(out.agent.handshake.ok, false);
-  assert.match(out.agent.handshake.error, /aborted/);
-  assert.equal(spawned, 0);
-  assert.equal(readied.length, 1, "the probe must be handed out so shutdown can reach it");
-  const { pid } = readied[0];
-  assert.ok(pid > 0);
-  assert.throws(() => process.kill(pid, 0), "the probe process must be gone when doctor returns");
 });
 
 // The abort lands 20 ms before the timeout, inside the time the kill takes (taskkill on Windows).
 test("a version probe aborted just before its timeout reports the abort, once the probe is gone", async () => {
-  const controller = new AbortController();
-  const readied = [];
-  setTimeout(() => controller.abort(), 300);
-  const out = await rawRunDoctor({
-    signal: controller.signal, versionTimeoutMs: 320,
-    spawnSpec: { command: fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url)), args: ["acp"], options: { shell: false } },
-    onClientReady: (c) => { readied.push(c); },
+  await withPidLog(async (pids) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 300);
+    const out = await rawRunDoctor({
+      signal: controller.signal, versionTimeoutMs: 320,
+      spawnSpec: { command: HANG_PID_STUB, args: ["acp"], options: { shell: false } },
+    });
+    assert.match(out.agent.error ?? "", /aborted/);
+    assert.equal(pids().length, 1, "the probe had started when the abort landed");
+    assert.throws(() => process.kill(pids()[0], 0), "the probe process must be gone when doctor returns");
   });
-  assert.match(out.agent.error ?? "", /aborted/);
-  assert.throws(() => process.kill(readied[0].pid, 0), "the probe process must be gone when doctor returns");
 });
 
 test("a version probe that closed is left out of shutdown's stops", async () => {
@@ -484,16 +505,33 @@ test("a version probe that closed is left out of shutdown's stops", async () => 
 });
 
 test("runDoctor spawns no version probe once the host has aborted", async () => {
-  const controller = new AbortController();
-  controller.abort();
-  const readied = [];
-  const out = await rawRunDoctor({
-    signal: controller.signal,
-    spawnSpec: { command: fileURLToPath(new URL("./fixtures/version-hang-stub.js", import.meta.url)), args: ["acp"], options: { shell: false } },
-    onClientReady: (c) => { readied.push(c); },
+  await withPidLog(async (pids) => {
+    const controller = new AbortController();
+    controller.abort();
+    const out = await rawRunDoctor({
+      signal: controller.signal,
+      spawnSpec: { command: HANG_PID_STUB, args: ["acp"], options: { shell: false } },
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(pids(), [], "nothing may be spawned for a doctor that was already aborted");
+    assert.equal(out.agent.found, true, "found comes from the lookup alone");
+    assert.equal(out.agent.version, null);
+    assert.match(out.agent.error ?? "", /aborted/);
   });
-  assert.equal(readied.length, 0, "nothing may be spawned for a doctor that was already aborted");
-  assert.equal(out.agent.found, true, "found comes from the lookup alone");
-  assert.equal(out.agent.version, null);
-  assert.match(out.agent.error ?? "", /aborted/);
+});
+
+test("shutdown's stopAll ends a hung version probe, and a probe after it is not started", async () => {
+  await withPidLog(async (pids) => {
+    const registry = createChildRegistry();
+    const spec = { command: HANG_PID_STUB, args: [], options: { shell: false } };
+    const run = probeAgentVersion(spec, 10000, { registry });
+    await until(() => pids().length === 1);
+    await registry.stopAll();
+    assert.throws(() => process.kill(pids()[0], 0), "the probe must be gone when stopAll resolves");
+    await run;
+    const late = await probeAgentVersion(spec, 10000, { registry });
+    assert.deepEqual(late, { found: true, version: null, error: "the server is shutting down, so no process was started" });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(pids().length, 1, "the late probe must not start");
+  });
 });

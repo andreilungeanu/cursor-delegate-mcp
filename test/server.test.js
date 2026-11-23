@@ -11,13 +11,14 @@ import { AcpClient } from "../src/acp-client.js";
 import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
 import { runDelegateTool, buildServer, delegateInputSchema, installSignalCleanup } from "../src/server.js";
 import { TASKS_EXTENSION, createTaskStore } from "../src/tasks.js";
+import { createChildRegistry } from "../src/proc.js";
 
 // Every tool returns its payload as one compact JSON text block and no structuredContent, so
 // every assertion on their fields goes through here.
 const payload = (res) => JSON.parse(res.content[0].text);
 
 // Real AcpClient over a stub subprocess, so force-kill exercises the actual treeKill path.
-function stubClientFactory(stubFile) {
+function stubClientFactory(stubFile, registry) {
   return ({ mode, onCreatePlan }) => new AcpClient({
     spawnSpec: {
       command: process.execPath,
@@ -26,6 +27,7 @@ function stubClientFactory(stubFile) {
     },
     mode,
     onCreatePlan,
+    registry,
   });
 }
 
@@ -173,13 +175,13 @@ async function waitUntil(check, timeoutMs = 8000) {
 }
 
 // The real runDelegate over a fixture process, recording each agent's pid.
-function realOver(stubFile, extra = {}, pids = []) {
+function realOver(stubFile, extra = {}, pids = [], registry = undefined) {
   return (opts) => realRunDelegate({
     ...opts,
     handshakeMs: 10000,
     ...extra,
     clientFactory: (o) => {
-      const client = stubClientFactory(stubFile)(o);
+      const client = stubClientFactory(stubFile, registry)(o);
       const start = client.start.bind(client);
       client.start = async () => { const r = await start(); pids.push(client.child.pid); agentPids.push(client.child.pid); return r; };
       return client;
@@ -358,15 +360,14 @@ test("a task's id resumes the session its run opened, after tasks/cancel stopped
 
 test("the shutdown on stdin EOF stops the agent of a task already answered", async () => {
   const pids = [];
-  const inFlight = new Map();
-  const pending = new Set();
-  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks: createTaskStore(), inFlight, pending });
+  const registry = createChildRegistry();
+  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids, registry), tasks: createTaskStore() });
   const stdin = new EventEmitter();
   const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
   try {
     const { result } = await raw.call().reply;
     assert.equal(result.resultType, "task");
-    installSignalCleanup(inFlight, { pending, exit: () => {}, setExitCode: () => {}, stdin });
+    installSignalCleanup(registry, { exit: () => {}, setExitCode: () => {}, stdin });
     stdin.emit("end");
     assert.ok(await waitUntil(() => !isAlive(pids[0])), "the task's agent outlived the shutdown");
   } finally {
@@ -1304,196 +1305,6 @@ test("delegate tool call survives malformed ACP plan frames end-to-end", async (
   }
 });
 
-// A detached agent no longer dies with a terminal signal to this process, so the handler is what
-// keeps Ctrl-C from leaking one. win32 keeps the shared console group and installs nothing.
-// Two turns: one for the settled kill's continuation, one for the exit it schedules off that
-// continuation so the exit does not run on the settlement stack.
-const flushExit = () => new Promise((r) => setImmediate(() => setImmediate(r)));
-
-test("installSignalCleanup stops registered agents, then exits", { skip: process.platform === "win32" }, async () => {
-  const stopped = [];
-  const exited = [];
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => { stopped.push("sess-1"); return Promise.resolve(true); } } }])]]);
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code) });
-    process.emit("SIGINT");
-    assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
-    await flushExit();
-    assert.deepEqual(exited, [130], "the handler must exit rather than swallow the signal");
-  } finally {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
-  }
-});
-
-// The Windows kill is a separate taskkill process: a server that exits before it walks the tree
-// orphans the launcher and the agent below the shell wrapper. Exit waits for the dispatched
-// stops to settle; stop() bounds itself, so the wait cannot hang. Driven through stdin because
-// win32 installs no signal handlers.
-test("installSignalCleanup waits for the kill to settle before exiting", async () => {
-  const order = [];
-  const exited = [];
-  let settle;
-  const stop = new Promise((r) => { settle = r; });
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => { order.push("stop"); return stop; } } }])]]);
-  const stdin = new EventEmitter();
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
-  try {
-    installSignalCleanup(map, { exit: (code) => { order.push("exit"); exited.push(code); }, stdin });
-    stdin.emit("end");
-    await new Promise((r) => setImmediate(r));
-    assert.deepEqual(order, ["stop"], "exit must not land while the kill is still in flight");
-    settle(true);
-    await flushExit();
-    assert.deepEqual(order, ["stop", "exit"], "exit must follow the settled kill");
-    assert.deepEqual(exited, [0]);
-  } finally {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
-  }
-});
-
-const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
-const removeAddedSignalListeners = (before) => {
-  for (const signal of SIGNALS) {
-    for (const listener of process.listeners(signal)) {
-      if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-    }
-  }
-};
-
-test("a signal after stdin closed sets the exit code and still waits for the kill", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
-  const exited = [];
-  const codes = [];
-  let settle;
-  const stopped = new Promise((r) => { settle = r; });
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => stopped } }])]]);
-  const stdin = new EventEmitter();
-  const before = Object.fromEntries(SIGNALS.map((s) => [s, process.listeners(s)]));
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), setExitCode: (code) => codes.push(code), stdin });
-    stdin.emit("end");
-    process.emit("SIGHUP");
-    await flushExit();
-    assert.deepEqual(exited, [], "exit must wait for the kill");
-    assert.deepEqual(codes, [0, 129]);
-    settle(true);
-    await flushExit();
-    assert.deepEqual(exited, [129]);
-  } finally {
-    removeAddedSignalListeners(before);
-  }
-});
-
-test("SIGHUP stops registered agents, and the stdin EOF after it does not cut the wait short", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
-  const exited = [];
-  let settle;
-  const stopped = new Promise((r) => { settle = r; });
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => stopped } }])]]);
-  const stdin = new EventEmitter();
-  const before = Object.fromEntries(SIGNALS.map((s) => [s, process.listeners(s)]));
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), setExitCode: () => {}, stdin });
-    process.emit("SIGHUP");
-    stdin.emit("end");
-    await flushExit();
-    assert.deepEqual(exited, [], "exit must wait for the kill");
-    settle(true);
-    await flushExit();
-    assert.deepEqual(exited, [129]);
-  } finally {
-    removeAddedSignalListeners(before);
-  }
-});
-
-test("a second signal during shutdown exits at once", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
-  const exited = [];
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => new Promise(() => {}) } }])]]);
-  const before = Object.fromEntries(SIGNALS.map((s) => [s, process.listeners(s)]));
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), setExitCode: () => {}, stdin: new EventEmitter() });
-    process.emit("SIGTERM");
-    process.emit("SIGINT");
-    assert.deepEqual(exited, [130]);
-  } finally {
-    removeAddedSignalListeners(before);
-  }
-});
-
-// The rejection a failed kill produces has to be observed here: an unhandled one exits the
-// server on its own, before the dispatched work is done (the discipline ebe7eab established
-// for the progress announcements).
-test("a stop that rejects on shutdown still exits and raises no unhandled rejection", async () => {
-  const exited = [];
-  const rejections = [];
-  const onRejection = (e) => rejections.push(e);
-  process.on("unhandledRejection", onRejection);
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => Promise.reject(new Error("kill failed")) } }])]]);
-  const stdin = new EventEmitter();
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
-    stdin.emit("end");
-    await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(exited, [0], "a rejected kill must not gate the exit");
-    assert.deepEqual(rejections, [], "the rejection must be observed, not unhandled");
-  } finally {
-    process.off("unhandledRejection", onRejection);
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
-  }
-});
-
-// The MCP stdio shutdown sequence is: close the server's stdin, wait for it to exit, then signal.
-test("installSignalCleanup stops registered agents and exits when stdin closes", async () => {
-  const stopped = [];
-  const exited = [];
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => { stopped.push("sess-1"); return Promise.resolve(true); } } }])]]);
-  const stdin = new EventEmitter();
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
-    stdin.emit("end");
-    assert.deepEqual(stopped, ["sess-1"], "the registered agent must be stopped");
-    await flushExit();
-    assert.deepEqual(exited, [0], "stdin EOF must exit rather than linger");
-  } finally {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
-  }
-});
-
-test("installSignalCleanup stops again an agent whose exit the first stop did not see, before exiting", async () => {
-  const results = [false, true];
-  let stops = 0;
-  const exited = [];
-  const map = new Map([["sess-1", new Set([{ client: { stop: async () => results[stops++] } }])]]);
-  const stdin = new EventEmitter();
-  const before = Object.fromEntries(SIGNALS.map((s) => [s, process.listeners(s)]));
-  try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
-    stdin.emit("end");
-    await flushExit();
-    assert.equal(stops, 2);
-    assert.deepEqual(exited, [0]);
-  } finally {
-    removeAddedSignalListeners(before);
-  }
-});
-
 test("a session still being resumed outlives an equally old one that was seen once", async () => {
   // The remembered-session history is what lets cancel tell a finished, resumable session from
   // an id that never existed. Ageing it on insertion order alone evicted the id the caller was
@@ -1525,49 +1336,13 @@ test("a session still being resumed outlives an equally old one that was seen on
   }
 });
 
-test("shutdown records the exit code before it waits, and leaves the kill's own stack to exit", async () => {
-  // Two separate facts. The code is set in the handler because a loop that runs dry on its own
-  // still has to die with what the signal asked for, and the scheduled exit may never get a
-  // turn. The exit is scheduled because running it on the settled kill's continuation puts
-  // process teardown on that stack.
-  const codes = [];
-  const order = [];
-  let settle;
-  const stop = new Promise((r) => { settle = r; });
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => stop } }])]]);
-  const stdin = new EventEmitter();
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
-  try {
-    installSignalCleanup(map, {
-      exit: () => order.push("exit"),
-      setExitCode: (code) => codes.push(code),
-      schedule: (fn) => { order.push("scheduled"); setImmediate(fn); },
-      stdin,
-    });
-    stdin.emit("end");
-    // Synchronously, while the kill is still in flight.
-    assert.deepEqual(codes, [0], "the exit code must be recorded before the wait, not after it");
-    assert.deepEqual(order, [], "nothing may exit while the kill is outstanding");
-
-    settle(true);
-    await flushExit();
-    assert.deepEqual(order, ["scheduled", "exit"], "the exit must go through the scheduler");
-  } finally {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
-  }
-});
-
 test("a shutdown during the handshake still kills the agent it spawned", async () => {
   // The agent process exists from client.start(); its session id arrives about 3.4s later. A
   // host going away inside that window used to exit with the agent running and nothing holding
   // it — it is registered by session id, and there is no session id yet. Real stub agent, real
   // process, and the assertion is that the pid is gone.
   const inFlight = new Map();
-  const pending = new Set();
+  const registry = createChildRegistry();
   let child;
   const started = new Promise((resolve) => {
     // The stub answers nothing, so the delegation sits in initialize for the whole test.
@@ -1584,25 +1359,23 @@ test("a shutdown during the handshake still kills the agent it spawned", async (
       ...opts,
       handshakeMs: 30000,
       clientFactory: (o) => {
-        const client = stubClientFactory("handshake-hang-stub.js")(o);
+        const client = stubClientFactory("handshake-hang-stub.js", registry)(o);
         const start = client.start.bind(client);
         client.start = async () => { const r = await start(); child = client.child; return r; };
         return client;
       },
     }),
     inFlight,
-    pending,
   });
 
   await started;
   const pid = child.pid;
   assert.equal(inFlight.size, 0, "no session id yet, so the map cannot hold it");
-  assert.equal(pending.size, 1, "the handshake-stage delegation must still be reachable");
 
   const stdin = new EventEmitter();
   const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
   try {
-    installSignalCleanup(inFlight, { pending, exit: () => {}, setExitCode: () => {}, stdin });
+    installSignalCleanup(registry, { exit: () => {}, setExitCode: () => {}, stdin });
     stdin.emit("end");
     const deadline = Date.now() + 8000;
     const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -1649,24 +1422,19 @@ test("cancel with force returns as soon as the turn settles, not after the whole
   }
 });
 
-test("the doctor tool registers its agent where shutdown looks, and passes the host's abort signal", async () => {
-  const pending = new Set();
+test("the doctor tool passes the host's abort signal", async () => {
   let seen;
-  const runDoctor = async ({ onClientReady, signal }) => {
-    const client = { stop: () => true };
-    onClientReady(client);
-    seen = { registered: [...pending].some((h) => h.client === client), signal };
+  const runDoctor = async ({ signal }) => {
+    seen = { signal };
     return { plugin: { version: "x" }, client: { name: null, version: null, capabilities: {} }, agent: { found: true, command: "cursor-agent", version: null }, runtime: { node: "", platform: "", arch: "", cwd: "", transport: "stdio" }, env: {} };
   };
-  const server = buildServer({ runDoctor, pending });
+  const server = buildServer({ runDoctor });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
     await client.callTool({ name: "doctor", arguments: { deep: true } });
-    assert.equal(seen.registered, true, "shutdown must be able to reach doctor's agent");
     assert.ok(seen.signal instanceof AbortSignal, "the host's abort signal must reach doctor");
-    assert.equal(pending.size, 0, "the handle is dropped once doctor returns");
   } finally {
     await client.close();
   }

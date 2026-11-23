@@ -36,13 +36,9 @@ function envReport(name, fallback = null) {
 /**
  * @param {{ command: string, args: string[], options?: any }} spawnSpec
  * @param {number} [timeoutMs]
- * @param {{
- *   signal?: AbortSignal,
- *   onSpawn?: (probe: { pid: number | undefined, stop: () => Promise<boolean> }) => void,
- *   registry?: import("./proc.js").ChildRegistry,
- * }} [opts]
+ * @param {{ signal?: AbortSignal, registry?: import("./proc.js").ChildRegistry }} [opts]
  */
-export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS, { signal, onSpawn, registry = children } = {}) {
+export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_MS, { signal, registry = children } = {}) {
   const { command, args, options } = spawnSpec;
   const launcher = String(command || "").replace(/^["']|["']$/g, "");
   const isJsScript = isJsLauncher(launcher);
@@ -55,11 +51,15 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
   // Through a shell, a missing launcher still spawns (the shell does) and would read as found.
   if (options?.shell && !isJsScript && !commandExists(launcher, options.env)) return Promise.resolve({ found: false, version: null });
   const aborted = { version: null, error: "version probe aborted by MCP host" };
-  // Interrupted already: nothing is spawned, and found comes from the lookup alone.
-  if (signal?.aborted) {
-    return Promise.resolve({ found: isJsScript ? existsSync(launcher) : commandExists(launcher, options?.env), ...aborted });
+  // Interrupted already, or shutting down: nothing is spawned, and found comes from the lookup alone.
+  const notRun = (error) => Promise.resolve({ found: isJsScript ? existsSync(launcher) : commandExists(launcher, options?.env), version: null, error });
+  if (signal?.aborted) return notRun(aborted.error);
+  let probe;
+  try {
+    probe = spawnChild(execCommand, execArgs, options, { stdio: ["ignore", "pipe", "pipe"] }, registry);
+  } catch (err) {
+    return notRun(err.message);
   }
-  const probe = spawnChild(execCommand, execArgs, options, { stdio: ["ignore", "pipe", "pipe"] }, registry);
   const { child } = probe;
   return new Promise((resolve) => {
     let settled = false;
@@ -73,7 +73,6 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
-    onSpawn?.({ pid: child.pid, stop: () => probe.stop() });
     // Settles once the stop saw the probe exit, so doctor does not return with it running.
     const onAbort = () => {
       // Else it fires during the kill and reports a timeout.
@@ -112,11 +111,9 @@ export function probeAgentVersion(spawnSpec, timeoutMs = VERSION_PROBE_TIMEOUT_M
   });
 }
 
-async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs, signal, onClientReady }) {
+async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs, signal }) {
   if (signal?.aborted) return { ok: false, error: "Handshake aborted by MCP host" };
   const client = clientFactory({ spawnSpec });
-  // Handed out before the spawn, so a server shutdown can stop it.
-  onClientReady?.(client);
   const workspaceDir = workspace || process.cwd();
   let timer;
   let onAbort;
@@ -163,7 +160,6 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
 }
 
 /**
- * onClientReady gets each process doctor starts, probe then agent, so a shutdown can stop it.
  * @param {{
  *   getClientInfo?: () => { capabilities?: any, version?: any, protocolVersion?: string },
  *   deep?: boolean,
@@ -174,7 +170,6 @@ async function runDeepHandshake({ spawnSpec, clientFactory, workspace, timeoutMs
  *   versionTimeoutMs?: number,
  *   readVersion?: () => string,
  *   signal?: AbortSignal,
- *   onClientReady?: (client: { stop: () => any }) => void,
  * }} [opts]
  */
 export async function runDoctor({
@@ -187,10 +182,9 @@ export async function runDoctor({
   versionTimeoutMs = VERSION_PROBE_TIMEOUT_MS,
   readVersion = readPackageVersion,
   signal,
-  onClientReady,
 } = {}) {
   const { capabilities, version, protocolVersion } = getClientInfo();
-  const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs, { signal, onSpawn: onClientReady });
+  const agentProbe = await probeAgentVersion(spawnSpec, versionTimeoutMs, { signal });
 
   /** @type {{ plugin: any, client: any, agent: any & { handshake?: any }, runtime: any, env: any }} */
   const out = {
@@ -233,7 +227,6 @@ export async function runDoctor({
       workspace,
       timeoutMs: handshakeTimeoutMs,
       signal,
-      onClientReady,
     });
   }
 
