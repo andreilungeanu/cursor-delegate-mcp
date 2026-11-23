@@ -41,6 +41,10 @@ export class SessionSupervisor {
     this.sessionId = sessionId;
   }
 
+  get settled() {
+    return this._settled;
+  }
+
   msSinceActivity() {
     return Date.now() - this.lastActivityAt;
   }

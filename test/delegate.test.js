@@ -2082,6 +2082,30 @@ test("runDelegate rejects with aborted when signal fires during prompt", async (
   resolvePrompt?.({ stopReason: "end_turn" });
 });
 
+// The stub has no setup gate, so its set_mode reply reaches runDelegate after the abort.
+test("setup that an abort orphaned arms no heartbeat", async () => {
+  const ac = new AbortController();
+  let releaseMode;
+  let returned = false;
+  const late = [];
+  const run = runDelegate({
+    spec: "task", workspace: process.cwd(), signal: ac.signal, heartbeatMs: 10,
+    onProgress: (m) => { if (returned) late.push(m); },
+    clientFactory: () => {
+      const client = stubClient("sess-orphan");
+      client.setMode = () => new Promise((resolve) => { releaseMode = resolve; });
+      return client;
+    },
+  });
+  while (!releaseMode) await new Promise((r) => setTimeout(r, 5));
+  ac.abort();
+  await assert.rejects(run, { reason: "aborted" });
+  returned = true;
+  releaseMode({});
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(late, []);
+});
+
 test("runDelegate rejects immediately when signal is already aborted", async () => {
   const ac = new AbortController();
   ac.abort();

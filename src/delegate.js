@@ -354,7 +354,8 @@ export async function runDelegate({
   let promptInFlight = false;
   let heartbeat = null;
   const startHeartbeat = () => {
-    if (!(heartbeatMs > 0)) return;
+    // Setup orphaned by a trip must not arm a timer the teardown has already cleared.
+    if (!(heartbeatMs > 0) || supervisor.settled) return;
     const startedAt = Date.now();
     heartbeat = setInterval(() => {
       const parts = [
