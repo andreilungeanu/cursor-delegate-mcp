@@ -2511,6 +2511,32 @@ test("runDelegate skips model validation when the agent advertises no list", asy
   assert.equal(out.result, "ok");
 });
 
+test("onPromptSent fires once with the session id, after the session opens and before the turn ends", async () => {
+  const events = [];
+  await runDelegate({
+    spec: "do the thing",
+    workspace: process.cwd(),
+    clientFactory: fakeFactory,
+    onSessionReady: (id) => events.push(`session ${id}`),
+    onPromptSent: (id) => events.push(`prompt ${id}`),
+    onTurnEnd: () => events.push("turn end"),
+  });
+  events.push("settled");
+  assert.deepEqual(events, ["session sess-1", "prompt sess-1", "turn end", "settled"]);
+});
+
+test("onPromptSent does not fire for a delegation whose model is rejected", async () => {
+  let sent = 0;
+  await assert.rejects(() => runDelegate({
+    spec: "go",
+    workspace: process.cwd(),
+    model: "gpt-9-imaginary",
+    clientFactory: modelListFactory([{ modelId: "composer-2.5" }]),
+    onPromptSent: () => { sent++; },
+  }), (err) => err.reason === "unknown-model");
+  assert.equal(sent, 0);
+});
+
 // An edit tool_call carries title "Edit File" and no locations, so the file it touched is only
 // knowable from the diff frame that follows — which still feeds filesReportedByEditTools, in any
 // mode. (The mode is not an enforced boundary; the diff is the source of truth, so it is reported
@@ -2662,11 +2688,13 @@ test("a cancel that arrives before the prompt is sent stops the prompt from goin
   const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
   process.env.CURSOR_DELEGATE_TRANSCRIPT = "50";
   let out;
+  let promptSent = false;
   try {
     out = await runDelegate({
       spec: "do the thing", workspace: process.cwd(),
       clientFactory: (opts) => (client = fakeFactory(opts)),
       onSessionReady: (sid) => { client.cancel(sid); },
+      onPromptSent: () => { promptSent = true; },
     });
   } finally {
     if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
@@ -2675,6 +2703,7 @@ test("a cancel that arrives before the prompt is sent stops the prompt from goin
   const sent = client.peer.getLog().filter((e) => e.dir === "out").map((e) => JSON.parse(e.line).method);
   assert.ok(sent.includes("session/cancel"), JSON.stringify(sent));
   assert.ok(!sent.includes("session/prompt"), `no prompt may follow the cancel: ${JSON.stringify(sent)}`);
+  assert.equal(promptSent, false);
   assert.equal(out.stopReason, "cancelled");
   assert.equal(out.result, "");
   assert.equal(out.filesReportedByEditTools, undefined);

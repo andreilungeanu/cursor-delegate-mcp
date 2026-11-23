@@ -251,6 +251,7 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
  *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
  *   onClientReady?: (client: any) => void,
  *   onSessionReady?: (sessionId: string, client: any) => void,
+ *   onPromptSent?: (sessionId: string) => void,
  *   onTurnEnd?: () => void,
  *   onProgress?: (message: string) => void,
  *   progressThrottleMs?: number, heartbeatMs?: number, signal?: AbortSignal,
@@ -260,7 +261,7 @@ export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, effort, context, contextFiles, clientFactory,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
-  onClientReady, onSessionReady, onTurnEnd, onProgress, progressThrottleMs = 2000,
+  onClientReady, onSessionReady, onPromptSent, onTurnEnd, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
@@ -519,7 +520,10 @@ export async function runDelegate({
         const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
         // The caller has the id from session/new on, so a cancel can come before there is a turn.
         if (client.cancelRequested) return { stopReason: "cancelled", cancelledBeforePrompt: true };
-        return await client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
+        const turn = client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
+        // Every argument has been accepted by now, so a caller may stop waiting on the result.
+        try { onPromptSent?.(sessionId); } catch {}
+        return await turn;
       } finally {
         // The result is assembled across later awaits; a frame trailing the turn must not join it.
         promptInFlight = false;
