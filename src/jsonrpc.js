@@ -1,4 +1,5 @@
 import readline from "node:readline";
+import { makeError } from "./errors.js";
 
 const FRAME_CAP = 2048;
 const DEFAULT_LOG_SIZE = 2000;
@@ -92,10 +93,7 @@ export class JsonRpcPeer {
         this.pending.delete(key);
         // cursor-agent puts the reason in error.data.message; error.message is a bare "Invalid params".
         if (msg.error) {
-          /** @type {import("./errors.js").DelegateError} */
-          const err = new Error([msg.error.message || "rpc error", msg.error.data?.message].filter(Boolean).join(": "));
-          err.code = msg.error.code;
-          p.reject(err);
+          p.reject(makeError(undefined, [msg.error.message || "rpc error", msg.error.data?.message].filter(Boolean).join(": "), { code: msg.error.code }));
         }
         else p.resolve(msg.result);
       }
