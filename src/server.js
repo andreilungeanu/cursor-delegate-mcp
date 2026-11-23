@@ -404,8 +404,10 @@ export function installSignalCleanup(map, {
     // Set now: the loop may run dry before the scheduled exit gets a turn.
     setExitCode(code);
     const stops = [];
+    // An unseen exit is not memoized, so a second stop dispatches a fresh kill before the exit.
+    const stopOnce = (handle) => Promise.resolve(handle.client.stop()).catch(() => false);
     const dispatch = (handle) => {
-      try { stops.push(Promise.resolve(handle.client.stop()).catch(() => {})); } catch {}
+      try { stops.push(stopOnce(handle).then((exited) => (exited === false ? stopOnce(handle) : exited))); } catch {}
     };
     for (const handles of map.values()) for (const handle of handles) dispatch(handle);
     // Delegations still in their handshake: their agent runs, and only pending reaches it.

@@ -1112,6 +1112,24 @@ test("installSignalCleanup stops registered agents and exits when stdin closes",
   }
 });
 
+test("installSignalCleanup stops again an agent whose exit the first stop did not see, before exiting", async () => {
+  const results = [false, true];
+  let stops = 0;
+  const exited = [];
+  const map = new Map([["sess-1", new Set([{ client: { stop: async () => results[stops++] } }])]]);
+  const stdin = new EventEmitter();
+  const before = Object.fromEntries(SIGNALS.map((s) => [s, process.listeners(s)]));
+  try {
+    installSignalCleanup(map, { exit: (code) => exited.push(code), stdin });
+    stdin.emit("end");
+    await flushExit();
+    assert.equal(stops, 2);
+    assert.deepEqual(exited, [0]);
+  } finally {
+    removeAddedSignalListeners(before);
+  }
+});
+
 test("a session still being resumed outlives an equally old one that was seen once", async () => {
   // The remembered-session history is what lets cancel tell a finished, resumable session from
   // an id that never existed. Ageing it on insertion order alone evicted the id the caller was
