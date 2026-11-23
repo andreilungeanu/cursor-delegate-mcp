@@ -269,7 +269,7 @@ export async function runDelegate({
   // already fired. Throw, not supervisor.abort(): tripping before supervise() installs its reject
   // settles the supervisor with nothing listening.
   if (signal?.aborted) {
-    throw makeError("aborted", "delegation aborted by MCP host");
+    throw makeError("aborted", "delegation aborted by MCP host.");
   }
   // Before the spawn: validating later costs a process, a handshake and a billed turn.
   assertWorkspace(workspace);
@@ -606,7 +606,8 @@ export async function runDelegate({
     // A handshake timeout gets the forensics but not the long-command advice: no prompt was sent,
     // so no shell command explains the silence.
     const isStall = isTimeout || err?.reason === "handshake-timeout";
-    if (isStall || err?.reason === "aborted" || err?.reason === "agent-exit") {
+    // Not on an abort: the SDK sends no response to a request its host cancelled.
+    if (isStall || err?.reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
       err.message += `\n\nLast ACP frame ${age} ago${state.lastToolLabel ? `; last tool call: ${state.lastToolLabel}` : ""}.`;
       if (state.sessionTitle) err.message += ` The agent titled this turn ${JSON.stringify(state.sessionTitle)}.`;

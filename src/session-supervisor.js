@@ -90,7 +90,7 @@ export class SessionSupervisor {
   }
 
   abort() {
-    this._trip("aborted", "delegation aborted by MCP host");
+    this._trip("aborted", "delegation aborted by MCP host.");
   }
 
   _trip(reason, message) {

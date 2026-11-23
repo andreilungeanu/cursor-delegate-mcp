@@ -110,9 +110,8 @@ Errors come back as `delegate failed [<reason>]: …`.
 | `spawn-failed` | The agent process could not be started at all (launcher missing or not executable). | Install Cursor CLI and run `cursor-agent login`; `doctor` shows the launcher resolution. |
 | `agent-exit` | The agent process died; stderr is included. | Resume once; run `doctor` if it repeats. |
 | `handshake-timeout` | No prompt ever went in flight — the agent wedged during setup. Setup runs past `session/new`, so a session may already exist. | Resume the id if the message names one; run `doctor` if it names none, or if resuming repeats the stall. |
-| `aborted` | The MCP host interrupted the request (e.g. Esc in Claude Code). Usually fires mid-turn against a live session, so a `resumeSessionId` is supplied; only an abort that arrives before the session exists has none. | Deliberate, so normally stop — but resume the id if the work should continue. |
 
-Timeout, abort and exit failures additionally name the last tool call, how long the wire has
+Timeout and exit failures additionally name the last tool call, how long the wire has
 been quiet, the turn title, todo progress, files reported edited, and a `resumeSessionId` —
 plus a note if an earlier resume had already failed, meaning none of that work was in
 context. The raw ACP transcript is not included: nothing in it changes what you can do, and
