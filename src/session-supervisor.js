@@ -27,6 +27,7 @@ export class SessionSupervisor {
       this.lastActivityAt = Date.now();
       this._resetIdle();
     };
+    this._onSetupCancel = () => this._trip("cancelled-in-setup", "cancelled before the prompt was sent");
     this._onExit = (info) => {
       this._trip(
         "agent-exit",
@@ -49,6 +50,7 @@ export class SessionSupervisor {
     this._armed = true;
     this.client.on("activity", this._onActivity);
     this.client.on("exit", this._onExit);
+    this.client.on("cancelled-in-setup", this._onSetupCancel);
     this._hardCapTimer = setTimeout(() => {
       this._trip("hard-cap", `Session hard-cap exceeded after ${this.hardCapMs}ms`);
     }, this.hardCapMs);
@@ -72,6 +74,7 @@ export class SessionSupervisor {
     this._armed = false;
     this.client.off("activity", this._onActivity);
     this.client.off("exit", this._onExit);
+    this.client.off("cancelled-in-setup", this._onSetupCancel);
     clearTimeout(this._idleTimer);
     clearTimeout(this._handshakeTimer);
     clearTimeout(this._hardCapTimer);

@@ -189,8 +189,10 @@ export class AcpClient extends EventEmitter {
   }
   // The delegation is decided: nothing sent from here on would reach a caller.
   endTurn() { this._advance("end"); }
+  // Before the prompt nothing runs that the agent could finish, so the supervisor ends the
+  // delegation at once, whatever setup is awaiting.
   cancel(sessionId) {
-    this._advance("cancel");
+    if (this._advance("cancel") === "cancelled-in-setup") this.emit("cancelled-in-setup");
     this.peer.notify("session/cancel", { sessionId });
     return Promise.resolve();
   }

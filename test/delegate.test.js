@@ -2708,6 +2708,23 @@ test("a cancel that arrives before the prompt is sent stops the prompt from goin
   assert.ok(!(out.protocolWarnings ?? []).some((w) => /without emitting any message/.test(w)), JSON.stringify(out.protocolWarnings));
 });
 
+// The agent never answers set_config_option, so only the cancel can end setup.
+test("a cancel before the prompt ends the delegation without waiting on the setup call in flight", async () => {
+  let client;
+  const started = Date.now();
+  const out = await runDelegate({
+    spec: "task", workspace: process.cwd(), handshakeMs: 10000,
+    clientFactory: (opts) => (client = new AcpClient({
+      ...opts,
+      spawnSpec: { command: process.execPath, args: [fileURLToPath(new URL("./fixtures/session-then-hang-stub.js", import.meta.url))], options: { shell: false } },
+    })),
+    onSessionReady: (sid) => { setTimeout(() => client.cancel(sid), 200); },
+  });
+  assert.equal(out.stopReason, "cancelled");
+  assert.equal(out.result, "");
+  assert.ok(Date.now() - started < 5000, `the delegation returned ${Date.now() - started} ms in`);
+});
+
 test("the delegation returns only once the agent has exited", async () => {
   let client;
   let stops = 0;
