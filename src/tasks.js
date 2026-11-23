@@ -20,7 +20,7 @@ export function listsTasks(ctx) {
  * @typedef {{
  *   taskId: string, status: "working" | "completed" | "failed" | "cancelled",
  *   createdAt: number, lastUpdatedAt: number, endedAt?: number, statusMessage?: string,
- *   sessionId?: string, handle?: any, turnEnded: boolean, ac: AbortController,
+ *   sessionId?: string, handle?: any, resumeNote?: string, turnEnded: boolean, ac: AbortController,
  *   result?: any, error?: { code: number, message: string },
  * }} Task
  */
@@ -38,8 +38,17 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS, maxFinis
       .sort((a, b) => /** @type {number} */ (a.endedAt) - /** @type {number} */ (b.endedAt));
     for (const task of kept.slice(0, Math.max(0, kept.length - maxFinished))) tasks.delete(task.taskId);
   };
+  // A fact that changes what to do after a cancel, such as an agent the stop did not see exit.
+  /** @param {Task} task @param {string} text */
+  const note = (task, text) => {
+    if (task.status !== "cancelled") return;
+    const base = task.statusMessage ?? "cancelled";
+    task.statusMessage = `${base}${base.endsWith(".") ? "" : "."} Note: ${text}`;
+    task.lastUpdatedAt = now();
+  };
   return {
     now,
+    note,
     /** @returns {Task} */
     create() {
       const t = now();
@@ -49,10 +58,12 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS, maxFinis
     add(task) { prune(); tasks.set(task.taskId, task); },
     /** @param {string} taskId */
     get(taskId) { prune(); return tasks.get(taskId); },
+    // A cancelled task keeps its own status message: the run's error names the abort, a reason no
+    // blocking call returns.
     /** @param {Task} task @param {{ result?: any, error?: any }} outcome */
     finish(task, outcome) {
       if (task.status === "working") {
-        task.endedAt = now();
+        task.endedAt = task.lastUpdatedAt = now();
         if ("error" in outcome) {
           task.status = "failed";
           task.error = { code: ProtocolErrorCode.InternalError, message: String(outcome.error?.message ?? outcome.error) };
@@ -60,11 +71,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS, maxFinis
           task.status = "completed";
           task.result = outcome.result;
         }
-      } else if (outcome.result?.isError) {
-        // A cancelled run's own error names its resume id and an agent the stop did not see exit.
-        task.statusMessage = outcome.result.content?.[0]?.text ?? task.statusMessage;
       }
-      task.lastUpdatedAt = now();
       prune();
     },
     // A turn that has ended has its result decided, so a cancel leaves it, as the cancel tool does.
@@ -73,6 +80,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS, maxFinis
       if (task.status !== "working" || task.turnEnded) return;
       task.status = "cancelled";
       task.statusMessage = task.sessionId ? `cancelled; resume with resumeSessionId ${task.sessionId}` : "cancelled";
+      if (task.resumeNote) note(task, task.resumeNote);
       task.endedAt = task.lastUpdatedAt = now();
       task.ac.abort();
     },
@@ -100,7 +108,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS, maxFinis
  * Runs a delegation that answers its request with a task once the prompt is sent. A run that
  * settles before then, setup failures included, answers with its result as a blocking call does.
  * @param {{
- *   run: (over: { signal: AbortSignal, onProgress: (m: string) => void, onPromptSent: (id: string, handle?: any) => void, onTurnEnd: () => void }) => Promise<any>,
+ *   run: (over: { signal: AbortSignal, onProgress: (m: string) => void, onPromptSent: (id: string, handle?: any, resumeNote?: string) => void, onUnseenExit: (note: string) => void, onTurnEnd: () => void }) => Promise<any>,
  *   signal?: AbortSignal, notify?: (message: string) => void, store: ReturnType<typeof createTaskStore>,
  * }} opts
  */
@@ -124,7 +132,8 @@ export async function runAsTask({ run, signal, notify = () => {}, store }) {
       // Once the task is the answer, progress belongs to the task, not the request.
       if (!answered) notify(message);
     },
-    onPromptSent: (sessionId, handle) => { task.sessionId = sessionId; task.handle = handle; markSent(); },
+    onPromptSent: (sessionId, handle, resumeNote) => { task.sessionId = sessionId; task.handle = handle; task.resumeNote = resumeNote; markSent(); },
+    onUnseenExit: (note) => store.note(task, note),
     onTurnEnd: () => { task.turnEnded = true; },
   }).then((result) => ({ result }), (error) => ({ error }));
   const first = await Promise.race([sent, outcome]);

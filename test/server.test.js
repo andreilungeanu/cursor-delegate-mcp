@@ -272,9 +272,14 @@ test("an argument the agent rejects before the prompt comes back at once, not as
   }
 });
 
+// The status reads the resume hint after the run settles too, not the run's "delegate failed
+// [aborted]" error, a reason no blocking call returns.
 test("tasks/cancel stops the agent and leaves the task cancelled with a resume hint", async () => {
   const pids = [];
-  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks: createTaskStore() });
+  const tasks = createTaskStore();
+  const finish = tasks.finish;
+  const settled = new Promise((resolve) => { tasks.finish = (...args) => { finish(...args); resolve(undefined); }; });
+  const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids), tasks });
   try {
     const { result } = await raw.call().reply;
     assert.equal(result.resultType, "task");
@@ -290,9 +295,10 @@ test("tasks/cancel stops the agent and leaves the task cancelled with a resume h
     assert.equal(cancelled.statusMessage, "cancelled; resume with resumeSessionId sess-escalate");
     assert.equal(typeof cancelled.ttlMs, "number");
     assert.ok(await waitUntil(() => !isAlive(pids[0])), "the agent must be stopped");
-    const ended = await waitForTask(raw, result.taskId, (t) => t.statusMessage.startsWith("delegate failed [aborted]"));
+    await settled;
+    const ended = (await raw.send("tasks/get", { taskId: result.taskId }).reply).result;
     assert.equal(ended.status, "cancelled");
-    assert.match(ended.statusMessage, /resumeSessionId sess-escalate/);
+    assert.equal(ended.statusMessage, "cancelled; resume with resumeSessionId sess-escalate");
     assert.equal(ended.ttlMs, cancelled.ttlMs);
     await raw.send("tasks/cancel", { taskId: result.taskId }).reply;
     assert.equal((await raw.send("tasks/get", { taskId: result.taskId }).reply).result.status, "cancelled");
@@ -311,7 +317,8 @@ test("tasks/cancel stops only its own task when two run on one session", async (
   try {
     const [a, b] = await Promise.all([raw.call().reply, raw.call().reply]);
     await raw.send("tasks/cancel", { taskId: a.result.taskId }).reply;
-    await waitForTask(raw, a.result.taskId, (t) => /^delegate failed/.test(t.statusMessage));
+    assert.ok(await waitUntil(() => pids.filter(isAlive).length === 1), "the cancelled task's agent must stop");
+    await new Promise((r) => setTimeout(r, 200));
     assert.equal(pids.filter(isAlive).length, 1, "the other task's agent must keep running");
     assert.equal((await raw.send("tasks/get", { taskId: b.result.taskId }).reply).result.status, "working");
     await raw.send("tasks/cancel", { taskId: b.result.taskId }).reply;
