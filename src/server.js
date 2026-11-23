@@ -44,16 +44,8 @@ function unregisterInFlight(map, sessionId, handle) {
   if (handles.size === 0) map.delete(sessionId);
 }
 // Session ids seen by this process, kept after the turn ends so cancel can tell a finished
-// (still resumable) session from an id that never existed. Bounded.
+// (still resumable) session from an id that never existed.
 const seenSessions = new Set();
-const SEEN_SESSIONS_CAP = 500;
-function rememberSession(set, id) {
-  if (id == null) return;
-  // Delete-then-add makes the Set an LRU, so a session still being resumed outlives one seen once.
-  if (set.has(id)) set.delete(id);
-  set.add(id);
-  if (set.size > SEEN_SESSIONS_CAP) set.delete(set.values().next().value);
-}
 
 // Delegations answered as MCP tasks. Module-level, as inFlight: a task outlives the request that
 // started it, and serveStdio may build more than one server instance.
@@ -221,7 +213,7 @@ export async function runDelegateTool({
         capturedSessionId = sessionId;
         handle = { client, cancelRequested: false };
         registerInFlight(inFlight, sessionId, handle);
-        rememberSession(seenSessions, sessionId);
+        seenSessions.add(sessionId);
         // Sent now so a host that can call tools concurrently has an id to cancel mid-run.
         onProgress(`session ready: ${sessionId}`);
       },
@@ -308,7 +300,7 @@ export function buildServer({
     "cancel",
     {
       description:
-        "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's recent session history).",
+        "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's session history).",
       inputSchema: z.object({
         // Blank is a malformed call, not a stale id.
         sessionId: z.string().trim().min(1, "sessionId must not be blank").describe("When delegate runs as an MCP task, its server-side task id works too."),

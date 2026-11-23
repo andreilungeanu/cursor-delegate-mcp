@@ -170,7 +170,7 @@ cancellable afterwards, so a follow-up call with `force: true` kills the process
 grace period. `killed` means the process was observed to exit; a force that cannot confirm the
 exit reports `cancelled` and keeps the session cancellable, so force can be retried.
 `not-running` means the turn already ended — the session is still resumable via
-`resumeSessionId`; `not-found` means the id is not in this process's recent session history.
+`resumeSessionId`; `not-found` means the id is not in this process's session history.
 When `delegate` runs as an MCP task, `sessionId` also takes its server-side task id, which reaches
 only that task's turn; a session id reaches every turn running on it.
 
