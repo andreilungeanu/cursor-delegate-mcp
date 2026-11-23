@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-11-23
+
+### Fixed
+
+- A delegation stopped with TaskStop in Claude Code can be resumed: `resumeSessionId` takes the
+  task's server-side id, the only id Claude Code tells the model. `cancel` takes it too and
+  reaches only that task's turn.
+
+### Changed
+
+- The `aborted` error drops the last tool call, frame age, todos and edited files: no host
+  receives a response to a request it cancelled. The skill reference no longer lists `aborted`.
+
 ## [3.0.0] - 2026-11-23
 
 `delegate` no longer holds your agent while Cursor works. In an interactive Claude Code CLI session

@@ -2,7 +2,7 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "delegate-to-cursor",
   "displayName": "Delegate to Cursor",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Delegate coding tasks to cursor-agent over ACP, with structured results, plan mode, and clarification handling.",
   "logo": "assets/logo-light.png",
   "suggestedPrompts": [
