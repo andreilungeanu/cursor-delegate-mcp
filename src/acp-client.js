@@ -1,17 +1,13 @@
-import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
-import { commandExists, resolveAcpSpawn, spawnArgv } from "./spawn.js";
-import { DETACHED, isChildAlive, treeKill } from "./proc.js";
+import { commandExists, resolveAcpSpawn } from "./spawn.js";
+import { children, isChildAlive, spawnChild } from "./proc.js";
 import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
 
 const STDERR_CAP = 64 * 1024;
-// How long stop() waits for the exit after the kill. SIGKILL and taskkill /F land in milliseconds,
-// so this elapses only when the kill failed.
-const STOP_EXIT_TIMEOUT_MS = 2000;
 
 // Each phase lists the transitions it allows; any other is refused.
 /** @typedef {"setup" | "running" | "cancelled-in-setup" | "cancelled" | "ended" | "exited"} WirePhase */
@@ -41,11 +37,15 @@ export class AcpClient extends EventEmitter {
    *   mode?: string,
    *   onCreatePlan?: (body: any) => void,
    *   onTodos?: (body: any) => void,
+   *   registry?: import("./proc.js").ChildRegistry,
    * }} [opts]
    */
-  constructor({ spawnSpec, mode, onCreatePlan, onTodos } = {}) {
+  constructor({ spawnSpec, mode, onCreatePlan, onTodos, registry = children } = {}) {
     super();
     this.spawnSpec = spawnSpec || resolveAcpSpawn();
+    this.registry = registry;
+    /** @type {import("./proc.js").TrackedChild | null} */
+    this._tracked = null;
     this.mode = mode;
     this.onCreatePlan = onCreatePlan;
     this.onTodos = onTodos;
@@ -57,6 +57,8 @@ export class AcpClient extends EventEmitter {
     this._phase = "setup";
   }
 
+  get child() { return this._tracked?.child; }
+
   // The stderr tail an exit error quotes. Kept as chunks and joined on read, so a noisy agent costs
   // a push per chunk; a StringDecoder keeps a multi-byte character split across reads intact.
   // stderr is not ACP activity, so it does not feed the supervisor.
@@ -65,17 +67,16 @@ export class AcpClient extends EventEmitter {
     return joined.length > STDERR_CAP ? joined.slice(-STDERR_CAP) : joined;
   }
 
-  start() {
+  async start() {
     const { command, args, options } = this.spawnSpec;
     const opts = /** @type {{ shell?: boolean, env?: NodeJS.ProcessEnv }} */ (options);
     if (opts?.shell && !commandExists(command, opts.env)) {
-      return Promise.reject(makeError("spawn-failed", `Failed to spawn agent (${command}): not found on PATH. Install Cursor CLI and run 'cursor-agent login'.`));
+      throw makeError("spawn-failed", `Failed to spawn agent (${command}): not found on PATH. Install Cursor CLI and run 'cursor-agent login'.`);
     }
+    this._tracked = spawnChild(command, args, opts, { stdio: ["pipe", "pipe", "pipe"] }, this.registry);
     this._stderrChunks = [];
     this._stderrLength = 0;
     const stderrDecoder = new StringDecoder("utf8");
-    const argv = spawnArgv(command, args, opts);
-    this.child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr.on("data", (chunk) => {
       const text = stderrDecoder.write(chunk);
       if (text) {
@@ -200,8 +201,9 @@ export class AcpClient extends EventEmitter {
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
   // Idempotent while teardown is in flight and after a confirmed exit. A missed exit is not
-  // memoized — force retries with a new treeKill. A confirmed exit stays so later callers join.
-  stop({ timeoutMs = STOP_EXIT_TIMEOUT_MS } = {}) {
+  // memoized, so a later stop kills again. A confirmed exit stays so later callers join.
+  /** @param {{ timeoutMs?: number }} [opts] */
+  stop({ timeoutMs } = {}) {
     if (!this._stopping) {
       this._stopping = this._teardown(timeoutMs).then((observed) => {
         if (!observed) this._stopping = null;
@@ -215,26 +217,13 @@ export class AcpClient extends EventEmitter {
   }
 
   async _teardown(timeoutMs) {
-    const child = this.child;
-    if (!child?.pid) {
+    const tracked = this._tracked;
+    if (!tracked) {
       try { this.peer?.close(); } catch {}
       return true;
     }
-    const alive = isChildAlive(child);
-    // Subscribed before the kill, so an instant exit is not missed.
-    const exited = alive
-      ? /** @type {Promise<boolean>} */ (new Promise((resolve) => child.once("exit", () => resolve(true))))
-      : Promise.resolve(true);
-    // Runs for an exited child too: the agent can be gone while the commands it spawned are still
-    // running, and on POSIX they stay in its process group, which is the only handle left on them.
-    treeKill(child.pid, { childAlive: alive }).catch(() => {});
-    /** @type {NodeJS.Timeout | undefined} */
-    let timer;
-    const bounded = /** @type {Promise<boolean>} */ (new Promise((resolve) => {
-      timer = setTimeout(() => resolve(false), timeoutMs);
-    }));
-    const observed = await Promise.race([exited, bounded]);
-    clearTimeout(timer);
+    const { child } = tracked;
+    const observed = await tracked.stop({ timeoutMs });
     // On an observed exit, emitExit rejects in-flight RPCs with stderr, and racing it here would
     // drop that. Only a child still alive after the stop has its RPCs settled here.
     if (!observed && this._phase !== "exited" && isChildAlive(child)) {

@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { AcpClient } from "../src/acp-client.js";
 import { isChildAlive } from "../src/proc.js";
 
@@ -250,6 +251,25 @@ function silentStub() {
   };
 }
 
+// taskkill kills at once and answers 1 s later, as on a loaded machine: the agent's exit is seen
+// before taskkill is done with the tree.
+test("stop() is not done until taskkill has finished with the tree", { skip: process.platform !== "win32" && "taskkill is the win32 tree kill" }, async () => {
+  const cp = createRequire(import.meta.url)("node:child_process");
+  const execFile = cp.execFile;
+  cp.execFile = (file, args, opts, cb) => execFile(file, args, opts, (...result) => setTimeout(() => cb(...result), 1000));
+  syncBuiltinESMExports();
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  try {
+    await client.start();
+    const started = Date.now();
+    assert.equal(await client.stop(), true);
+    assert.ok(Date.now() - started >= 900, `stop() was done ${Date.now() - started} ms in, before taskkill finished`);
+  } finally {
+    cp.execFile = execFile;
+    syncBuiltinESMExports();
+  }
+});
+
 test("stop() is idempotent and reports the exit it observed", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
@@ -259,27 +279,37 @@ test("stop() is idempotent and reports the exit it observed", async () => {
   assert.equal(await client.stop(), true, "a later caller gets the same answer");
 });
 
-// A real agent cannot swallow SIGKILL, so the exit event is withheld: the pid stays real and
-// is still killed; only the notification this waits on goes missing. A missed exit is not memoized.
+// A real agent cannot swallow SIGKILL, so its exit is hidden, as a failed kill would leave it; the
+// pid is still killed. Resolves on the real exit, with a function that shows it.
+function withholdExit(child) {
+  const real = {};
+  for (const field of ["exitCode", "signalCode"]) {
+    real[field] = child[field];
+    Object.defineProperty(child, field, { get: () => null, set: (value) => { real[field] = value; }, configurable: true });
+  }
+  const reveal = () => {
+    for (const field of Object.keys(real)) Object.defineProperty(child, field, { value: real[field], writable: true, configurable: true });
+  };
+  return new Promise((resolve) => {
+    const emit = child.emit;
+    child.emit = function (event, ...args) {
+      if (event === "exit") resolve(reveal);
+      if (event === "exit" || event === "close") return false;
+      return emit.call(this, event, ...args);
+    };
+  });
+}
+
 test("stop() retries teardown after a missed exit", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
-  const child = client.child;
-  const reallyExited = new Promise((resolve) => child.once("exit", resolve));
-  client.child = { pid: child.pid, exitCode: null, signalCode: null, once: () => {} };
-  const first = client.stop({ timeoutMs: 25 });
-  assert.equal(await first, false, "an exit that never arrives is not observed");
-  assert.equal(client._stopping, null, "a missed exit must not stay memoized");
-  const second = client.stop({ timeoutMs: 25 });
-  assert.notEqual(second, first, "force-retry must dispatch a new teardown");
-  assert.equal(await second, false);
-  await reallyExited;
+  const reallyExited = withholdExit(client.child);
+  assert.equal(await client.stop({ timeoutMs: 25 }), false, "an exit that never arrives is not observed");
+  (await reallyExited)();
+  assert.equal(await client.stop(), true, "a missed exit is not memoized, so the next stop looks again");
 });
 
-// The missed-exit tests above still let emitExit run on the real child, so they cannot see a
-// hung prompt: the live process dies and the exit handler settles the RPC. This one drops
-// those listeners first, which is the kill-failed path — stop() times out, the child is
-// still treated as alive, and nothing else will reject session/prompt.
+// With the exit withheld, emitExit never runs either: nothing but stop() rejects session/prompt.
 test("stop() rejects in-flight RPCs when the child does not exit", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
@@ -287,10 +317,7 @@ test("stop() rejects in-flight RPCs when the child does not exit", async () => {
   const session = await client.newSession(process.cwd());
   const prompt = client.prompt(session.sessionId, [{ type: "text", text: "hang" }]);
   prompt.catch(() => {});
-  const real = client.child;
-  for (const evt of ["exit", "close"]) real.removeAllListeners(evt);
-  const reallyExited = new Promise((resolve) => real.once("exit", resolve));
-  client.child = { pid: real.pid, exitCode: null, signalCode: null, once: () => {} };
+  const reallyExited = withholdExit(client.child);
   try {
     assert.equal(client.peer.pending.size, 1, "session/prompt must still be in flight");
     assert.equal(await client.stop({ timeoutMs: 50 }), false, "an exit that never arrives is not observed");
