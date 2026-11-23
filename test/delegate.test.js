@@ -9,6 +9,7 @@ import { chmodSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { AcpClient } from "../src/acp-client.js";
+import { isChildAlive } from "../src/proc.js";
 import { runDelegate as rawRunDelegate } from "../src/delegate.js";
 import { delegateOutputShape } from "../src/server.js";
 
@@ -2679,3 +2680,21 @@ test("a cancel that arrives before the prompt is sent stops the prompt from goin
   assert.equal(out.filesReportedByEditTools, undefined);
   assert.ok(!(out.protocolWarnings ?? []).some((w) => /without emitting any message/.test(w)), JSON.stringify(out.protocolWarnings));
 });
+
+test("the delegation returns only once the agent has exited", async () => {
+  let client;
+  let stops = 0;
+  const out = await runDelegate({
+    spec: "task", workspace: process.cwd(),
+    clientFactory: (opts) => {
+      client = fakeFactory(opts);
+      const stop = client.stop.bind(client);
+      client.stop = (o) => { stops++; return stop(o); };
+      return client;
+    },
+  });
+  assert.equal(out.result, "done");
+  assert.equal(isChildAlive(client.child), false);
+  assert.equal(stops, 1, "a seen exit needs no second stop");
+});
+

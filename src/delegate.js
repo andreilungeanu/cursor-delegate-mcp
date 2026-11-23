@@ -251,6 +251,7 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
  *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
  *   onClientReady?: (client: any) => void,
  *   onSessionReady?: (sessionId: string, client: any) => void,
+ *   onTurnEnd?: () => void,
  *   onProgress?: (message: string) => void,
  *   progressThrottleMs?: number, heartbeatMs?: number, signal?: AbortSignal,
  * }} [opts]
@@ -259,7 +260,7 @@ export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, effort, context, contextFiles, clientFactory,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
-  onClientReady, onSessionReady, onProgress, progressThrottleMs = 2000,
+  onClientReady, onSessionReady, onTurnEnd, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
@@ -634,11 +635,13 @@ export async function runDelegate({
     }
     throw err;
   } finally {
+    // The turn is decided: from here a cancel finds nothing running.
+    try { onTurnEnd?.(); } catch {}
     clearInterval(heartbeat);
     signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
-    // Deliberately not awaited: stop() waits for the child to exit, and every turn — success as
-    // much as failure — would pay that before returning. Nothing here reads whether it landed.
-    Promise.resolve(client.stop()).catch(() => {});
+    // Awaited: a host may close stdin on the result, and on Windows the server's exit does not take
+    // a running agent with it (server.smoke.test.js).
+    try { await client.stop(); } catch {}
   }
 }

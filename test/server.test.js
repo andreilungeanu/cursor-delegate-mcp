@@ -665,6 +665,74 @@ test("force cancel does not untrack a resume that registers during stop()", asyn
   }
 });
 
+test("a turn that ends during the force grace is left to its own teardown, not killed by the cancel", async () => {
+  let endTurn;
+  const cancelled = new Promise((r) => { endTurn = r; });
+  let finishTeardown;
+  const teardown = new Promise((r) => { finishTeardown = r; });
+  let sessionReady;
+  const ready = new Promise((r) => { sessionReady = r; });
+  let stops = 0;
+  const runDelegate = async ({ onSessionReady, onTurnEnd }) => {
+    onSessionReady("sess-grace-end", { cancel: async () => { endTurn(); }, stop: () => { stops++; return true; } });
+    sessionReady();
+    await cancelled;
+    onTurnEnd?.();
+    // Teardown outlasts the grace, so the handle is still registered when the grace ends.
+    await teardown;
+    return { result: "done", sessionId: "sess-grace-end" };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 100 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
+    await ready;
+    const res = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-grace-end", force: true } });
+    assert.deepEqual(payload(res), { status: "cancelled", sessionId: "sess-grace-end" });
+    assert.equal(stops, 0, "the cancel must not stop an agent its own teardown is stopping");
+    finishTeardown();
+    await delegateP;
+  } finally {
+    await client.close();
+  }
+});
+
+test("a cancel while an ended turn's agent is stopped reports not-running and leaves the result alone", async () => {
+  let finishTeardown;
+  const teardown = new Promise((r) => { finishTeardown = r; });
+  let turnEnded;
+  const ended = new Promise((r) => { turnEnded = r; });
+  let stops = 0;
+  const runDelegate = async ({ onSessionReady, onTurnEnd }) => {
+    onSessionReady("sess-ending", { cancel: async () => {}, stop: () => { stops++; return true; } });
+    onTurnEnd?.();
+    turnEnded();
+    await teardown;
+    return { result: "done", sessionId: "sess-ending" };
+  };
+  const server = buildServer({ runDelegate, forceGraceMs: 100 });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
+    await ended;
+    for (const force of [false, true]) {
+      const res = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-ending", force } });
+      assert.deepEqual(payload(res), { status: "not-running", sessionId: "sess-ending" }, `force: ${force}`);
+    }
+    assert.equal(stops, 0, "the delegation's own teardown stops its agent");
+    finishTeardown();
+    assert.equal(payload(await delegateP).cancelRequested, undefined);
+  } finally {
+    await client.close();
+  }
+});
+
 test("cancel tool with force returns cancelled when delegation settles during grace", async () => {
   let settleDuringGrace;
   const gate = new Promise((r) => { settleDuringGrace = r; });

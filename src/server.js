@@ -221,6 +221,7 @@ export async function runDelegateTool({ args, ctx, runDelegate, inFlight, pendin
         // Sent now so a host that can call tools concurrently has an id to cancel mid-run.
         onProgress(`session ready: ${sessionId}`);
       },
+      onTurnEnd: () => { if (handle) handle.ended = true; },
     });
     if (handle?.cancelRequested) out.cancelRequested = true;
     return { content: [{ type: "text", text: JSON.stringify(out) }] };
@@ -297,8 +298,10 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         return cancelResult(known ? "not-running" : "not-found", sessionId);
       }
       // Every turn on the id (the caller named a session), taken now: a resume that registers during
-      // the grace or the kill is not swept in.
-      const targeted = [...handles];
+      // the grace or the kill is not swept in. An ended turn stays registered while its agent is
+      // stopped; its result is decided, so a cancel leaves it alone.
+      const targeted = [...handles].filter((handle) => !handle.ended);
+      if (targeted.length === 0) return cancelResult("not-running", sessionId);
       for (const handle of targeted) handle.cancelRequested = true;
       await Promise.all(targeted.map((handle) => handle.client.cancel(sessionId).catch(() => {})));
       if (!force) {
@@ -307,7 +310,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         return cancelResult("cancelled", sessionId);
       }
       // Polled, not slept through: the turn often settles well inside the grace.
-      const running = () => targeted.filter((handle) => inFlight.get(sessionId)?.has(handle));
+      const running = () => targeted.filter((handle) => !handle.ended && inFlight.get(sessionId)?.has(handle));
       const graceEnds = Date.now() + forceGraceMs;
       while (Date.now() < graceEnds && running().length) {
         await new Promise((r) => setTimeout(r, Math.min(50, Math.max(1, graceEnds - Date.now()))));
