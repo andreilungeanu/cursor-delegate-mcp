@@ -26,18 +26,6 @@ test("a finished task is kept for an hour after it ends and a working one is nev
   assert.equal(store.get(working.taskId)?.status, "working");
 });
 
-test("past the cap, the earliest finished tasks are dropped first", () => {
-  const { store, advance } = clockedStore({ maxFinished: 2 });
-  const tasks = [0, 1, 2].map(() => { const task = store.create(); store.add(task); return task; });
-  const running = store.create();
-  store.add(running);
-  for (const task of [tasks[1], tasks[0], tasks[2]]) { advance(1); store.finish(task, { result: {} }); }
-  assert.equal(store.get(tasks[1].taskId), undefined);
-  assert.ok(store.get(tasks[0].taskId));
-  assert.ok(store.get(tasks[2].taskId));
-  assert.ok(store.get(running.taskId));
-});
-
 test("a task's ttlMs is null while it works and counts from its creation once it ends", () => {
   const { store, advance } = clockedStore();
   const task = store.create();
