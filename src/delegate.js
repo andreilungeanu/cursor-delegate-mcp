@@ -516,9 +516,10 @@ export async function runDelegate({
       state.reset();
       supervisor.promptStarted();
       startHeartbeat();
-      promptInFlight = true;
       try {
         const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
+        // Raised with the prompt, so a frame sent while attachments were read is not folded in.
+        promptInFlight = true;
         const turn = client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
         // Every argument has been accepted by now, so a caller may stop waiting on the result.
         try { onPromptSent?.(sessionId); } catch {}

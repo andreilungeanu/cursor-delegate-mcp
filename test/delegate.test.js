@@ -2749,6 +2749,34 @@ test("a cancel before the prompt ends the delegation without waiting on the setu
   assert.ok(Date.now() - started < 5000, `the delegation returned ${Date.now() - started} ms in`);
 });
 
+// The stub sends a frame as runDelegate reads the image attachment, before the prompt goes out.
+test("a frame the agent sends while attachments are read stays out of the result", async () => {
+  const image = path.join(tmpdir(), `cdm-chatter-${process.pid}-${Date.now()}.png`);
+  writeFileSync(image, Buffer.alloc(64));
+  try {
+    const out = await runDelegate({
+      spec: "task", workspace: process.cwd(), contextFiles: [image],
+      clientFactory: () => {
+        const client = stubClient("sess-chatter");
+        Object.defineProperty(client, "agentCapabilities", {
+          get: () => {
+            client.emit("update", { update: msgChunk("setup chatter") });
+            return { promptCapabilities: { image: true } };
+          },
+        });
+        client.prompt = async () => {
+          client.emit("update", { update: msgChunk("done") });
+          return { stopReason: "end_turn" };
+        };
+        return client;
+      },
+    });
+    assert.equal(out.result, "done");
+  } finally {
+    unlinkSync(image);
+  }
+});
+
 test("the delegation returns only once the agent has exited", async () => {
   let client;
   let stops = 0;
