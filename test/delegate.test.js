@@ -2698,3 +2698,63 @@ test("the delegation returns only once the agent has exited", async () => {
   assert.equal(stops, 1, "a seen exit needs no second stop");
 });
 
+test("an agent whose exit the stop does not see is stopped again and reported", async () => {
+  let stops = 0;
+  let stopsAtTurnEnd;
+  const factory = (prompt) => () => {
+    const client = stubClient("sess-stuck");
+    client.prompt = () => prompt(client);
+    client.stop = async () => { stops++; return false; };
+    client.child = { pid: 4242 };
+    return client;
+  };
+  const out = await runDelegate({
+    spec: "task", workspace: process.cwd(),
+    onTurnEnd: () => { stopsAtTurnEnd = stops; },
+    clientFactory: factory(async (client) => {
+      client.emit("update", { update: msgChunk("ok") });
+      return { stopReason: "end_turn" };
+    }),
+  });
+  assert.equal(stopsAtTurnEnd, 0, "the turn ends before its agent is stopped");
+  assert.equal(stops, 2, "an unseen exit gets one more stop");
+  assert.ok(out.protocolWarnings?.some((w) => /\(pid 4242\) but did not see it exit/.test(w)), JSON.stringify(out.protocolWarnings));
+  await assert.rejects(runDelegate({
+    spec: "task", workspace: process.cwd(),
+    clientFactory: factory(async () => { throw Object.assign(new Error("boom"), { code: -32603 }); }),
+  }), /did not see it exit/);
+});
+
+test("a stop that rejects counts as an unseen exit", async () => {
+  const run = async (results) => {
+    let stops = 0;
+    const out = await runDelegate({
+      spec: "task", workspace: process.cwd(),
+      clientFactory: () => {
+        const client = stubClient("sess-reject");
+        client.stop = async () => {
+          const r = results[stops++];
+          if (r instanceof Error) throw r;
+          return r;
+        };
+        return client;
+      },
+    });
+    return { stops, warned: (out.protocolWarnings ?? []).some((w) => /did not see it exit/.test(w)) };
+  };
+  assert.deepEqual(await run([new Error("kill failed"), true]), { stops: 2, warned: false });
+  assert.deepEqual(await run([new Error("kill failed"), new Error("kill failed")]), { stops: 2, warned: true });
+});
+
+test("a failure whose message cannot be written keeps its own error when the exit is not seen", async () => {
+  const failure = Object.freeze(Object.assign(new Error("frozen boom"), { reason: "spawn-failed" }));
+  await assert.rejects(runDelegate({
+    spec: "task", workspace: process.cwd(),
+    clientFactory: () => {
+      const client = stubClient("sess-frozen");
+      client.start = async () => { throw failure; };
+      client.stop = async () => false;
+      return client;
+    },
+  }), (err) => err === failure);
+});

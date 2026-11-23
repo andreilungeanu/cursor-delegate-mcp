@@ -450,6 +450,11 @@ export async function runDelegate({
   let servedModel;
   let effectiveEffort;
   const contextWarnings = [];
+  // Set before the teardown in finally, which notes an unseen exit on whichever is going out.
+  /** @type {any} */
+  let out;
+  /** @type {any} */
+  let failed;
   try {
     const res = await supervisor.supervise(async () => {
       await client.start();
@@ -549,7 +554,7 @@ export async function runDelegate({
         stopReason = res.stopReason;
       }
     }
-    const out = {
+    out = {
       result,
       sessionId,
     };
@@ -633,6 +638,7 @@ export async function runDelegate({
         if (transcript) err.message += `\n\n--- recent ACP transcript (last ${frames} frames) ---\n` + transcript;
       } catch {}
     }
+    failed = err;
     throw err;
   } finally {
     // The turn is decided: from here a cancel finds nothing running.
@@ -641,7 +647,17 @@ export async function runDelegate({
     signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
     // Awaited: a host may close stdin on the result, and on Windows the server's exit does not take
-    // a running agent with it (server.smoke.test.js).
-    try { await client.stop(); } catch {}
+    // a running agent with it (server.smoke.test.js). An exit not seen is noted instead.
+    // A rejected stop counts as unseen; an unseen exit is not memoized, so a retry kills afresh.
+    const stopOnce = () => Promise.resolve(client.stop()).catch(() => false);
+    let exited = await stopOnce();
+    if (exited === false) exited = await stopOnce();
+    if (exited === false) {
+      const pid = client.child?.pid;
+      const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but did not see it exit; it may still be running.`;
+      // A failure whose message cannot be written keeps its own error rather than a TypeError.
+      if (failed) { try { failed.message += ` Note: ${note}`; } catch {} }
+      else if (out) (out.protocolWarnings ??= []).push(note);
+    }
   }
 }

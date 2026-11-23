@@ -152,7 +152,7 @@ rather than acting on it.
 | Guard | Default | Scope |
 | ----- | ------- | ----- |
 | Handshake deadline | 60 s | Spawn through session setup only, where silence really does mean a wedged agent. |
-| Hard cap | 6 h | Whole delegation, absolute. Stopping the agent afterwards takes up to 2 s more. |
+| Hard cap | 6 h | Whole delegation, absolute. Stopping the agent afterwards takes up to 4 s more. |
 | Mid-turn idle guard | off | Opt-in; silence during a turn does not settle the session. |
 
 Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
