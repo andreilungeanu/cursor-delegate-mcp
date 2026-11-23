@@ -13,6 +13,27 @@ const STDERR_CAP = 64 * 1024;
 // so this elapses only when the kill failed.
 const STOP_EXIT_TIMEOUT_MS = 2000;
 
+// Each phase lists the transitions it allows; any other is refused.
+/** @typedef {"setup" | "running" | "cancelled-in-setup" | "cancelled" | "ended" | "exited"} WirePhase */
+/** @typedef {"prompt" | "cancel" | "end" | "exit"} WireTransition */
+/** @type {Record<WirePhase, Partial<Record<WireTransition, WirePhase>>>} */
+const PHASES = {
+  setup: { prompt: "running", cancel: "cancelled-in-setup", end: "ended", exit: "exited" },
+  running: { cancel: "cancelled", end: "ended", exit: "exited" },
+  "cancelled-in-setup": { exit: "exited" },
+  cancelled: { exit: "exited" },
+  ended: { exit: "exited" },
+  exited: {},
+};
+
+// What a request the phase refuses throws; after a cancel before the prompt, with the cancel's reason.
+/** @param {WirePhase} phase */
+function wireClosed(phase) {
+  return phase === "cancelled-in-setup"
+    ? makeError("cancelled-in-setup", "cancelled before the prompt was sent")
+    : makeError("wire-closed", `no prompt can go out: the wire is ${phase}`);
+}
+
 export class AcpClient extends EventEmitter {
   /**
    * @param {{
@@ -32,6 +53,8 @@ export class AcpClient extends EventEmitter {
     this._stderrLength = 0;
     /** @type {Promise<boolean> | null} */
     this._stopping = null;
+    /** @type {WirePhase} */
+    this._phase = "setup";
   }
 
   // The stderr tail an exit error quotes. Kept as chunks and joined on read, so a noisy agent costs
@@ -51,7 +74,6 @@ export class AcpClient extends EventEmitter {
     this._stderrChunks = [];
     this._stderrLength = 0;
     const stderrDecoder = new StringDecoder("utf8");
-    this._exitEmitted = false;
     const argv = spawnArgv(command, args, opts);
     this.child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr.on("data", (chunk) => {
@@ -78,9 +100,9 @@ export class AcpClient extends EventEmitter {
     // take down the server. readline adds no handler on stdout either.
     this.child.stdin.on("error", () => {});
     this.child.stdout.on("error", () => {});
+    // Both 'exit' and 'close' land here; the transition the first one takes refuses the second.
     const emitExit = (code, signal) => {
-      if (this._exitEmitted) return;
-      this._exitEmitted = true;
+      if (!this._advance("exit")) return;
       const stderr = this.stderrBuffer;
       const err = makeError(
         "agent-exit",
@@ -128,7 +150,7 @@ export class AcpClient extends EventEmitter {
 
   // Stashed for the unknown-model check and doctor deep, so neither needs a second handshake.
   async initialize() {
-    const res = await this.peer.request("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } });
+    const res = await this._setup("initialize", { protocolVersion: 1, clientInfo: { name: "cursor-delegate-mcp", version: VERSION }, clientCapabilities: { _meta: { parameterizedModelPicker: true } } });
     this.protocolVersion = res?.protocolVersion;
     this.agentCapabilities = res?.agentCapabilities;
     return res;
@@ -139,15 +161,36 @@ export class AcpClient extends EventEmitter {
     this.configOptions = res?.configOptions;
     return res;
   }
-  async newSession(cwd) { return this._captureSession(await this.peer.request("session/new", { cwd, mcpServers: [] })); }
-  async loadSession(sessionId, cwd) { return this._captureSession(await this.peer.request("session/load", { sessionId, cwd, mcpServers: [] })); }
-  setModel(sessionId, modelId) { return this.peer.request("session/set_model", { sessionId, modelId }); }
-  setConfigOption(sessionId, configId, value) { return this.peer.request("session/set_config_option", { sessionId, configId, value: String(value) }); } // configId, not optionId; ACP wants a string value
-  setMode(sessionId, modeId) { return this.peer.request("session/set_mode", { sessionId, modeId }); }
-  prompt(sessionId, blocks) { return this.peer.request("session/prompt", { sessionId, prompt: blocks }); }
+  async newSession(cwd) { return this._captureSession(await this._setup("session/new", { cwd, mcpServers: [] })); }
+  async loadSession(sessionId, cwd) { return this._captureSession(await this._setup("session/load", { sessionId, cwd, mcpServers: [] })); }
+  setModel(sessionId, modelId) { return this._setup("session/set_model", { sessionId, modelId }); }
+  setConfigOption(sessionId, configId, value) { return this._setup("session/set_config_option", { sessionId, configId, value: String(value) }); } // configId, not optionId; ACP wants a string value
+  setMode(sessionId, modeId) { return this._setup("session/set_mode", { sessionId, modeId }); }
+  // Every request before the task prompt. A reply that lands once setup ended, at a cancel or a
+  // failed delegation, is refused too, so no setup step runs on from it.
+  async _setup(method, params) {
+    if (this._phase !== "setup") throw wireClosed(this._phase);
+    const reply = await this.peer.request(method, params);
+    if (this._phase !== "setup") throw wireClosed(this._phase);
+    return reply;
+  }
+
+  /** @param {WireTransition} transition @returns {WirePhase | undefined} */
+  _advance(transition) {
+    const next = PHASES[this._phase][transition];
+    if (next) this._phase = next;
+    return next;
+  }
+
+  // The task prompt, and the only way into the running phase.
+  prompt(sessionId, blocks) {
+    if (!this._advance("prompt")) throw wireClosed(this._phase);
+    return this.peer.request("session/prompt", { sessionId, prompt: blocks });
+  }
+  // The delegation is decided: nothing sent from here on would reach a caller.
+  endTurn() { this._advance("end"); }
   cancel(sessionId) {
-    // Recorded so runDelegate can hold back a prompt not yet sent.
-    this.cancelRequested = true;
+    this._advance("cancel");
     this.peer.notify("session/cancel", { sessionId });
     return Promise.resolve();
   }
@@ -192,7 +235,7 @@ export class AcpClient extends EventEmitter {
     clearTimeout(timer);
     // On an observed exit, emitExit rejects in-flight RPCs with stderr, and racing it here would
     // drop that. Only a child still alive after the stop has its RPCs settled here.
-    if (!observed && !this._exitEmitted && isChildAlive(child)) {
+    if (!observed && this._phase !== "exited" && isChildAlive(child)) {
       try {
         this.peer?.rejectAllPending(makeError("agent-exit", "agent process did not exit after stop"));
       } catch {}

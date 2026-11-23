@@ -518,8 +518,6 @@ export async function runDelegate({
       promptInFlight = true;
       try {
         const blocks = await buildContextBlocks(contextFiles, workspace, client, contextWarnings);
-        // The caller has the id from session/new on, so a cancel can come before there is a turn.
-        if (client.cancelRequested) return { stopReason: "cancelled", cancelledBeforePrompt: true };
         const turn = client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
         // Every argument has been accepted by now, so a caller may stop waiting on the result.
         try { onPromptSent?.(sessionId); } catch {}
@@ -546,7 +544,7 @@ export async function runDelegate({
         "the agent ran a tool after its last message and never spoke again, so no final message closed the turn."
         + " result carries the last message before that tool call — it may be a preamble rather than the answer."
       );
-    } else if (!finalMessageAvailable && !res?.cancelledBeforePrompt) {
+    } else if (!finalMessageAvailable) {
       protocolWarnings.push("the agent ended the turn without emitting any message; result is empty.");
     }
     let stopReason;
@@ -597,6 +595,13 @@ export async function runDelegate({
     if (protocolWarnings.length) out.protocolWarnings = protocolWarnings;
     return out;
   } catch (err) {
+    // A cancel before the prompt is the outcome the caller asked for: there was no turn to fail.
+    if (err?.reason === "cancelled-in-setup" && sessionId) {
+      out = { result: "", sessionId, resultSource: "none", stopReason: "cancelled" };
+      if (resumeSessionId && sessionId === resumeSessionId) out.resumed = true;
+      if (resumeError) out.protocolWarnings = [`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`];
+      return out;
+    }
     // A JSON-RPC code means the agent rejected something rather than the bridge breaking — the
     // distinction a caller needs to tell "fix your arguments" from "retry".
     if (!err?.reason && typeof err?.code === "number") err.reason = "agent-error";

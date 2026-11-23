@@ -129,8 +129,7 @@ export async function runAsTask({ run, signal, notify = () => {}, store }) {
   }).then((result) => ({ result }), (error) => ({ error }));
   const first = await Promise.race([sent, outcome]);
   signal?.removeEventListener("abort", forward);
-  // An abort before the agent has a session sends no session/cancel, so setup can still reach the
-  // prompt; the request is gone by then and nobody would receive the task id.
+  // A request cancelled as its prompt goes out is gone, so nobody would receive the task id.
   const settled = first ?? (task.ac.signal.aborted ? await outcome : undefined);
   if (settled) {
     if ("error" in settled) throw settled.error;

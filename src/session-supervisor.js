@@ -101,6 +101,8 @@ export class SessionSupervisor {
     if (reason === "idle-timeout" || reason === "handshake-timeout" || reason === "hard-cap" || reason === "aborted") {
       if (this.sessionId) { try { this.client.cancel(this.sessionId); } catch {} }
     }
+    // Ended whether or not a session opened, so setup orphaned by this trip sends nothing more.
+    try { this.client.endTurn?.(); } catch {}
     this._guardReject?.(err);
   }
 

@@ -317,6 +317,22 @@ test("stop() rejects in-flight RPCs when the child does not exit", async () => {
   }
 });
 
+// The agent answers every request 200 ms late, so the reply lands after endTurn().
+test("a setup reply that lands once the delegation ended is refused", async () => {
+  const script = "require('readline').createInterface({ input: process.stdin }).on('line', (l) => { const m = JSON.parse(l);"
+    + " if (m.id !== undefined) setTimeout(() => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1 } }) + '\\n'), 200); });";
+  const client = new AcpClient({ spawnSpec: { command: process.execPath, args: ["-e", script], options: { shell: false } } });
+  await client.start();
+  try {
+    const reply = client.initialize();
+    client.endTurn();
+    await assert.rejects(reply, { reason: "wire-closed" });
+    assert.equal(client.protocolVersion, undefined);
+  } finally {
+    await client.stop();
+  }
+});
+
 test("cancel sends session/cancel as a notification without id", async () => {
   const written = [];
   const client = new AcpClient({ spawnSpec: fakeSpawn() });
@@ -372,4 +388,16 @@ test("the exit error carries the whole of stderr, not a tail of it", async () =>
   assert.equal(err?.reason, "agent-exit");
   assert.ok(err.message.includes(marker), "the front of stderr must survive into the exit error");
   assert.ok(err.message.length > 2000, `the whole of stderr must be carried, got ${err.message.length} chars`);
+});
+
+test("each request goes on the wire through the method that owns its phase", () => {
+  const owners = new Set(["_setup", "prompt"]);
+  const lines = readFileSync(fileURLToPath(new URL("../src/acp-client.js", import.meta.url)), "utf8").split("\n");
+  let method;
+  const outside = [];
+  lines.forEach((line, i) => {
+    method = /^ {2}(?:async )?([_a-zA-Z]\w*)\(.*\) \{/.exec(line)?.[1] ?? method;
+    if (/\bpeer\.request\(/.test(line) && !owners.has(method)) outside.push(`src/acp-client.js:${i + 1} in ${method}()`);
+  });
+  assert.deepEqual(outside, [], `${outside.join(", ")} calls peer.request directly. A request before the task prompt goes through _setup(), which refuses it once setup ended; a prompt goes through prompt().`);
 });
