@@ -440,11 +440,19 @@ export function installSignalCleanup(map, {
   stdin = process.stdin,
 } = {}) {
   let shuttingDown = false;
+  let signalsSeen = 0;
+  // The code shutdown exits with: a signal's, even when it follows the stdin EOF.
+  let exitCode = 0;
   const shutdown = (code, fromSignal = false) => {
-    // A second signal exits without the wait, the kills already sent. A stdin EOF does not: a
-    // hangup closes stdin right after its SIGHUP.
-    if (shuttingDown) return fromSignal ? exit(code) : undefined;
+    // Only a second signal skips the wait for the kills, which the first pass already sent: a
+    // hangup closes stdin and sends SIGHUP, in either order.
+    if (fromSignal) signalsSeen++;
+    if (shuttingDown) {
+      if (fromSignal && signalsSeen === 1) { exitCode = code; setExitCode(code); }
+      return signalsSeen < 2 ? undefined : exit(code);
+    }
     shuttingDown = true;
+    exitCode = code;
     // Set now: the loop may run dry before the scheduled exit gets a turn.
     setExitCode(code);
     const stops = [];
@@ -459,7 +467,7 @@ export function installSignalCleanup(map, {
     // Waits for the kills: on Windows taskkill is a separate process, and exiting first orphans the
     // launcher and agent below the shell (measured). stop() bounds itself, so the wait is finite.
     // The exit is scheduled onto a clean loop turn rather than run on the settlement stack.
-    const leave = () => schedule(() => exit(code));
+    const leave = () => schedule(() => exit(exitCode));
     Promise.all(stops).then(leave, leave);
   };
   // On POSIX each agent has its own process group, which a signal to this process misses, so the

@@ -1369,18 +1369,24 @@ const removeAddedSignalListeners = (before) => {
   }
 };
 
-test("a signal during the wait after stdin closed exits at once", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
+test("a signal after stdin closed sets the exit code and still waits for the kill", { skip: process.platform === "win32" && "POSIX signals" }, async () => {
   const exited = [];
-  const map = new Map([["sess-1", new Set([{ client: { stop: () => new Promise(() => {}) } }])]]);
+  const codes = [];
+  let settle;
+  const stopped = new Promise((r) => { settle = r; });
+  const map = new Map([["sess-1", new Set([{ client: { stop: () => stopped } }])]]);
   const stdin = new EventEmitter();
   const before = Object.fromEntries(SIGNALS.map((s) => [s, process.listeners(s)]));
   try {
-    installSignalCleanup(map, { exit: (code) => exited.push(code), setExitCode: () => {}, stdin });
+    installSignalCleanup(map, { exit: (code) => exited.push(code), setExitCode: (code) => codes.push(code), stdin });
     stdin.emit("end");
-    await new Promise((r) => setImmediate(r));
-    assert.deepEqual(exited, [], "first trigger waits for the kill");
-    process.emit("SIGINT");
-    assert.deepEqual(exited, [130], "a signal skips the wait");
+    process.emit("SIGHUP");
+    await flushExit();
+    assert.deepEqual(exited, [], "exit must wait for the kill");
+    assert.deepEqual(codes, [0, 129]);
+    settle(true);
+    await flushExit();
+    assert.deepEqual(exited, [129]);
   } finally {
     removeAddedSignalListeners(before);
   }
