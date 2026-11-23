@@ -3,7 +3,7 @@ import process from "node:process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { McpServer, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from "@modelcontextprotocol/server";
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
@@ -400,8 +400,9 @@ if (process.argv[1]) {
   }
 }
 
-// Kill what is still running, then exit, on any way the host has of going away.
-/** @param {import("./proc.js").ChildRegistry} [registry] */
+// Kill what is still running, then exit, on any way the host has of going away. Returns the
+// shutdown stdin EOF triggers, for a host that goes some other way.
+/** @param {import("./proc.js").ChildRegistry} [registry] @returns {() => void} */
 export function installSignalCleanup(registry = children, {
   exit = (code) => process.exit(code),
   setExitCode = (code) => { process.exitCode = code; },
@@ -439,6 +440,7 @@ export function installSignalCleanup(registry = children, {
   // A stdio host closes stdin before it resorts to a signal. The SDK aborts in-flight requests on
   // EOF; this also stops their agents directly, waits for the kills, and exits.
   stdin.on("end", () => shutdown(0));
+  return () => shutdown(0);
 }
 
 if (isMain) {
@@ -448,9 +450,16 @@ if (isMain) {
   if (argv.includes("--version") || argv.includes("-v")) {
     console.log(readPackageVersion());
   } else {
-    installSignalCleanup();
+    const hostGone = installSignalCleanup();
+    const transport = new StdioServerTransport();
     // One factory serves both protocol eras: a 2025-era initialize pins a legacy instance, and only
     // a modern one answers with tasks.
-    serveStdio(({ era }) => buildServer({ era }));
+    serveStdio(({ era }) => buildServer({ era }), { transport });
+    // The transport also closes on a broken stdout, and then pauses stdin, so no 'end' arrives.
+    const closeServers = transport.onclose;
+    transport.onclose = () => {
+      closeServers?.();
+      hostGone();
+    };
   }
 }

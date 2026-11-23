@@ -63,6 +63,8 @@ test("a host that closes right after a delegate result leaves no agent process b
 // call answered with a task.
 function rawServer(env) {
   const child = spawn(process.execPath, [ENTRY], { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "ignore"] });
+  // A test can still be writing when the server has already shut down: EPIPE, not a failure.
+  child.stdin.on("error", () => {});
   const replies = new Map();
   let nextId = 0;
   createInterface({ input: child.stdout }).on("line", (line) => {
@@ -162,5 +164,36 @@ test("a host that closes mid-task leaves no agent process behind", async () => {
     child.kill();
     for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A host that dies breaks the server's stdout first; the transport then pauses stdin, so no 'end'.
+test("a host whose stdout pipe breaks mid-task leaves no agent process behind", { timeout: 60000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cdm-task-epipe-"));
+  const pidFile = join(dir, "pids");
+  const { child, send, exited } = rawServer({
+    ACP_AGENT_COMMAND: process.execPath, ACP_AGENT_ARGS: `"${GRANDCHILD_AGENT}"`, AGENT_BASE: "./escalation-stub.js", PID_FILE: pidFile,
+  });
+  let pids = [];
+  try {
+    await send("server/discover");
+    const call = await send("tools/call", { name: "delegate", arguments: { workspace: dir, spec: "x" } });
+    assert.equal(call.result.resultType, "task", JSON.stringify(call));
+    pids = readFileSync(pidFile, "utf8").trim().split(/s+/).map(Number);
+    child.stdout.destroy();
+    for (let i = 0; i < 5; i++) {
+      send("tasks/get", { taskId: call.result.taskId }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    child.stdin.end();
+    const code = await Promise.race([exited, new Promise((r) => setTimeout(() => r("still running"), 20000))]);
+    assert.notEqual(code, "still running", "the server outlived its host");
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.deepEqual(pids.filter(isAlive), [], "the agent and its descendants must be gone");
+  } finally {
+    child.kill();
+    for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    // A still-running agent holds the folder as its cwd on Windows until the kill lands.
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch {}
   }
 });
