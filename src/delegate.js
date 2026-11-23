@@ -451,8 +451,8 @@ export async function runDelegate({
   // Set before the teardown in finally, which notes an unseen exit on whichever is going out.
   /** @type {any} */
   let out;
-  /** @type {any} */
-  let failed;
+  /** @type {{ cause: any, reason?: string, notes: string[] } | undefined} */
+  let failure;
   try {
     const res = await supervisor.supervise(async () => {
       await client.start();
@@ -602,40 +602,41 @@ export async function runDelegate({
     }
     // A JSON-RPC code means the agent rejected something rather than the bridge breaking — the
     // distinction a caller needs to tell "fix your arguments" from "retry".
-    if (!err?.reason && typeof err?.code === "number") err.reason = "agent-error";
+    const reason = err?.reason || (typeof err?.code === "number" ? "agent-error" : undefined);
+    failure = { cause: err, reason, notes: [] };
+    const { notes } = failure;
     // A bare duration cannot distinguish a wedged agent from a slow command, so name what was
     // outstanding — it also lets a retry resume the work already done.
-    const isTimeout = err?.reason === "hard-cap" || err?.reason === "idle-timeout";
+    const isTimeout = reason === "hard-cap" || reason === "idle-timeout";
     // A handshake timeout gets the forensics but not the long-command advice: no prompt was sent,
     // so no shell command explains the silence.
-    const isStall = isTimeout || err?.reason === "handshake-timeout";
+    const isStall = isTimeout || reason === "handshake-timeout";
     // Not on an abort: the SDK sends no response to a request its host cancelled.
-    if (isStall || err?.reason === "agent-exit") {
+    if (isStall || reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
-      err.message += `\n\nLast ACP frame ${age} ago${state.lastToolLabel ? `; last tool call: ${state.lastToolLabel}` : ""}.`;
-      if (state.sessionTitle) err.message += ` The agent titled this turn ${JSON.stringify(state.sessionTitle)}.`;
+      notes.push(`\n\nLast ACP frame ${age} ago${state.lastToolLabel ? `; last tool call: ${state.lastToolLabel}` : ""}.`);
+      if (state.sessionTitle) notes.push(` The agent titled this turn ${JSON.stringify(state.sessionTitle)}.`);
       if (state.sawTodoFrame) {
         const { todoProgress } = sanitizeTodos([]);
         const current = state.todoLabel();
-        err.message += ` ${todoProgress.completed} of ${todoProgress.total} todos completed`
-          + `${current ? `; ${current}` : ""}.`;
+        notes.push(` ${todoProgress.completed} of ${todoProgress.total} todos completed${current ? `; ${current}` : ""}.`);
       }
       const files = normalizeAgentReportedFiles([...state.touched], workspace);
-      if (files.length) err.message += ` Files reported edited: ${files.join(", ")}.`;
+      if (files.length) notes.push(` Files reported edited: ${files.join(", ")}.`);
     }
     if (resumeError) {
       // Otherwise the resume hint reads as continuing work this session never had.
-      err.message += ` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
-        + ` so this ran as a fresh session and none of that earlier work was in context.`;
+      notes.push(` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
+        + ` so this ran as a fresh session and none of that earlier work was in context.`);
     }
     // Any failure after session/new leaves a resumable session, unknown-model and a rejected
     // config value included, not just the stalls.
-    if (sessionId) err.message += ` Resume with resumeSessionId ${sessionId}.`;
+    if (sessionId) notes.push(` Resume with resumeSessionId ${sessionId}.`);
     if (isTimeout) {
       // Name the knob that fired: the hard cap does nothing for an idle-timeout.
-      const knob = err.reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
-      err.message += " cursor-agent does not stream shell output over ACP, so a long-running command emits"
-        + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`;
+      const knob = reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
+      notes.push(" cursor-agent does not stream shell output over ACP, so a long-running command emits"
+        + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`);
     }
     // Opt-in: raw frames add nothing actionable to the caller's context beyond the forensics
     // above; they help only someone debugging the bridge.
@@ -643,11 +644,9 @@ export async function runDelegate({
     if (frames > 0) {
       try {
         const transcript = client.getTranscript?.(frames);
-        if (transcript) err.message += `\n\n--- recent ACP transcript (last ${frames} frames) ---\n` + transcript;
+        if (transcript) notes.push(`\n\n--- recent ACP transcript (last ${frames} frames) ---\n` + transcript);
       } catch {}
     }
-    failed = err;
-    throw err;
   } finally {
     // The turn is decided: from here a cancel finds nothing running.
     try { onTurnEnd?.(); } catch {}
@@ -662,9 +661,11 @@ export async function runDelegate({
     if (exited === false) {
       const pid = client.child?.pid;
       const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but did not see it exit; it may still be running.`;
-      // A failure whose message cannot be written keeps its own error rather than a TypeError.
-      if (failed) { try { failed.message += ` Note: ${note}`; } catch {} }
+      if (failure) failure.notes.push(` Note: ${note}`);
       else if (out) (out.protocolWarnings ??= []).push(note);
     }
   }
+  // After teardown, so the exit note it adds is in the message.
+  const { cause, reason, notes } = /** @type {NonNullable<typeof failure>} */ (failure);
+  throw makeError(reason, (cause?.message || String(cause)) + notes.join(""), { code: cause?.code, cause });
 }

@@ -2842,15 +2842,34 @@ test("a stop that rejects counts as an unseen exit", async () => {
   assert.deepEqual(await run([true]), { stops: 1, warned: false });
 });
 
-test("a failure whose message cannot be written keeps its own error when the exit is not seen", async () => {
-  const failure = Object.freeze(Object.assign(new Error("frozen boom"), { reason: "spawn-failed" }));
-  await assert.rejects(runDelegate({
-    spec: "task", workspace: process.cwd(),
-    clientFactory: () => {
-      const client = stubClient("sess-frozen");
-      client.start = async () => { throw failure; };
-      client.stop = async () => false;
-      return client;
-    },
-  }), (err) => err === failure);
+// One case per note: the exit note (thrown before the session, the stop sees no exit), the resume
+// hint (thrown once the session is open), and the reason a JSON-RPC code gives.
+test("every note the bridge adds reaches the caller, whatever the agent's side threw", async () => {
+  const cases = [
+    { at: "start", thrown: Object.freeze(Object.assign(new Error("boom"), { reason: "spawn-failed" })), exited: false, reason: "spawn-failed", notes: ["boom", "did not see it exit"] },
+    { at: "prompt", thrown: Object.freeze(new Error("boom")), notes: ["boom", "Resume with resumeSessionId sess-frozen"] },
+    { at: "prompt", thrown: "a bare string", notes: ["a bare string", "Resume with resumeSessionId sess-frozen"] },
+    { at: "setMode", thrown: Object.freeze(Object.assign(new Error("Invalid params"), { code: -32602 })), reason: "agent-error", code: -32602, notes: ["Invalid params", "Resume with resumeSessionId sess-frozen"] },
+    { at: "setMode", thrown: Object.assign(new Error("Internal error"), { code: -32603, reason: "" }), reason: "agent-error", code: -32603, notes: ["Internal error"] },
+  ];
+  for (const { at, thrown, exited = true, reason, code, notes } of cases) {
+    await assert.rejects(
+      () => runDelegate({
+        spec: "task", workspace: process.cwd(),
+        clientFactory: () => {
+          const client = stubClient("sess-frozen");
+          client[at] = async () => { throw thrown; };
+          client.stop = async () => exited;
+          return client;
+        },
+      }),
+      (err) => {
+        assert.equal(err.reason, reason, `${at}: ${err?.message}`);
+        assert.equal(err.code, code);
+        assert.equal(err.cause, thrown);
+        for (const note of notes) assert.ok(err.message.includes(note), `${at}: "${note}" missing from: ${err.message}`);
+        return true;
+      }
+    );
+  }
 });
