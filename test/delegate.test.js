@@ -2547,6 +2547,30 @@ test("onPromptSent fires once with the session id, after the session opens and b
   assert.deepEqual(events, ["session sess-1", "prompt sess-1", "turn end", "settled"]);
 });
 
+test("onPromptSent carries why a resumed id ran as a fresh session, and nothing for one that did not", async () => {
+  const notes = [];
+  const run = (resumeSessionId) => runDelegate({
+    spec: "do the thing", workspace: process.cwd(), resumeSessionId, clientFactory: fakeFactory,
+    onPromptSent: (_id, note) => notes.push(note),
+  });
+  await run("unknown");
+  await run(undefined);
+  assert.match(notes[0], /^resuming unknown had already failed \(.+\), so this ran as a fresh session and none of that earlier work was in context\.$/);
+  assert.equal(notes[1], undefined);
+});
+
+test("onUnseenExit carries the note when the stop did not see cursor-agent exit", async () => {
+  const notes = [];
+  const out = await runDelegate({
+    spec: "task", workspace: process.cwd(),
+    clientFactory: () => { const client = stubClient("sess-x"); client.stop = async () => false; return client; },
+    onUnseenExit: (note) => notes.push(note),
+  });
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /did not see it exit/);
+  assert.ok(out.protocolWarnings.includes(notes[0]));
+});
+
 test("onPromptSent does not fire for a delegation whose model is rejected", async () => {
   let sent = 0;
   await assert.rejects(() => runDelegate({

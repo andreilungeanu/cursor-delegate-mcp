@@ -250,7 +250,8 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
  *   contextFiles?: string[], clientFactory?: (opts: any) => any,
  *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
  *   onSessionReady?: (sessionId: string, client: any) => void,
- *   onPromptSent?: (sessionId: string) => void,
+ *   onPromptSent?: (sessionId: string, resumeNote?: string) => void,
+ *   onUnseenExit?: (note: string) => void,
  *   onTurnEnd?: () => void,
  *   onProgress?: (message: string) => void,
  *   progressThrottleMs?: number, heartbeatMs?: number, signal?: AbortSignal,
@@ -260,7 +261,7 @@ export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, effort, context, contextFiles, clientFactory,
   idleMs, handshakeMs, hardCapMs, timeoutMs,
-  onSessionReady, onPromptSent, onTurnEnd, onProgress, progressThrottleMs = 2000,
+  onSessionReady, onPromptSent, onUnseenExit, onTurnEnd, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
 } = {}) {
@@ -444,6 +445,10 @@ export async function runDelegate({
 
   let sessionId;
   let resumeError;
+  // Otherwise a resume hint reads as continuing work this session never had.
+  const resumeNote = () => (resumeError
+    ? `resuming ${resumeSessionId} had already failed (${resumeError}), so this ran as a fresh session and none of that earlier work was in context.`
+    : undefined);
   const unsupportedOptions = [];
   let servedModel;
   let effectiveEffort;
@@ -518,7 +523,7 @@ export async function runDelegate({
         promptInFlight = true;
         const turn = client.prompt(sessionId, [{ type: "text", text: promptText }, ...blocks]);
         // Every argument has been accepted by now, so a caller may stop waiting on the result.
-        try { onPromptSent?.(sessionId); } catch {}
+        try { onPromptSent?.(sessionId, resumeNote()); } catch {}
         return await turn;
       } finally {
         // The result is assembled across later awaits; a frame trailing the turn must not join it.
@@ -611,7 +616,8 @@ export async function runDelegate({
     // A handshake timeout gets the forensics but not the long-command advice: no prompt was sent,
     // so no shell command explains the silence.
     const isStall = isTimeout || reason === "handshake-timeout";
-    // Not on an abort: the SDK sends no response to a request its host cancelled.
+    // Not on an abort: a cancelled request gets no response, and a cancelled task keeps its own
+    // status message.
     if (isStall || reason === "agent-exit") {
       const age = fmtDuration(supervisor.msSinceActivity());
       notes.push(`\n\nLast ACP frame ${age} ago${state.lastToolLabel ? `; last tool call: ${state.lastToolLabel}` : ""}.`);
@@ -624,11 +630,7 @@ export async function runDelegate({
       const files = normalizeAgentReportedFiles([...state.touched], workspace);
       if (files.length) notes.push(` Files reported edited: ${files.join(", ")}.`);
     }
-    if (resumeError) {
-      // Otherwise the resume hint reads as continuing work this session never had.
-      notes.push(` Note: resuming ${resumeSessionId} had already failed (${resumeError}),`
-        + ` so this ran as a fresh session and none of that earlier work was in context.`);
-    }
+    if (resumeError) notes.push(` Note: ${resumeNote()}`);
     // Any failure after session/new leaves a resumable session, unknown-model and a rejected
     // config value included, not just the stalls.
     if (sessionId) notes.push(` Resume with resumeSessionId ${sessionId}.`);
@@ -663,6 +665,7 @@ export async function runDelegate({
       const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but did not see it exit; it may still be running.`;
       if (failure) failure.notes.push(` Note: ${note}`);
       else if (out) (out.protocolWarnings ??= []).push(note);
+      try { onUnseenExit?.(note); } catch {}
     }
   }
   // After teardown, so the exit note it adds is in the message.
