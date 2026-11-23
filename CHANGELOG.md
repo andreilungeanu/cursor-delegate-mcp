@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-11-24
+
+### Changed
+
+- A finished task is kept for its hour however many finish, where only the last 100 were kept.
+- `cancel` tells every session the server has seen from an unknown id, where only the last 500
+  sessions were kept.
+
+### Fixed
+
+- The server shuts down, stopping its agents, when its stdio transport closes. When the server's
+  stdout broke, as it does when the host dies, the transport paused stdin, no stdin EOF arrived,
+  and the server and the agent kept running.
+- A completed task's result carries `resultType: "complete"`, as the `tools/call` result it stands
+  for, which the tasks extension's client schema requires.
+- A task id resumes its session for as long as the server runs, not only for the hour its task is
+  kept.
+- A finished task's status message is its error, or none, instead of its last progress line.
+- `tasks/update` refuses a request with no `inputResponses`.
+
 ## [3.1.0] - 2026-11-24
 
 ### Changed
