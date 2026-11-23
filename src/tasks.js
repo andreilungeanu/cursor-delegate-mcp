@@ -59,12 +59,16 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
     finish(task, outcome) {
       if (task.status === "working") {
         task.endedAt = task.lastUpdatedAt = now();
+        // The last progress line is stale once the run is over; a failure says why instead.
         if ("error" in outcome) {
           task.status = "failed";
           task.error = { code: ProtocolErrorCode.InternalError, message: String(outcome.error?.message ?? outcome.error) };
+          task.statusMessage = task.error.message;
         } else {
           task.status = "completed";
-          task.result = outcome.result;
+          // The tools/call result a 2026-07-28 host would have read, marked as one.
+          task.result = { ...outcome.result, resultType: "complete" };
+          task.statusMessage = undefined;
         }
       }
       prune();
