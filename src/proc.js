@@ -1,5 +1,7 @@
 import process from "node:process";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { spawnArgv } from "./spawn.js";
+import { makeError } from "./errors.js";
 
 export function isChildAlive(child) {
   return child && child.exitCode === null && child.signalCode === null;
@@ -28,4 +30,102 @@ export async function treeKill(pid, { childAlive = true } = {}) {
   // Reaches a child that is not a group leader, where the group kill raised ESRCH. Skipped once
   // the child is gone, since a reaped pid can already belong to something else.
   if (childAlive) { try { process.kill(pid, "SIGKILL"); } catch {} }
+}
+
+// How long one kill attempt waits for the exit and the tree kill. SIGKILL and taskkill /F land in
+// milliseconds, so this elapses only when the kill failed.
+export const KILL_WAIT_MS = 2000;
+
+async function killAndSeeExit(child, timeoutMs) {
+  if (!child.pid) return true;
+  const alive = isChildAlive(child);
+  // Subscribed before the kill, so an instant exit is not missed.
+  const exited = alive
+    ? /** @type {Promise<boolean>} */ (new Promise((resolve) => child.once("exit", () => resolve(true))))
+    : Promise.resolve(true);
+  // Runs for an exited child too: on POSIX the commands it spawned stay in its process group.
+  const killed = treeKill(child.pid, { childAlive: alive }).catch(() => {});
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer;
+  const bounded = /** @type {Promise<boolean>} */ (new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+  }));
+  const observed = await Promise.race([exited, bounded]);
+  // On win32 taskkill can still be at work on the tree once the launcher's exit is seen.
+  const treeKilled = await Promise.race([killed.then(() => true), bounded]);
+  clearTimeout(timer);
+  return observed && treeKilled;
+}
+
+/**
+ * @typedef {{
+ *   child: any,
+ *   stop: (opts?: { timeoutMs?: number }) => Promise<boolean>,
+ *   release: () => void,
+ * }} TrackedChild
+ * @typedef {{ child?: any, kill: (timeoutMs: number) => Promise<boolean> }} ChildKill
+ * @typedef {ReturnType<typeof createChildRegistry>} ChildRegistry
+ */
+
+// The processes still to stop. An entry leaves once a stop saw its exit and its tree kill ended, or
+// its owner releases it; after that its pid may be reused.
+export function createChildRegistry() {
+  /** @type {Set<TrackedChild>} */
+  const live = new Set();
+  let closed = false;
+  return {
+    /**
+     * @param {() => ChildKill} start
+     * @returns {TrackedChild}
+     */
+    track(start) {
+      if (closed) throw makeError("spawn-failed", "the server is shutting down, so no process was started");
+      const kill = start();
+      /** @type {Promise<boolean> | null} */
+      let stopping = null;
+      const attempt = (timeoutMs) => {
+        try { return Promise.resolve(kill.kill(timeoutMs)).catch(() => false); } catch { return Promise.resolve(false); }
+      };
+      /** @type {TrackedChild} */
+      const entry = {
+        child: kill.child,
+        // An attempt that missed the exit is retried once; a later stop kills again.
+        stop: ({ timeoutMs = KILL_WAIT_MS } = {}) => {
+          if (!live.has(entry)) return Promise.resolve(true);
+          stopping ??= attempt(timeoutMs).then((seen) => seen || attempt(timeoutMs)).then((seen) => {
+            stopping = null;
+            if (seen) live.delete(entry);
+            return seen;
+          });
+          return stopping;
+        },
+        // For a child that closed by itself.
+        release: () => { if (!stopping) live.delete(entry); },
+      };
+      live.add(entry);
+      return entry;
+    },
+    // Each stop sends its kill as it starts, so on POSIX every kill is out before this returns.
+    stopAll() {
+      closed = true;
+      return Promise.all([...live].map((entry) => entry.stop())).then(() => undefined);
+    },
+  };
+}
+
+export const children = createChildRegistry();
+
+/**
+ * The one place a process starts, so shutdown reaches every one. Throws spawn-failed once shutdown
+ * began, before spawning.
+ * @param {string} command @param {string[]} args @param {any} options
+ * @param {{ stdio: any }} where
+ * @param {ChildRegistry} [registry]
+ */
+export function spawnChild(command, args, options, { stdio }, registry = children) {
+  return registry.track(() => {
+    const argv = spawnArgv(command, args, options);
+    const child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio });
+    return { child, kill: (timeoutMs) => killAndSeeExit(child, timeoutMs) };
+  });
 }
