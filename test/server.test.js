@@ -346,6 +346,26 @@ test("cancel by task id reaches only that task's run, and a finished task's id r
   }
 });
 
+test("tasks/update needs its inputResponses map", async () => {
+  let finish;
+  const held = new Promise((resolve) => (finish = resolve));
+  const runDelegate = async (opts) => {
+    opts.onPromptSent?.("sess-update");
+    await held;
+    return { result: "ok", sessionId: "sess-update" };
+  };
+  const raw = await connectRaw({ runDelegate, tasks: createTaskStore() });
+  try {
+    const { result: task } = await raw.call().reply;
+    assert.equal(task.resultType, "task", JSON.stringify(task));
+    assert.equal((await raw.send("tasks/update", { taskId: task.taskId }).reply).error?.code, -32602);
+    assert.equal((await raw.send("tasks/update", { taskId: task.taskId, inputResponses: {} }).reply).error, undefined);
+    finish();
+  } finally {
+    await raw.close();
+  }
+});
+
 test("a task's id still resumes its session once the task itself is dropped", async () => {
   let t = Date.now();
   const pids = [];

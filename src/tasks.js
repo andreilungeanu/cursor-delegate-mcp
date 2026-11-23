@@ -180,8 +180,15 @@ export function registerTaskHandlers(server, store) {
   server.server.setRequestHandler("tasks/get", { params: TaskParams, result: AnyResult },
     async (/** @type {any} */ { taskId }, /** @type {any} */ ctx) => store.view(find(taskId, ctx)));
   // A delegation never enters input_required: its questions come back in the result.
+  // The SDK lifts inputResponses into ctx before validation, and reads a non-object as an empty map.
   server.server.setRequestHandler("tasks/update", { params: TaskParams, result: AnyResult },
-    async (/** @type {any} */ { taskId }, /** @type {any} */ ctx) => { find(taskId, ctx); return {}; });
+    async (/** @type {any} */ { taskId }, /** @type {any} */ ctx) => {
+      find(taskId, ctx);
+      if (ctx?.mcpReq?.inputResponses === undefined) {
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, "tasks/update needs inputResponses");
+      }
+      return {};
+    });
   server.server.setRequestHandler("tasks/cancel", { params: TaskParams, result: AnyResult },
     async (/** @type {any} */ { taskId }, /** @type {any} */ ctx) => { store.cancel(find(taskId, ctx)); return {}; });
 }
