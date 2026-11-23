@@ -272,8 +272,6 @@ test("an argument the agent rejects before the prompt comes back at once, not as
   }
 });
 
-// The status reads the resume hint after the run settles too, not the run's "delegate failed
-// [aborted]" error, a reason no blocking call returns.
 test("tasks/cancel stops the agent and leaves the task cancelled with a resume hint", async () => {
   const pids = [];
   const tasks = createTaskStore();

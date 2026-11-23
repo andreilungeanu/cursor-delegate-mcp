@@ -77,8 +77,6 @@ test("a failed task carries an internal error and a cancelled one keeps its stat
   assert.equal(view.statusMessage, "cancelled; resume with resumeSessionId sess-x");
 });
 
-// A cancelled task carries what changes what to do next, not the run's error, whose reason
-// (aborted) no blocking call returns.
 test("a cancelled task names a resume that fell back and an agent the stop did not see exit, not the run's error", async () => {
   const store = createTaskStore();
   const fellBack = "resuming sess-old had already failed (Session \"sess-old\" not found), so this ran as a fresh session and none of that earlier work was in context.";
