@@ -207,7 +207,7 @@ test("no Claude-only config at paths other hosts auto-discover", () => {
 // The bootstrap hook, run rather than read. Its dependencies are the names the server
 // imports, resolved from local directories so the install is offline and fast: an empty
 // dependency set cannot tell a working hook from one that exits 0 having installed nothing.
-const FIXTURES = { "@modelcontextprotocol/sdk": "sdk", zod: "zod" };
+const FIXTURES = { "@modelcontextprotocol/server": "sdk", zod: "zod" };
 
 const buildProbe = async (prepare) => {
   const root = await mkdtemp(join(tmpdir(), "cdm-plugin-"));
@@ -287,7 +287,7 @@ test("the dependency sentinel repairs every incomplete install", async () => {
   // The SDK is only one of the names the server imports; an install that died after it and
   // before zod satisfies a check that names the SDK alone.
   const partialTree = await buildProbe(async (root) => {
-    await placeDep(root, "@modelcontextprotocol/sdk", true);
+    await placeDep(root, "@modelcontextprotocol/server", true);
   });
   await runHook(partialTree);
   assert.ok(installRan(partialTree), "a dependency missing beside the SDK must still install");
@@ -296,10 +296,10 @@ test("the dependency sentinel repairs every incomplete install", async () => {
   // npm extracts into the package directory, so an interrupted unpack leaves the directory
   // present and its package.json absent.
   const partialPackage = await buildProbe(async (root) => {
-    await placeDep(root, "@modelcontextprotocol/sdk", false);
+    await placeDep(root, "@modelcontextprotocol/server", false);
     await placeDep(root, "zod", true);
   });
   await runHook(partialPackage);
   assert.ok(installRan(partialPackage), "a half-extracted dependency must still install");
-  assert.ok(importable(partialPackage, "@modelcontextprotocol/sdk"), "the repair must complete the extraction");
+  assert.ok(importable(partialPackage, "@modelcontextprotocol/server"), "the repair must complete the extraction");
 });

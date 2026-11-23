@@ -2,8 +2,8 @@
 import process from "node:process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
@@ -32,7 +32,7 @@ function registerInFlight(map, sessionId, handle) {
   if (handles) handles.add(handle);
   else map.set(sessionId, new Set([handle]));
 }
-/** @returns {import("@modelcontextprotocol/sdk/types.js").CallToolResult} */
+/** @returns {import("@modelcontextprotocol/server").CallToolResult} */
 function cancelResult(status, sessionId) {
   return { content: [{ type: "text", text: JSON.stringify({ status, sessionId }) }] };
 }
@@ -164,27 +164,26 @@ export const delegateInputSchema = z.object({
 
 /**
  * @param {{
- *   args: any, extra?: any,
+ *   args: any, ctx?: any,
  *   runDelegate: (opts: any) => Promise<any>,
  *   inFlight: Map<string, Set<any>>,
  *   pending?: Set<any>,
  *   seenSessions?: Set<string>,
  * }} deps
- * @returns {Promise<import("@modelcontextprotocol/sdk/types.js").CallToolResult>}
+ * @returns {Promise<import("@modelcontextprotocol/server").CallToolResult>}
  */
-export async function runDelegateTool({ args, extra, runDelegate, inFlight, pending = new Set(), seenSessions = new Set() }) {
+export async function runDelegateTool({ args, ctx, runDelegate, inFlight, pending = new Set(), seenSessions = new Set() }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, effort, context, contextFiles } = args;
 
-  const progressToken = extra?._meta?.progressToken;
+  const progressToken = ctx?.mcpReq?._meta?.progressToken;
   /** @type {(message: string) => void} */
   let onProgress = () => {};
   if (progressToken != null) {
     let progress = 0;
     onProgress = (message) => {
-      // An unhandled rejection from sendNotification would exit the server; the try catches a
-      // sync throw.
+      // An unhandled rejection from notify would exit the server; the try catches a sync throw.
       try {
-        Promise.resolve(extra.sendNotification({
+        Promise.resolve(ctx.mcpReq.notify({
           method: "notifications/progress",
           params: { progressToken, progress: ++progress, message },
         })).catch(() => {});
@@ -206,7 +205,7 @@ export async function runDelegateTool({ args, extra, runDelegate, inFlight, pend
       context,
       contextFiles,
       onProgress,
-      signal: extra?.signal,
+      signal: ctx?.mcpReq?.signal,
       onClientReady: (client) => {
         handle = { client, cancelRequested: false };
         pending.add(handle);
@@ -268,7 +267,7 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: true,
       },
     },
-    async (args, extra) => runDelegateTool({ args, extra, runDelegate, inFlight, pending, seenSessions })
+    async (args, ctx) => runDelegateTool({ args, ctx, runDelegate, inFlight, pending, seenSessions })
   );
 
   server.registerTool(
@@ -276,11 +275,11 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     {
       description:
         "Best-effort cancel of an in-flight delegation by sessionId. session/cancel is advisory — the agent may finish the turn anyway, and the delegate result then carries cancelRequested. Status: cancelled, killed (agent process observed to exit), not-running (turn already ended, still resumable), not-found (id not in this process's recent session history).",
-      inputSchema: {
+      inputSchema: z.object({
         // Blank is a malformed call, not a stale id.
         sessionId: z.string().trim().min(1, "sessionId must not be blank"),
         force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
-      },
+      }),
       annotations: {
         title: "Cancel Cursor delegation",
         readOnlyHint: false,
@@ -329,12 +328,12 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
     {
       description:
         "Setup diagnostics: plugin version, MCP client capabilities, cursor-agent launcher resolution. Run when delegation fails or agent.found is false.",
-      inputSchema: {
+      inputSchema: z.object({
         deep: z
           .boolean()
           .default(false)
           .describe("Run an ACP handshake (start → initialize → newSession) to verify the agent is usable; adds models, modes and the current model's options."),
-      },
+      }),
       annotations: {
         title: "Diagnose Cursor delegation setup",
         readOnlyHint: true,
@@ -343,18 +342,15 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
         openWorldHint: false,
       },
     },
-    async ({ deep }, extra) => {
+    async ({ deep }, ctx) => {
       // doctor's processes sit in pending while it runs, where shutdown already looks.
       const handles = [];
       try {
         const out = await runDoctor({
           deep,
-          signal: extra?.signal,
+          signal: ctx?.mcpReq?.signal,
           onClientReady: (client) => { const handle = { client }; handles.push(handle); pending.add(handle); },
-          getClientInfo: () => ({
-            capabilities: server.server.getClientCapabilities(),
-            version: server.server.getClientVersion(),
-          }),
+          getClientInfo: () => clientInfoOf(server, ctx),
         });
         return { content: [{ type: "text", text: JSON.stringify(out) }] };
       } finally {
@@ -364,6 +360,16 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
   );
 
   return server;
+}
+
+// A 2026-07-28 client sends its identity with each request; a 2025-era one sends it once, in
+// initialize, which the server's getters return.
+export function clientInfoOf(server, ctx) {
+  const envelope = ctx?.mcpReq?.envelope;
+  return {
+    capabilities: envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? server.server.getClientCapabilities(),
+    version: envelope?.[CLIENT_INFO_META_KEY] ?? server.server.getClientVersion(),
+  };
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -411,8 +417,8 @@ export function installSignalCleanup(map, {
     const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]);
     for (const [signal, code] of signals) process.on(signal, () => shutdown(code, true));
   }
-  // A stdio host closes stdin before it resorts to a signal, and the SDK transport ignores EOF
-  // (it listens for `data` and `error` only).
+  // A stdio host closes stdin before it resorts to a signal. On EOF the SDK closes its transport
+  // and aborts in-flight requests, but nothing there stops cursor-agent.
   stdin.on("end", () => shutdown(0));
 }
 
@@ -423,8 +429,8 @@ if (isMain) {
   if (argv.includes("--version") || argv.includes("-v")) {
     console.log(readPackageVersion());
   } else {
-    const server = buildServer();
     installSignalCleanup(inFlight, { pending: pendingDelegations });
-    await server.connect(new StdioServerTransport());
+    // One factory serves both protocol eras: a 2025-era initialize pins a legacy instance.
+    serveStdio(() => buildServer());
   }
 }
