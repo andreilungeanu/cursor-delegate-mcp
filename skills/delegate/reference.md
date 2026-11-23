@@ -128,9 +128,10 @@ failure is `resume-failed` and starts nothing.
 ## Progress
 
 Thinking, streamed response sentences, tool starts, todo-list changes, and the turn title the
-agent picks (`turn titled: …`) arrive as ephemeral MCP progress notifications — separate from
-`result`. The title is a live label for telling concurrent delegations apart and is also named
-in timeout errors; it is not returned in the result, where it can even contradict the answer.
+agent picks (`turn titled: …`) arrive as ephemeral MCP progress notifications, or as the task's
+status message when `delegate` runs as an MCP task — separate from `result`. The title is a live
+label for telling concurrent delegations apart and is also named in timeout errors; it is not
+returned in the result, where it can even contradict the answer.
 
 While a turn is running, a `still working — <elapsed>, last agent frame <age> ago, running: <tool>`
 heartbeat is emitted periodically, with a `todo i/n: …` segment when the agent tracks todos. A
