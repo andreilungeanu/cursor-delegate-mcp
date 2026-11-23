@@ -346,6 +346,26 @@ test("cancel by task id reaches only that task's run, and a finished task's id r
   }
 });
 
+test("a task's id still resumes its session once the task itself is dropped", async () => {
+  let t = Date.now();
+  const pids = [];
+  const stopped = realOver("escalation-stub.js", {}, pids);
+  const resumed = realOver("fake-acp.js");
+  const tasks = createTaskStore({ now: () => t });
+  const raw = await connectRaw({ runDelegate: (opts) => (opts.resumeSessionId ? resumed : stopped)(opts), tasks });
+  try {
+    const { result: task } = await raw.call().reply;
+    await raw.send("tasks/cancel", { taskId: task.taskId }).reply;
+    assert.ok(await waitUntil(() => !isAlive(pids[0])), "the agent must be stopped");
+    t += 60 * 60 * 1000 + 1;
+    assert.equal(tasks.get(task.taskId), undefined, "the task should have been dropped");
+    const out = payload((await raw.call({ resumeSessionId: task.taskId }, { tasks: false }).reply).result);
+    assert.equal(out.sessionId, "sess-escalate");
+  } finally {
+    await raw.close();
+  }
+});
+
 test("a task's id resumes the session its run opened, after tasks/cancel stopped it", async () => {
   const pids = [];
   const stopped = realOver("escalation-stub.js", {}, pids);

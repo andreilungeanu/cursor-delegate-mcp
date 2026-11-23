@@ -288,7 +288,7 @@ export function buildServer({
     },
     async (args, ctx) => {
       // Claude Code tells the model a task's id and never its session id, even after a stop.
-      const resumeSessionId = tasks.get(args.resumeSessionId)?.sessionId ?? args.resumeSessionId;
+      const resumeSessionId = tasks.sessionOf(args.resumeSessionId) ?? args.resumeSessionId;
       /** @param {Record<string, any>} [over] */
       const run = (over) => runDelegateTool({ args: { ...args, resumeSessionId }, ctx, runDelegate, inFlight: flights, seenSessions, ...over });
       if (!servesTasks || !listsTasks(ctx)) return run();

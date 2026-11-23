@@ -10,6 +10,20 @@ function clockedStore(opts) {
   return { store, advance: (ms) => { t += ms; } };
 }
 
+test("a task's session is still found by its id once the task itself is dropped", () => {
+  const { store, advance } = clockedStore();
+  const task = store.create();
+  task.sessionId = "sess-first";
+  store.add(task);
+  store.finish(task, { result: {} });
+  assert.equal(store.sessionOf(task.taskId), "sess-first");
+  advance(HOUR + 1);
+  assert.equal(store.get(task.taskId), undefined);
+  assert.equal(store.sessionOf(task.taskId), "sess-first");
+  assert.equal(store.sessionOf("not-a-task"), undefined);
+  assert.equal(store.sessionOf(undefined), undefined);
+});
+
 test("a finished task is kept for an hour after it ends and a working one is never dropped", () => {
   const { store, advance } = clockedStore();
   const working = store.create();

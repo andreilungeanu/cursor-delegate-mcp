@@ -28,10 +28,17 @@ export function listsTasks(ctx) {
 export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
   /** @type {Map<string, Task>} */
   const tasks = new Map();
+  // A dropped task's session, so its id still resumes it: the host shows the model only the task id.
+  /** @type {Map<string, string>} */
+  const sessions = new Map();
   // A running task is never dropped: its id is the host's only handle on the run.
   const prune = () => {
     const t = now();
-    for (const task of tasks.values()) if (task.endedAt !== undefined && t - task.endedAt > retainMs) tasks.delete(task.taskId);
+    for (const task of tasks.values()) {
+      if (task.endedAt === undefined || t - task.endedAt <= retainMs) continue;
+      tasks.delete(task.taskId);
+      if (task.sessionId) sessions.set(task.taskId, task.sessionId);
+    }
   };
   // A fact that changes what to do after a cancel, such as an agent the stop did not see exit.
   /** @param {Task} task @param {string} text */
@@ -53,6 +60,12 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
     add(task) { prune(); tasks.set(task.taskId, task); },
     /** @param {string} taskId */
     get(taskId) { prune(); return tasks.get(taskId); },
+    /** @param {string | undefined} taskId */
+    sessionOf(taskId) {
+      if (taskId === undefined) return undefined;
+      prune();
+      return tasks.get(taskId)?.sessionId ?? sessions.get(taskId);
+    },
     // A cancelled task keeps its own status message: the run's error names the abort, a reason no
     // blocking call returns.
     /** @param {Task} task @param {{ result?: any, error?: any }} outcome */
