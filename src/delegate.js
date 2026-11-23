@@ -659,11 +659,10 @@ export async function runDelegate({
     signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
     // Awaited: a host may close stdin on the result, and on Windows the server's exit does not take
-    // a running agent with it (server.smoke.test.js). An exit not seen is noted instead.
-    // A rejected stop counts as unseen; an unseen exit is not memoized, so a retry kills afresh.
-    const stopOnce = () => Promise.resolve(client.stop()).catch(() => false);
-    let exited = await stopOnce();
-    if (exited === false) exited = await stopOnce();
+    // a running agent with it (server.smoke.test.js). An exit not seen is noted instead, as is a
+    // stop that rejects.
+    let exited = false;
+    try { exited = await client.stop(); } catch {}
     if (exited === false) {
       const pid = client.child?.pid;
       const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but did not see it exit; it may still be running.`;

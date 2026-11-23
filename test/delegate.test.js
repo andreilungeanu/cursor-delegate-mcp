@@ -2794,7 +2794,7 @@ test("the delegation returns only once the agent has exited", async () => {
   assert.equal(stops, 1, "a seen exit needs no second stop");
 });
 
-test("an agent whose exit the stop does not see is stopped again and reported", async () => {
+test("an agent whose exit the stop does not see is reported", async () => {
   let stops = 0;
   let stopsAtTurnEnd;
   const factory = (prompt) => () => {
@@ -2813,7 +2813,7 @@ test("an agent whose exit the stop does not see is stopped again and reported", 
     }),
   });
   assert.equal(stopsAtTurnEnd, 0, "the turn ends before its agent is stopped");
-  assert.equal(stops, 2, "an unseen exit gets one more stop");
+  assert.equal(stops, 1, "the stop retries an unseen exit itself");
   assert.ok(out.protocolWarnings?.some((w) => /\(pid 4242\) but did not see it exit/.test(w)), JSON.stringify(out.protocolWarnings));
   await assert.rejects(runDelegate({
     spec: "task", workspace: process.cwd(),
@@ -2838,8 +2838,8 @@ test("a stop that rejects counts as an unseen exit", async () => {
     });
     return { stops, warned: (out.protocolWarnings ?? []).some((w) => /did not see it exit/.test(w)) };
   };
-  assert.deepEqual(await run([new Error("kill failed"), true]), { stops: 2, warned: false });
-  assert.deepEqual(await run([new Error("kill failed"), new Error("kill failed")]), { stops: 2, warned: true });
+  assert.deepEqual(await run([new Error("kill failed")]), { stops: 1, warned: true });
+  assert.deepEqual(await run([true]), { stops: 1, warned: false });
 });
 
 test("a failure whose message cannot be written keeps its own error when the exit is not seen", async () => {
