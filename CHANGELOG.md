@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-11-23
+
+### Added
+
+- `doctor` reports `client.protocolVersion`: `2026-07-28`, or the 2025-era revision the host
+  negotiated.
+
+### Changed
+
+- MCP SDK v2 (`@modelcontextprotocol/server` 2.4.0): the server takes 2025-era and 2026-07-28
+  hosts. The runtime dependencies are this package and `zod`.
+- A delegation returns once cursor-agent has exited, about 0.1 s after the turn ends. A host that
+  closes stdin on the result, as a one-shot run does, exits the server, which on Windows left a
+  cursor-agent still being killed running.
+
+### Fixed
+
+- An agent whose exit is not seen after the kill is killed once more, by the delegation and by
+  server shutdown. A delegation that still sees no exit says so in `protocolWarnings` or its
+  error.
+- `cancel` reports `not-running` for a turn that has ended while its agent is being stopped, and
+  leaves its result alone. `force` leaves a turn that ends during its grace to that turn's own
+  teardown.
+- `doctor` on a 2025-era connection reports the identity and revision from `initialize`, even
+  when a request carries per-request envelope keys.
+- On Windows, quotes and empty arguments in `ACP_AGENT_ARGS` reach cursor-agent when
+  `cursor-agent.cmd` forwards to its `.ps1` through Windows PowerShell 5.1.
+- The Claude plugin manifest names its image `icon`, the field Anthropic's plugin directory reads.
+
 ## [2.10.0] - 2026-11-22
 
 ### Changed
