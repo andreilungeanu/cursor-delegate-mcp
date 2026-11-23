@@ -4,7 +4,7 @@ import process from "node:process";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { InMemoryTransport } from "@modelcontextprotocol/server";
+import { InMemoryTransport, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from "@modelcontextprotocol/server";
 import { Client } from "@modelcontextprotocol/client";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { AcpClient } from "../src/acp-client.js";
@@ -41,6 +41,27 @@ async function connectEra(versionNegotiation, serverOpts) {
   await client.connect(clientTransport);
   return { client, close: async () => { await client.close(); await served.close(); } };
 }
+
+test("doctor on a 2025-era connection reports the initialize identity over a request's envelope keys", async () => {
+  const runDoctor = async ({ getClientInfo }) => getClientInfo();
+  const { client, close } = await connectEra(undefined, { runDoctor });
+  try {
+    const info = payload(await client.callTool({
+      name: "doctor",
+      arguments: {},
+      _meta: {
+        [CLIENT_INFO_META_KEY]: { name: "per-request", version: "9" },
+        [CLIENT_CAPABILITIES_META_KEY]: { sampling: {} },
+        [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+      },
+    }));
+    assert.equal(info.version?.name, "era-host");
+    assert.deepEqual(info.capabilities?.elicitation, { form: {} });
+    assert.match(info.protocolVersion, /^2025-/);
+  } finally {
+    await close();
+  }
+});
 
 for (const [era, versionNegotiation] of ERAS) {
   test(`doctor reports the host's identity and protocol revision on a ${era}-era connection`, async () => {

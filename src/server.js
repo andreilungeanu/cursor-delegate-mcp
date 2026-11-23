@@ -366,14 +366,14 @@ export function buildServer({ runDelegate: runDelegateInjected, runDoctor: runDo
   return server;
 }
 
-// A 2026-07-28 client sends its identity with each request; a 2025-era one sends it once, in
-// initialize, which the server's getters return.
+// A 2025-era client sends its identity once, in initialize, which stays authoritative on that
+// connection even if a request carries envelope keys; a 2026-07-28 one sends it with each request.
 export function clientInfoOf(server, ctx) {
   const envelope = ctx?.mcpReq?.envelope;
   return {
-    capabilities: envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? server.server.getClientCapabilities(),
-    version: envelope?.[CLIENT_INFO_META_KEY] ?? server.server.getClientVersion(),
-    protocolVersion: envelope?.[PROTOCOL_VERSION_META_KEY] ?? server.server.getNegotiatedProtocolVersion(),
+    capabilities: server.server.getClientCapabilities() ?? envelope?.[CLIENT_CAPABILITIES_META_KEY],
+    version: server.server.getClientVersion() ?? envelope?.[CLIENT_INFO_META_KEY],
+    protocolVersion: server.server.getNegotiatedProtocolVersion() ?? envelope?.[PROTOCOL_VERSION_META_KEY],
   };
 }
 
