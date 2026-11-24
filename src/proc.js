@@ -83,12 +83,12 @@ const unconfirmed = new WeakSet();
  *   stop: (opts?: { timeoutMs?: number }) => Promise<boolean>,
  *   release: () => void,
  * }} TrackedChild
- * @typedef {{ child?: any, kill: (timeoutMs: number) => Promise<boolean> }} ChildKill
+ * @typedef {{ child?: any, kill: (timeoutMs: number) => Promise<boolean>, spent?: () => boolean }} ChildKill
  * @typedef {ReturnType<typeof createChildRegistry>} ChildRegistry
  */
 
-// The processes still to stop. An entry leaves once a stop saw its exit and its tree kill ended, or
-// its owner releases it; after that its pid may be reused.
+// The processes still to stop. An entry leaves once a stop saw its exit and its tree kill ended, a
+// stop failed with nothing left to reach, or its owner releases it; after that its pid may be reused.
 export function createChildRegistry() {
   /** @type {Set<TrackedChild>} */
   const live = new Set();
@@ -103,6 +103,8 @@ export function createChildRegistry() {
       const kill = start();
       /** @type {Promise<boolean> | null} */
       let stopping = null;
+      // What a stop reports once the entry has left.
+      let outcome = true;
       const attempt = (timeoutMs) => {
         try { return Promise.resolve(kill.kill(timeoutMs)).catch(() => false); } catch { return Promise.resolve(false); }
       };
@@ -111,10 +113,10 @@ export function createChildRegistry() {
         child: kill.child,
         // An attempt that missed the exit is retried once; a later stop kills again.
         stop: ({ timeoutMs = KILL_WAIT_MS } = {}) => {
-          if (!live.has(entry)) return Promise.resolve(true);
+          if (!live.has(entry)) return Promise.resolve(outcome);
           stopping ??= attempt(timeoutMs).then((seen) => seen || attempt(timeoutMs)).then((seen) => {
             stopping = null;
-            if (seen) live.delete(entry);
+            if (seen || kill.spent?.()) { live.delete(entry); outcome = seen; }
             return seen;
           });
           return stopping;
@@ -146,6 +148,7 @@ export function spawnChild(command, args, options, { stdio }, registry = childre
   return registry.track(() => {
     const argv = spawnArgv(command, args, options);
     const child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio });
-    return { child, kill: (timeoutMs) => killAndSeeExit(child, timeoutMs) };
+    // A launcher gone after a failed tree kill: no later kill reaches what it started.
+    return { child, kill: (timeoutMs) => killAndSeeExit(child, timeoutMs), spent: () => unconfirmed.has(child) && !isChildAlive(child) };
   });
 }

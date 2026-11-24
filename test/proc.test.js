@@ -117,10 +117,14 @@ const startTracked = (registry) => spawnChild(process.execPath, ["-e", "setInter
 // so the caller still warns that it may be running.
 test("a taskkill that fails still ends the launcher, by its own handle, and the stop stays unconfirmed", win32Only, async () => {
   const swap = swapTaskkill("process.exit(1)");
-  const tracked = startTracked(createChildRegistry());
+  const registry = createChildRegistry();
+  /** @type {any[]} */
+  const kills = [];
+  const tracked = startTracked({ track: (start) => registry.track(() => { const kill = start(); kills.push(kill); return kill; }) });
   try {
     assert.equal(await tracked.stop(), false, "a failed taskkill was taken for a clean stop");
     assert.equal(isChildAlive(tracked.child), false, "the launcher outlived the stop");
+    assert.equal(kills[0].spent(), true, "the dead launcher is still counted as reachable");
     assert.equal(await tracked.stop(), false, "a later stop took the dead launcher for a clean stop");
   } finally {
     swap.restore();
@@ -170,6 +174,16 @@ test("a stop retries an attempt that missed the exit once, and the next stop kil
   assert.equal(calls.attempts, 6);
   assert.equal(await entry.stop(), true);
   assert.equal(calls.attempts, 6, "a stop that saw the exit is not repeated");
+});
+
+test("a failed stop with nothing left to reach leaves the registry, and later stops still report it", async () => {
+  const registry = createChildRegistry();
+  let attempts = 0;
+  const entry = registry.track(() => ({ kill: async () => { attempts++; return false; }, spent: () => true }));
+  assert.equal(await entry.stop(), false);
+  assert.equal(await entry.stop(), false);
+  await registry.stopAll();
+  assert.equal(attempts, 2, "the registry kept stopping a child no kill can reach");
 });
 
 test("callers join a stop in flight", async () => {
