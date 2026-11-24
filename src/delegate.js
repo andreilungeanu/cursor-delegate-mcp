@@ -664,7 +664,7 @@ export async function runDelegate({
     try { exited = await client.stop(); } catch {}
     if (exited === false) {
       const pid = client.child?.pid;
-      const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but did not see it exit; it may still be running.`;
+      const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but could not confirm that it and its processes exited; they may still be running.`;
       if (failure) failure.notes.push(` Note: ${note}`);
       else if (out) (out.protocolWarnings ??= []).push(note);
       try { onUnseenExit?.(note); } catch {}

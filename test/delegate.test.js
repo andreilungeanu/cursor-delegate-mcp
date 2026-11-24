@@ -2587,7 +2587,7 @@ test("onUnseenExit carries the note when the stop did not see cursor-agent exit"
     onUnseenExit: (note) => notes.push(note),
   });
   assert.equal(notes.length, 1);
-  assert.match(notes[0], /did not see it exit/);
+  assert.match(notes[0], /could not confirm that it and its processes exited/);
   assert.ok(out.protocolWarnings.includes(notes[0]));
 });
 
@@ -2858,11 +2858,11 @@ test("an agent whose exit the stop does not see is reported", async () => {
   });
   assert.equal(stopsAtTurnEnd, 0, "the turn ends before its agent is stopped");
   assert.equal(stops, 1, "the stop retries an unseen exit itself");
-  assert.ok(out.protocolWarnings?.some((w) => /\(pid 4242\) but did not see it exit/.test(w)), JSON.stringify(out.protocolWarnings));
+  assert.ok(out.protocolWarnings?.some((w) => /\(pid 4242\) but could not confirm that it and its processes exited/.test(w)), JSON.stringify(out.protocolWarnings));
   await assert.rejects(runDelegate({
     spec: "task", workspace: process.cwd(),
     clientFactory: factory(async () => { throw Object.assign(new Error("boom"), { code: -32603 }); }),
-  }), /did not see it exit/);
+  }), /could not confirm that it and its processes exited/);
 });
 
 test("a stop that rejects counts as an unseen exit", async () => {
@@ -2880,7 +2880,7 @@ test("a stop that rejects counts as an unseen exit", async () => {
         return client;
       },
     });
-    return { stops, warned: (out.protocolWarnings ?? []).some((w) => /did not see it exit/.test(w)) };
+    return { stops, warned: (out.protocolWarnings ?? []).some((w) => /could not confirm that it and its processes exited/.test(w)) };
   };
   assert.deepEqual(await run([new Error("kill failed")]), { stops: 1, warned: true });
   assert.deepEqual(await run([true]), { stops: 1, warned: false });
@@ -2890,7 +2890,7 @@ test("a stop that rejects counts as an unseen exit", async () => {
 // hint (thrown once the session is open), and the reason a JSON-RPC code gives.
 test("every note the bridge adds reaches the caller, whatever the agent's side threw", async () => {
   const cases = [
-    { at: "start", thrown: Object.freeze(Object.assign(new Error("boom"), { reason: "spawn-failed" })), exited: false, reason: "spawn-failed", notes: ["boom", "did not see it exit"] },
+    { at: "start", thrown: Object.freeze(Object.assign(new Error("boom"), { reason: "spawn-failed" })), exited: false, reason: "spawn-failed", notes: ["boom", "could not confirm that it and its processes exited"] },
     { at: "prompt", thrown: Object.freeze(new Error("boom")), notes: ["boom", "Resume with resumeSessionId sess-frozen"] },
     { at: "prompt", thrown: "a bare string", notes: ["a bare string", "Resume with resumeSessionId sess-frozen"] },
     { at: "setMode", thrown: Object.freeze(Object.assign(new Error("Invalid params"), { code: -32602 })), reason: "agent-error", code: -32602, notes: ["Invalid params", "Resume with resumeSessionId sess-frozen"] },

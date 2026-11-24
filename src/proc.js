@@ -12,17 +12,17 @@ export function isChildAlive(child) {
 // in resolveAcpSpawn, so an injected spec gets it too.
 export const DETACHED = process.platform !== "win32";
 
-// On win32 child.kill() reaches only the wrapper; taskkill /T takes the whole tree.
+// On win32 child.kill() reaches only the wrapper; taskkill /T takes the whole tree. False when
+// taskkill failed or stalled; its 128 is no such process, a launcher already gone.
 export async function treeKill(pid, { childAlive = true } = {}) {
-  if (!pid) return;
+  if (!pid) return true;
   if (process.platform === "win32") {
     // taskkill /T follows parent links, which an exited leader no longer has, and a reaped pid can
     // already belong to another process: after the exit there is nothing safe to kill.
-    if (!childAlive) return;
-    await /** @type {Promise<void>} */ (new Promise((resolve) => {
-      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: TASKKILL_MS, killSignal: "SIGKILL" }, () => resolve());
+    if (!childAlive) return true;
+    return /** @type {Promise<boolean>} */ (new Promise((resolve) => {
+      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: TASKKILL_MS, killSignal: "SIGKILL" }, (err) => resolve(!err || err.code === 128));
     }));
-    return;
   }
   // The negative pid signals the whole group, which outlives its leader, so this runs even after
   // the child exited: its descendants may still be running.
@@ -30,6 +30,7 @@ export async function treeKill(pid, { childAlive = true } = {}) {
   // Reaches a child that is not a group leader, where the group kill raised ESRCH. Skipped once
   // the child is gone, since a reaped pid can already belong to something else.
   if (childAlive) { try { process.kill(pid, "SIGKILL"); } catch {} }
+  return true;
 }
 
 // How long one kill attempt waits for the exit and the tree kill. SIGKILL and taskkill /F land in
@@ -49,10 +50,13 @@ async function killAndSeeExit(child, timeoutMs) {
   // tree kill at a time: a retry joins the one still running.
   let killed = treeKills.get(child);
   if (!killed) {
-    killed = treeKill(child.pid, { childAlive: alive }).catch(() => {})
-      // taskkill can fail or stall; the launcher's own handle still kills it, and no reused pid.
-      .then(() => { if (process.platform === "win32" && isChildAlive(child)) { try { child.kill("SIGKILL"); } catch {} } })
-      .finally(() => treeKills.delete(child));
+    killed = treeKill(child.pid, { childAlive: alive }).catch(() => false).then((tidy) => {
+      if (tidy) return;
+      // The launcher's own handle still kills it, and no reused pid, but what it started may run on:
+      // every later stop of this child reports the tree unconfirmed.
+      unconfirmed.add(child);
+      if (isChildAlive(child)) { try { child.kill("SIGKILL"); } catch {} }
+    }).finally(() => treeKills.delete(child));
     treeKills.set(child, killed);
   }
   /** @type {NodeJS.Timeout | undefined} */
@@ -64,11 +68,14 @@ async function killAndSeeExit(child, timeoutMs) {
   // On win32 taskkill can still be at work on the tree once the launcher's exit is seen.
   const treeKilled = await Promise.race([killed.then(() => true), bounded]);
   clearTimeout(timer);
-  return observed && treeKilled;
+  return observed && treeKilled && !unconfirmed.has(child);
 }
 
 /** @type {WeakMap<import("node:child_process").ChildProcess, Promise<unknown>>} */
 const treeKills = new WeakMap();
+// Children whose tree kill failed, so their exit does not show their processes ended.
+/** @type {WeakSet<import("node:child_process").ChildProcess>} */
+const unconfirmed = new WeakSet();
 
 /**
  * @typedef {{

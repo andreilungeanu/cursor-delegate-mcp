@@ -113,12 +113,15 @@ function swapTaskkill(script) {
 
 const startTracked = (registry) => spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { shell: false }, { stdio: "ignore" }, registry);
 
-test("a taskkill that fails still ends the launcher, by its own handle", win32Only, async () => {
-  const swap = swapTaskkill("process.exit(128)");
+// The launcher dies by its handle, but what it started is out of reach: the stop stays unconfirmed,
+// so the caller still warns that it may be running.
+test("a taskkill that fails still ends the launcher, by its own handle, and the stop stays unconfirmed", win32Only, async () => {
+  const swap = swapTaskkill("process.exit(1)");
   const tracked = startTracked(createChildRegistry());
   try {
-    assert.equal(await tracked.stop(), true, "the stop did not see the launcher exit");
-    assert.equal(isChildAlive(tracked.child), false);
+    assert.equal(await tracked.stop(), false, "a failed taskkill was taken for a clean stop");
+    assert.equal(isChildAlive(tracked.child), false, "the launcher outlived the stop");
+    assert.equal(await tracked.stop(), false, "a later stop took the dead launcher for a clean stop");
   } finally {
     swap.restore();
     try { tracked.child.kill("SIGKILL"); } catch {}
@@ -130,7 +133,8 @@ test("a taskkill that stalls is stopped, and the launcher killed by its own hand
   const tracked = startTracked(createChildRegistry());
   const started = Date.now();
   try {
-    assert.equal(await tracked.stop(), true, "the stop did not see the launcher exit");
+    assert.equal(await tracked.stop(), false, "a stalled taskkill was taken for a clean stop");
+    assert.equal(isChildAlive(tracked.child), false, "the launcher outlived the stop");
     assert.ok(Date.now() - started < 3900, `the stop took ${Date.now() - started} ms`);
     assert.equal(swap.utilities.length, 1, "a retry started a second taskkill");
     assert.notEqual(swap.utilities[0].signalCode ?? swap.utilities[0].exitCode, null, "the stalled taskkill is still running");
