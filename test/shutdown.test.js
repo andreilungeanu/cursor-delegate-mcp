@@ -45,15 +45,18 @@ test("stdin EOF runs stopAll once and exits 0 when it settles", async () => {
   }
 });
 
-test("a signal exits with its code once stopAll settles, and a second signal exits at once", async () => {
+test("a signal exits with its code once stopAll settles, and a later signal waits for it", async () => {
   const h = install();
   try {
+    h.signal("SIGINT");
+    await tick();
     h.signal("SIGTERM");
     await tick();
-    assert.deepEqual(h.exits, []);
-    h.signal("SIGINT");
-    assert.deepEqual(h.exits, [130]);
+    assert.deepEqual(h.exits, [], "a later signal cut the kills short");
     assert.equal(h.stops(), 1);
+    h.settle().resolve();
+    await tick();
+    assert.deepEqual(h.exits, [130]);
   } finally {
     h.done();
   }
