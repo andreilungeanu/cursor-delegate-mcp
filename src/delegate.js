@@ -284,53 +284,25 @@ export async function runDelegate({
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
   const state = makeTurnState({ onProgress, progressThrottleMs });
 
-  // ACP requires string plan content and bounds priority/status. A frame that violates that must
-  // not fail the MCP call after the work is done — drop the bad data, report it as a diagnostic.
-  const sanitizePlan = (warnings) => {
-    const entries = [];
-    state.planEntries.forEach((raw, i) => {
-      if (typeof raw?.content !== "string") {
-        warnings.push(`plan entry ${i} dropped: ACP requires string content, got ${raw === null ? "null" : typeof raw?.content}`);
-        return;
-      }
+  // ACP requires string plan content and bounds priority and status. An entry without text is
+  // dropped and a value outside the bounds removed, so the result keeps its shape.
+  const sanitizePlan = () => {
+    const entries = state.planEntries.filter((raw) => typeof raw?.content === "string").map((raw) => {
       const entry = { ...raw };
-      if (entry.priority !== undefined && !PLAN_PRIORITIES.includes(entry.priority)) {
-        warnings.push(`plan entry ${i}: non-ACP priority ${JSON.stringify(entry.priority)} removed`);
-        delete entry.priority;
-      }
-      if (entry.status !== undefined && !PLAN_STATUSES.includes(entry.status)) {
-        warnings.push(`plan entry ${i}: non-ACP status ${JSON.stringify(entry.status)} removed`);
-        delete entry.status;
-      }
-      entries.push(entry);
+      if (!PLAN_PRIORITIES.includes(entry.priority)) delete entry.priority;
+      if (!PLAN_STATUSES.includes(entry.status)) delete entry.status;
+      return entry;
     });
     const plan = { entries };
-    if (state.planOverview !== undefined) {
-      if (typeof state.planOverview === "string") plan.overview = state.planOverview;
-      else warnings.push("plan overview dropped: expected string");
-    }
-    if (state.planDetail !== undefined) {
-      if (typeof state.planDetail === "string") plan.detail = state.planDetail;
-      else warnings.push("plan detail dropped: expected string");
-    }
+    if (typeof state.planOverview === "string") plan.overview = state.planOverview;
+    if (typeof state.planDetail === "string") plan.detail = state.planDetail;
     return plan;
   };
 
-  const sanitizeTodos = (warnings) => {
-    const entries = [];
-    let i = -1;
-    for (const raw of state.todos.values()) {
-      i++;
-      if (typeof raw?.content !== "string") {
-        warnings.push(`todo ${i} dropped: expected string content, got ${raw === null ? "null" : typeof raw?.content}`);
-        continue;
-      }
-      const status = TODO_STATUSES.includes(raw.status) ? raw.status : undefined;
-      if (raw.status !== undefined && status === undefined) {
-        warnings.push(`todo ${i}: unknown status ${JSON.stringify(raw.status)} removed`);
-      }
-      entries.push({ id: String(raw.id), content: raw.content, ...(status ? { status } : {}) });
-    }
+  const sanitizeTodos = () => {
+    const entries = [...state.todos.values()]
+      .filter((raw) => typeof raw?.content === "string")
+      .map((raw) => ({ id: String(raw.id), content: raw.content, ...(TODO_STATUSES.includes(raw.status) ? { status: raw.status } : {}) }));
     const count = (s) => entries.filter((e) => e.status === s).length;
     return {
       todos: entries,
@@ -585,17 +557,15 @@ export async function runDelegate({
     protocolWarnings.push(...contextWarnings);
     protocolWarnings.push(...frameWarnings);
     if (state.planEntries.length > 0 || state.planOverview !== undefined || state.planDetail !== undefined) {
-      // Sanitized even when dropped: its warnings report malformed frames in any mode.
-      const plan = sanitizePlan(protocolWarnings);
       // In plan/ask the result is the plan in prose; entries would put the same steps in context
       // twice, and the implementing resume reads the session, not this field. In agent mode the
       // result is the implementation report, so the plan stays.
-      if (!dropPlan) out.plan = plan;
+      if (!dropPlan) out.plan = sanitizePlan();
     }
     // Only when the agent tracked todos: an empty list would read as "nothing done". The list
     // itself only while items remain; once all are done it restates the counts.
     if (state.sawTodoFrame) {
-      const { todos: todoList, todoProgress } = sanitizeTodos(protocolWarnings);
+      const { todos: todoList, todoProgress } = sanitizeTodos();
       out.todoProgress = todoProgress;
       if (todoProgress.completed < todoProgress.total) out.todos = todoList;
     }
@@ -629,7 +599,7 @@ export async function runDelegate({
       notes.push(`\n\nLast ACP frame ${age} ago${state.lastToolLabel ? `; last tool call: ${state.lastToolLabel}` : ""}.`);
       if (state.sessionTitle) notes.push(` The agent titled this turn ${JSON.stringify(state.sessionTitle)}.`);
       if (state.sawTodoFrame) {
-        const { todoProgress } = sanitizeTodos([]);
+        const { todoProgress } = sanitizeTodos();
         const current = state.todoLabel();
         notes.push(` ${todoProgress.completed} of ${todoProgress.total} todos completed${current ? `; ${current}` : ""}.`);
       }

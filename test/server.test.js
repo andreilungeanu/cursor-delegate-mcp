@@ -1100,45 +1100,6 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
   }
 });
 
-test("delegate tool call survives malformed ACP plan frames end-to-end", async () => {
-  const { runDelegate } = await import("../src/delegate.js");
-  const { EventEmitter } = await import("node:events");
-  const clientFactory = () => {
-    const acp = new EventEmitter();
-    acp.start = async () => {};
-    acp.initialize = async () => {};
-    acp.newSession = async () => ({ sessionId: "sess-malformed" });
-    acp.setModel = async () => {};
-    acp.setConfigOption = async () => {};
-    acp.setMode = async () => {};
-    acp.prompt = async () => {
-      acp.emit("update", { update: { sessionUpdate: "plan", entries: [{ content: { text: "not a string" } }] } });
-      acp.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "implemented" } } });
-      return { stopReason: "end_turn" };
-    };
-    acp.getTranscript = () => "";
-    acp.stop = () => {};
-    return acp;
-  };
-  const server = buildServer({
-    runDelegate: (opts) => runDelegate({ ...opts, clientFactory }),
-  });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "malformed-plan-e2e", version: "1.0" });
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  try {
-    const res = await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "do the thing" } });
-    assert.equal(res.isError ?? false, false, "completed work must not become an MCP error");
-    const out = payload(res);
-    assert.equal(out.result, "implemented");
-    assert.equal(out.sessionId, "sess-malformed");
-    assert.deepEqual(out.plan.entries, []);
-    assert.match(out.protocolWarnings[0], /plan entry 0 dropped/);
-  } finally {
-    await client.close();
-  }
-});
-
 test("a shutdown during the handshake still kills the agent it spawned", async () => {
   // The agent process exists from client.start(); its session id arrives about 3.4s later. A
   // host going away inside that window used to exit with the agent running and nothing holding

@@ -2008,10 +2008,10 @@ function scriptedFactory({ planEntries, stopReason = "end_turn", message = "plan
   };
 }
 
-test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them", async () => {
+test("runDelegate drops a plan entry without text and the values ACP does not allow", async () => {
   const out = await runDelegate({
     spec: "plan it",
-    mode: "plan",
+    mode: "agent",
     workspace: process.cwd(),
     clientFactory: scriptedFactory({
       planEntries: [
@@ -2021,15 +2021,11 @@ test("runDelegate sanitizes malformed ACP plan frames instead of surfacing them"
       ],
     }),
   });
-  assert.equal(out.result, "plan ready");
-  assert.equal(out.stopReason, undefined);
-  // The plan itself is dropped in plan mode, but sanitizing still runs: a malformed frame is the
-  // agent misbehaving, and the caller needs to hear about it whatever mode it asked for.
-  assert.equal(out.plan, undefined);
-  assert.equal(out.protocolWarnings.length, 3);
-  assert.match(out.protocolWarnings[0], /plan entry 1 dropped/);
-  assert.match(out.protocolWarnings[1], /priority/);
-  assert.match(out.protocolWarnings[2], /status/);
+  assert.deepEqual(out.plan.entries, [
+    { content: "valid step", priority: "high", status: "pending" },
+    { content: "loose fields" },
+  ]);
+  assert.equal(out.protocolWarnings, undefined);
 });
 
 test("runDelegate surfaces a stop reason that is not end_turn", async () => {
@@ -2257,7 +2253,7 @@ test("runDelegate treats merge:false as a full replacement", async () => {
   assert.deepEqual(out.todos, [{ id: "2", content: "second", status: "pending" }]);
 });
 
-test("runDelegate sanitizes malformed todo entries instead of failing the call", async () => {
+test("runDelegate drops a todo without text and a status ACP does not allow", async () => {
   const out = await runDelegate({
     spec: "three steps",
     workspace: process.cwd(),
@@ -2272,9 +2268,7 @@ test("runDelegate sanitizes malformed todo entries instead of failing the call",
     { id: "3", content: "odd status" },
   ]);
   assert.equal(out.todoProgress.total, 2);
-  assert.equal(out.protocolWarnings.length, 2);
-  assert.match(out.protocolWarnings[0], /todo 1 dropped/);
-  assert.match(out.protocolWarnings[1], /abandoned/);
+  assert.equal(out.protocolWarnings, undefined);
 });
 
 test("runDelegate keeps cancelled todos and counts them separately", async () => {
