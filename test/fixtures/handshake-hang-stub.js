@@ -1,4 +1,4 @@
-// Hangs on initialize — never responds (handshake idle-timeout probe).
+// Hangs on initialize — never responds (handshake-timeout probe).
 import readline from "node:readline";
 
 readline.createInterface({ input: process.stdin }).on("line", () => {});
