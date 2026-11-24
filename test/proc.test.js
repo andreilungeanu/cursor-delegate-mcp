@@ -163,6 +163,17 @@ test("a taskkill that stalls is stopped, and the launcher killed by its own hand
   }
 });
 
+test("treeKill reports a taskkill that failed, and one that found no such process as done", win32Only, async () => {
+  for (const [code, expected] of [[1, false], [128, true]]) {
+    const swap = swapTaskkill(`process.exit(${code})`);
+    try {
+      assert.equal(await treeKill(4242, { childAlive: true }), expected, `taskkill exit ${code}`);
+    } finally {
+      swap.restore();
+    }
+  }
+});
+
 // A tracked child whose kill attempts end as scripted: true or false is the exit seen or not,
 // "reject" and "throw" a kill that failed.
 function scripted(registry, outcomes) {
