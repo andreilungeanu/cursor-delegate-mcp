@@ -40,7 +40,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
       if (task.sessionId) sessions.set(task.taskId, task.sessionId);
     }
   };
-  // A fact that changes what to do after a cancel, such as an agent the stop could not confirm exited.
+  // A fact that changes what to do after a cancel: a resume that fell back to a fresh session.
   /** @param {Task} task @param {string} text */
   const note = (task, text) => {
     if (task.status !== "cancelled") return;
@@ -50,7 +50,6 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
   };
   return {
     now,
-    note,
     /** @returns {Task} */
     create() {
       const t = now();
@@ -120,7 +119,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
  * Runs a delegation that answers its request with a task once the prompt is sent. A run that
  * settles before then, setup failures included, answers with its result as a blocking call does.
  * @param {{
- *   run: (over: { signal: AbortSignal, onProgress: (m: string) => void, onPromptSent: (id: string, handle?: any, resumeNote?: string) => void, onUnseenExit: (note: string) => void, onTurnEnd: () => void }) => Promise<any>,
+ *   run: (over: { signal: AbortSignal, onProgress: (m: string) => void, onPromptSent: (id: string, handle?: any, resumeNote?: string) => void, onTurnEnd: () => void }) => Promise<any>,
  *   signal?: AbortSignal, notify?: (message: string) => void, store: ReturnType<typeof createTaskStore>,
  * }} opts
  */
@@ -145,7 +144,6 @@ export async function runAsTask({ run, signal, notify = () => {}, store }) {
       if (!answered) notify(message);
     },
     onPromptSent: (sessionId, handle, resumeNote) => { task.sessionId = sessionId; task.handle = handle; task.resumeNote = resumeNote; markSent(); },
-    onUnseenExit: (note) => store.note(task, note),
     onTurnEnd: () => { task.turnEnded = true; },
   }).then((result) => ({ result }), (error) => ({ error }));
   const first = await Promise.race([sent, outcome]);

@@ -182,14 +182,13 @@ export function progressNotifier(ctx) {
  *   signal?: AbortSignal,
  *   onProgress?: (message: string) => void,
  *   onPromptSent?: (sessionId: string, handle: any, resumeNote?: string) => void,
- *   onUnseenExit?: (note: string) => void,
  *   onTurnEnd?: () => void,
  * }} deps
  * @returns {Promise<import("@modelcontextprotocol/server").CallToolResult>}
  */
 export async function runDelegateTool({
   args, ctx, runDelegate, inFlight, seenSessions = new Set(),
-  signal = ctx?.mcpReq?.signal, onProgress = progressNotifier(ctx), onPromptSent, onUnseenExit, onTurnEnd,
+  signal = ctx?.mcpReq?.signal, onProgress = progressNotifier(ctx), onPromptSent, onTurnEnd,
 }) {
   const { spec, mode, resumeSessionId, workspace, model, fast, effort, context, contextFiles } = args;
 
@@ -209,7 +208,6 @@ export async function runDelegateTool({
       onProgress,
       signal,
       onPromptSent: onPromptSent && ((sessionId, resumeNote) => onPromptSent(sessionId, handle, resumeNote)),
-      onUnseenExit,
       onSessionReady: (sessionId, client) => {
         capturedSessionId = sessionId;
         handle = { client, cancelRequested: false };

@@ -2558,16 +2558,12 @@ test("onPromptSent carries why a resumed id ran as a fresh session, and nothing 
   assert.equal(notes[1], undefined);
 });
 
-test("onUnseenExit carries the note when the stop could not confirm cursor-agent exited", async () => {
-  const notes = [];
+test("a stop that could not confirm the agent exited is a protocol warning on the result", async () => {
   const out = await runDelegate({
     spec: "task", workspace: process.cwd(),
     clientFactory: () => { const client = stubClient("sess-x"); client.stop = async () => false; return client; },
-    onUnseenExit: (note) => notes.push(note),
   });
-  assert.equal(notes.length, 1);
-  assert.match(notes[0], /could not confirm that it and its processes exited/);
-  assert.ok(out.protocolWarnings.includes(notes[0]));
+  assert.ok(out.protocolWarnings.some((w) => /could not confirm that it and its processes exited/.test(w)), String(out.protocolWarnings));
 });
 
 test("onPromptSent does not fire for a delegation whose model is rejected", async () => {

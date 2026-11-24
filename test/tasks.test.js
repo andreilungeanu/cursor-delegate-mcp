@@ -101,16 +101,13 @@ test("a finished task drops its last progress line, and a failed one says why", 
   assert.equal(store.view(failed).statusMessage, "boom");
 });
 
-test("a cancelled task names a resume that fell back and an agent the stop could not confirm exited, not the run's error", async () => {
+test("a cancelled task names a resume that fell back, not the run's error", async () => {
   const store = createTaskStore();
   const fellBack = "resuming sess-old had already failed (Session \"sess-old\" not found), so this ran as a fresh session and none of that earlier work was in context.";
-  const unseen = "the bridge stopped cursor-agent (pid 7) but could not confirm that it and its processes exited; they may still be running.";
   let end;
-  let reportUnseen = (_note) => {};
   const answer = await runAsTask({
-    run: ({ onPromptSent, onUnseenExit }) => {
+    run: ({ onPromptSent }) => {
       onPromptSent("sess-new", undefined, fellBack);
-      reportUnseen = onUnseenExit;
       return new Promise((resolve) => { end = resolve; });
     },
     store,
@@ -118,10 +115,9 @@ test("a cancelled task names a resume that fell back and an agent the stop could
   const task = store.get(answer.taskId);
   store.cancel(task);
   assert.equal(task.statusMessage, `cancelled; resume with resumeSessionId sess-new. Note: ${fellBack}`);
-  reportUnseen(unseen);
   end({ isError: true, content: [{ type: "text", text: "delegate failed [aborted]: delegation aborted by MCP host." }] });
   await new Promise((r) => setImmediate(r));
-  assert.equal(store.view(task).statusMessage, `cancelled; resume with resumeSessionId sess-new. Note: ${fellBack} Note: ${unseen}`);
+  assert.equal(store.view(task).statusMessage, `cancelled; resume with resumeSessionId sess-new. Note: ${fellBack}`);
 });
 
 test("a run that fails before its prompt is sent rejects runAsTask instead of creating a task", async () => {
