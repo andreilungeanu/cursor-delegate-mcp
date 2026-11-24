@@ -657,6 +657,9 @@ test("server advertises instructions, output schemas, and conservative tool anno
       assert.deepEqual(icon.sizes, listed.sizes);
       if (icon.theme !== undefined) assert.equal(icon.theme, listed.theme);
     }
+    assert.equal(advertised.title, registry.title);
+    assert.equal(advertised.description, registry.description);
+    assert.equal(advertised.websiteUrl, registry.websiteUrl);
     // Assert the invariants a host cannot infer, not the prose carrying them: hosts that
     // never load the skill see only this string.
     const instructions = client.getInstructions();
@@ -665,6 +668,10 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.match(instructions, /filesReportedByEditTools/);
     const listed = await client.listTools();
     const tools = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
+    for (const tool of listed.tools) {
+      assert.ok(tool.title, `${tool.name} has no title`);
+      assert.equal(tool.annotations?.title, tool.title, tool.name);
+    }
     assert.deepEqual(Object.keys(tools).sort(), ["cancel", "delegate", "doctor"]);
     // The description is what a host reads immediately before calling, so it must not
     // reassert the workspace confinement the instructions just denied.

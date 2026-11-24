@@ -18,6 +18,14 @@ const SERVER_ICONS = [
   { src: `${ICON_BASE}/logo-light.png`, mimeType: "image/png", sizes: ["1024x1024"], theme: "light" },
   { src: `${ICON_BASE}/logo-dark.png`, mimeType: "image/png", sizes: ["1024x1024"], theme: "dark" },
 ];
+const SERVER_INFO = {
+  name: "cursor-delegate-mcp",
+  title: "Cursor Delegate",
+  description: "Bridge AI coding hosts to cursor-agent over the Agent Client Protocol.",
+  version: VERSION,
+  websiteUrl: "https://github.com/andreilungeanu/cursor-delegate-mcp",
+  icons: SERVER_ICONS,
+};
 
 const nodeMajor = Number(process.versions.node.split(".")[0]);
 if (nodeMajor < 20) {
@@ -165,17 +173,14 @@ export function buildServer({
   const runDoctor = runDoctorInjected || runDoctorDefault;
   // Tasks only on a 2026-07-28 instance: the SDK also lifts envelope keys off 2025-era requests.
   const servesTasks = era === "modern";
-  const server = new McpServer(
-    { name: "cursor-delegate-mcp", version: VERSION, icons: SERVER_ICONS },
-    {
-      instructions: SERVER_INSTRUCTIONS,
-      capabilities: {
-        // The tool list never changes, and the SDK advertises listChanged unless told otherwise.
-        tools: { listChanged: false },
-        ...(servesTasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
-      },
-    }
-  );
+  const server = new McpServer(SERVER_INFO, {
+    instructions: SERVER_INSTRUCTIONS,
+    capabilities: {
+      // The tool list never changes, and the SDK advertises listChanged unless told otherwise.
+      tools: { listChanged: false },
+      ...(servesTasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
+    },
+  });
   if (servesTasks) registerTaskHandlers(server, tasks);
   // A task id names its own run, which a later turn on the same session is not; a session id names
   // every turn running on it.
@@ -193,6 +198,7 @@ export function buildServer({
       description:
         `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Keep model (${DEFAULT_MODEL}), fast and effort at their defaults unless the user explicitly asks. See the delegate skill.`,
       inputSchema: delegateInputSchema,
+      title: "Delegate coding task to Cursor",
       annotations: {
         title: "Delegate coding task to Cursor",
         readOnlyHint: false,
@@ -221,6 +227,7 @@ export function buildServer({
         sessionId: z.string().trim().min(1, "sessionId must not be blank").describe("When delegate runs as an MCP task, its server-side task id works too."),
         force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
       }),
+      title: "Cancel Cursor delegation",
       annotations: {
         title: "Cancel Cursor delegation",
         readOnlyHint: false,
@@ -277,6 +284,7 @@ export function buildServer({
           .default(false)
           .describe("Run an ACP handshake (start → initialize → newSession) to verify the agent is usable; adds models, modes and the current model's options."),
       }),
+      title: "Diagnose Cursor delegation setup",
       annotations: {
         title: "Diagnose Cursor delegation setup",
         readOnlyHint: true,
