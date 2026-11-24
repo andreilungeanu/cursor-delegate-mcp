@@ -179,7 +179,8 @@ test("a host whose stdout pipe breaks mid-task leaves no agent process behind", 
     await send("server/discover");
     const call = await send("tools/call", { name: "delegate", arguments: { workspace: dir, spec: "x" } });
     assert.equal(call.result.resultType, "task", JSON.stringify(call));
-    pids = readFileSync(pidFile, "utf8").trim().split(/s+/).map(Number);
+    pids = readFileSync(pidFile, "utf8").trim().split(/\s+/).map(Number);
+    assert.deepEqual(pids.filter(isAlive), pids, "the agent should be running when the host leaves");
     child.stdout.destroy();
     for (let i = 0; i < 5; i++) {
       send("tasks/get", { taskId: call.result.taskId }).catch(() => {});
