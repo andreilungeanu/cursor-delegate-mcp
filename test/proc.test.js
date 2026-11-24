@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { createChildRegistry, isChildAlive, spawnChild, treeKill } from "../src/proc.js";
 
 const posixOnly = { skip: process.platform === "win32" ? "POSIX process groups" : false };
@@ -85,6 +86,57 @@ test("the windows kill still fires while the child is alive", win32Only, async (
     assert.equal(alive(victim.pid), false, "the gate swallowed a kill that should have landed");
   } finally {
     try { victim.kill(); } catch {}
+  }
+});
+
+// taskkill replaced by a real process running script, which kills nothing.
+function swapTaskkill(script) {
+  const cp = createRequire(import.meta.url)("node:child_process");
+  const real = cp.execFile;
+  const utilities = [];
+  cp.execFile = (file, args, opts, cb) => {
+    if (file !== "taskkill") return real(file, args, opts, cb);
+    const utility = real(process.execPath, ["-e", script], opts, cb);
+    utilities.push(utility);
+    return utility;
+  };
+  syncBuiltinESMExports();
+  return {
+    utilities,
+    restore: () => {
+      cp.execFile = real;
+      syncBuiltinESMExports();
+      for (const u of utilities) { try { u.kill("SIGKILL"); } catch {} }
+    },
+  };
+}
+
+const startTracked = (registry) => spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { shell: false }, { stdio: "ignore" }, registry);
+
+test("a taskkill that fails still ends the launcher, by its own handle", win32Only, async () => {
+  const swap = swapTaskkill("process.exit(128)");
+  const tracked = startTracked(createChildRegistry());
+  try {
+    assert.equal(await tracked.stop(), true, "the stop did not see the launcher exit");
+    assert.equal(isChildAlive(tracked.child), false);
+  } finally {
+    swap.restore();
+    try { tracked.child.kill("SIGKILL"); } catch {}
+  }
+});
+
+test("a taskkill that stalls is stopped, and the launcher killed by its own handle", win32Only, async () => {
+  const swap = swapTaskkill("setInterval(() => {}, 1000)");
+  const tracked = startTracked(createChildRegistry());
+  const started = Date.now();
+  try {
+    assert.equal(await tracked.stop(), true, "the stop did not see the launcher exit");
+    assert.ok(Date.now() - started < 3900, `the stop took ${Date.now() - started} ms`);
+    assert.equal(swap.utilities.length, 1, "a retry started a second taskkill");
+    assert.notEqual(swap.utilities[0].signalCode ?? swap.utilities[0].exitCode, null, "the stalled taskkill is still running");
+  } finally {
+    swap.restore();
+    try { tracked.child.kill("SIGKILL"); } catch {}
   }
 });
 

@@ -20,7 +20,7 @@ export async function treeKill(pid, { childAlive = true } = {}) {
     // already belong to another process: after the exit there is nothing safe to kill.
     if (!childAlive) return;
     await /** @type {Promise<void>} */ (new Promise((resolve) => {
-      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => resolve());
+      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: TASKKILL_MS, killSignal: "SIGKILL" }, () => resolve());
     }));
     return;
   }
@@ -35,6 +35,8 @@ export async function treeKill(pid, { childAlive = true } = {}) {
 // How long one kill attempt waits for the exit and the tree kill. SIGKILL and taskkill /F land in
 // milliseconds, so this elapses only when the kill failed.
 export const KILL_WAIT_MS = 2000;
+// A taskkill still running by then is stopped, and the launcher killed by its handle instead.
+const TASKKILL_MS = KILL_WAIT_MS;
 
 async function killAndSeeExit(child, timeoutMs) {
   if (!child.pid) return true;
@@ -43,8 +45,16 @@ async function killAndSeeExit(child, timeoutMs) {
   const exited = alive
     ? /** @type {Promise<boolean>} */ (new Promise((resolve) => child.once("exit", () => resolve(true))))
     : Promise.resolve(true);
-  // Runs for an exited child too: on POSIX the commands it spawned stay in its process group.
-  const killed = treeKill(child.pid, { childAlive: alive }).catch(() => {});
+  // Runs for an exited child too: on POSIX the commands it spawned stay in its process group. One
+  // tree kill at a time: a retry joins the one still running.
+  let killed = treeKills.get(child);
+  if (!killed) {
+    killed = treeKill(child.pid, { childAlive: alive }).catch(() => {})
+      // taskkill can fail or stall; the launcher's own handle still kills it, and no reused pid.
+      .then(() => { if (process.platform === "win32" && isChildAlive(child)) { try { child.kill("SIGKILL"); } catch {} } })
+      .finally(() => treeKills.delete(child));
+    treeKills.set(child, killed);
+  }
   /** @type {NodeJS.Timeout | undefined} */
   let timer;
   const bounded = /** @type {Promise<boolean>} */ (new Promise((resolve) => {
@@ -56,6 +66,9 @@ async function killAndSeeExit(child, timeoutMs) {
   clearTimeout(timer);
   return observed && treeKilled;
 }
+
+/** @type {WeakMap<import("node:child_process").ChildProcess, Promise<unknown>>} */
+const treeKills = new WeakMap();
 
 /**
  * @typedef {{
