@@ -268,45 +268,23 @@ function opensWithFastFactory(opened, onSetFast, openedOn = "composer-2.5") {
   };
 }
 
-test("runDelegate skips the fast round-trip when the session already opens at that tier", async () => {
-  let fastCalls = 0;
-  await runDelegate({
-    spec: "task", model: "composer-2.5", workspace: process.cwd(),
-    clientFactory: opensWithFastFactory("false", () => { fastCalls++; }),
+// The tier is per model and sticks to the session: the write is skipped only when the session
+// opened on the asked model at the asked tier.
+for (const [label, opening, request, openedOn, expected] of [
+  ["skips the fast write when the session opens at that tier", "false", {}, undefined, []],
+  ["sends fast=false when the session opens on the fast tier", "true", {}, undefined, [["fast", false]]],
+  ["sends fast after a model switch even when the opening tier matches", "true", { model: "grok-4.6", fast: true }, "composer-2.5", [["fast", true]]],
+  ["sends fast when the session reports no tier at all", undefined, {}, undefined, [["fast", false]]],
+]) {
+  test(`runDelegate ${label}`, async () => {
+    const seen = [];
+    await runDelegate({
+      spec: "task", model: "composer-2.5", workspace: process.cwd(), ...request,
+      clientFactory: opensWithFastFactory(opening, (id, value) => seen.push([id, value]), openedOn),
+    });
+    assert.deepEqual(seen, expected);
   });
-  assert.equal(fastCalls, 0);
-});
-
-// The regression this exists for: one fast:true turn leaves the tier on, so every later fast:false
-// turn would silently bill the higher tier if the write were skipped.
-test("runDelegate sends fast=false when the session opens on the fast tier", async () => {
-  const seen = [];
-  await runDelegate({
-    spec: "task", model: "composer-2.5", workspace: process.cwd(),
-    clientFactory: opensWithFastFactory("true", (id, value) => seen.push([id, value])),
-  });
-  assert.deepEqual(seen, [["fast", false]]);
-});
-
-// The tier is per model, so the opening snapshot describes the model we left, not the one asked
-// for. Skipping on it would run the wrong tier silently in both directions.
-test("runDelegate sends fast after a model switch even when the opening tier matches", async () => {
-  const seen = [];
-  await runDelegate({
-    spec: "task", model: "grok-4.6", fast: true, workspace: process.cwd(),
-    clientFactory: opensWithFastFactory("true", (id, value) => seen.push([id, value]), "composer-2.5"),
-  });
-  assert.deepEqual(seen, [["fast", true]], "composer's tier says nothing about grok's");
-});
-
-test("runDelegate sends fast when the session reports no tier at all", async () => {
-  const seen = [];
-  await runDelegate({
-    spec: "task", model: "composer-2.5", workspace: process.cwd(),
-    clientFactory: opensWithFastFactory(undefined, (id, value) => seen.push([id, value])),
-  });
-  assert.deepEqual(seen, [["fast", false]], "an absent list must read as a mismatch and send");
-});
+}
 
 test("runDelegate still sends fast=false on a resume that opens on the fast tier", async () => {
   const seen = [];
@@ -529,24 +507,28 @@ test("runDelegate sends no config option at all when the caller omits them", asy
   assert.deepEqual(seen, []);
 });
 
-test("runDelegate sends effort under the id the model declares", async () => {
-  const seen = [];
-  const out = await runDelegate({
-    spec: "task", model: "grok-4.5", effort: "high", workspace: process.cwd(),
-    clientFactory: configFactory({ options: GROK_OPTIONS, onSet: (id, v) => seen.push([id, v]) }),
+// Each way a model can advertise its effort option, and the id the value goes out under.
+for (const [label, model, effort, options, id] of [
+  ["the id grok declares", "grok-4.5", "high", GROK_OPTIONS, "effort"],
+  ["the id grok declares, at xhigh", "grok-4.6", "xhigh", GROK_46_OPTIONS, "effort"],
+  ["gpt's reasoning id, at extra-high", "gpt-5.4", "extra-high", undefined, "reasoning"],
+  ["grok-4.7's reasoning_effort id", "grok-4.7", "xhigh", GROK_47_OPTIONS, "reasoning_effort"],
+  ["the effort id, not a boolean thinking toggle", "claude-sonnet-5", "high", CLAUDE_OPTIONS, "effort"],
+  ["a level the bridge has never seen", "future-model", "ultra", [{ id: "model", currentValue: "future-model" }, { id: "thought_level", options: vals("max", "ultra") }], "thought_level"],
+  ["an option known by its thought_level category alone", "future-model", "deep", [{ id: "model", currentValue: "future-model" }, { id: "depth", name: "Depth", category: "thought_level", options: vals("shallow", "deep") }], "depth"],
+  ["an id it knows, with no category", "future-model", "high", [{ id: "model", currentValue: "future-model" }, { id: "reasoning_effort", name: "Level", options: vals("low", "high") }], "reasoning_effort"],
+  ["a name it knows, with no category", "future-model", "high", [{ id: "model", currentValue: "future-model" }, { id: "budget", name: "Effort", options: vals("low", "high") }], "budget"],
+]) {
+  test(`runDelegate sends effort under ${label}`, async () => {
+    const seen = [];
+    const out = await runDelegate({
+      spec: "task", model, effort, workspace: process.cwd(),
+      clientFactory: configFactory({ options, onSet: (cid, v) => seen.push([cid, v]) }),
+    });
+    assert.deepEqual(seen, [["fast", false], [id, effort]]);
+    assert.deepEqual(configWarnings(out), []);
   });
-  assert.deepEqual(seen, [["fast", false], ["effort", "high"]]);
-  assert.deepEqual(configWarnings(out), []);
-});
-
-test("runDelegate accepts grok xhigh exactly under the advertised effort id", async () => {
-  const seen = [];
-  await runDelegate({
-    spec: "task", model: "grok-4.6", effort: "xhigh", workspace: process.cwd(),
-    clientFactory: configFactory({ options: GROK_46_OPTIONS, onSet: (id, v) => seen.push([id, v]) }),
-  });
-  assert.deepEqual(seen, [["fast", false], ["effort", "xhigh"]]);
-});
+}
 
 test("runDelegate rejects extra-high for grok before prompting and names exact accepted values", async () => {
   const seen = [];
@@ -572,14 +554,7 @@ test("runDelegate rejects extra-high for grok before prompting and names exact a
   assert.equal(prompts, 0);
 });
 
-test("runDelegate keeps gpt extra-high distinct from xhigh", async () => {
-  const accepted = [];
-  await runDelegate({
-    spec: "task", model: "gpt-5.4", effort: "extra-high", workspace: process.cwd(),
-    clientFactory: configFactory({ onSet: (id, v) => accepted.push([id, v]) }),
-  });
-  assert.deepEqual(accepted, [["fast", false], ["reasoning", "extra-high"]]);
-
+test("runDelegate refuses xhigh for gpt, whose top level is extra-high", async () => {
   let prompts = 0;
   await assert.rejects(
     runDelegate({
@@ -595,22 +570,6 @@ test("runDelegate keeps gpt extra-high distinct from xhigh", async () => {
   assert.equal(prompts, 0);
 });
 
-test("runDelegate accepts future effort tokens when the model advertises them", async () => {
-  const options = [
-    { id: "model", currentValue: "future-model" },
-    { id: "thought_level", options: vals("max", "ultra") },
-    { id: "fast", options: vals("true", "false") },
-  ];
-  for (const effort of ["max", "ultra"]) {
-    const seen = [];
-    await runDelegate({
-      spec: "task", model: "future-model", effort, workspace: process.cwd(),
-      clientFactory: configFactory({ options, onSet: (id, v) => seen.push([id, v]) }),
-    });
-    assert.deepEqual(seen, [["fast", false], ["thought_level", effort]]);
-  }
-});
-
 test("runDelegate does not case-fold effort values", async () => {
   await assert.rejects(
     runDelegate({
@@ -619,15 +578,6 @@ test("runDelegate does not case-fold effort values", async () => {
     }),
     (err) => err.reason === "invalid-effort" && /Invalid effort "EXTRA-HIGH"/.test(err.message)
   );
-});
-
-test("runDelegate prefers effort over a boolean thinking toggle when a model declares both", async () => {
-  const seen = [];
-  await runDelegate({
-    spec: "task", model: "claude-sonnet-5", effort: "high", workspace: process.cwd(),
-    clientFactory: configFactory({ options: CLAUDE_OPTIONS, onSet: (id, v) => seen.push([id, v]) }),
-  });
-  assert.deepEqual(seen, [["fast", false], ["effort", "high"]]);
 });
 
 // claude-haiku-4-5 refuses fast, so no reply carries its list; re-asserting the model recovers it.
@@ -795,55 +745,6 @@ test("runDelegate reports every recognized effort option with a string value", a
     clientFactory: effortReportFactory({ openedOn: "claude-sonnet-5", opensWith: options, options }),
   });
   assert.deepEqual(out.effectiveEffort, { thinking: "false", effort: "high" });
-});
-
-// The grok-4.7 regression: reasoning_effort was neither a known id nor a matching name, so the
-// bridge reported that the model had no effort setting and never sent it.
-test("runDelegate sends grok-4.7 effort under the reasoning_effort id it advertises", async () => {
-  for (const effort of ["high", "xhigh"]) {
-    const seen = [];
-    let prompts = 0;
-    const out = await runDelegate({
-      spec: "task", model: "grok-4.7", effort, workspace: process.cwd(),
-      clientFactory: configFactory({
-        options: GROK_47_OPTIONS, onSet: (id, v) => seen.push([id, v]), onPrompt: () => { prompts++; },
-      }),
-    });
-    assert.deepEqual(seen, [["fast", false], ["reasoning_effort", effort]]);
-    assert.equal(prompts, 1);
-    assert.deepEqual(configWarnings(out), []);
-  }
-});
-
-test("runDelegate recognizes a thought_level option by its category alone", async () => {
-  const options = [
-    { id: "model", currentValue: "future-model" },
-    { id: "depth", name: "Depth", category: "thought_level", options: vals("shallow", "deep") },
-  ];
-  const seen = [];
-  await runDelegate({
-    spec: "task", model: "future-model", effort: "deep", workspace: process.cwd(),
-    clientFactory: configFactory({ options, onSet: (id, v) => seen.push([id, v]) }),
-  });
-  assert.deepEqual(seen, [["fast", false], ["depth", "deep"]]);
-});
-
-// Categories are optional in ACP, so an agent that sends none is still classified by id or name.
-test("runDelegate falls back to the id or the name when the agent sends no category", async () => {
-  for (const option of [
-    { id: "reasoning_effort", name: "Level", options: vals("low", "high") },
-    { id: "budget", name: "Effort", options: vals("low", "high") },
-  ]) {
-    const seen = [];
-    await runDelegate({
-      spec: "task", model: "future-model", effort: "high", workspace: process.cwd(),
-      clientFactory: configFactory({
-        options: [{ id: "model", currentValue: "future-model" }, option],
-        onSet: (id, v) => seen.push([id, v]),
-      }),
-    });
-    assert.deepEqual(seen, [["fast", false], [option.id, "high"]]);
-  }
 });
 
 // Not recognizing an option is not evidence that the model has none, so the error shows what the
