@@ -2,7 +2,7 @@
 // across the supported range: Node 20 cannot expand globs, Node 22 does not accept a
 // directory, and neither cmd.exe nor PowerShell expands `test/*.test.js` for npm.
 // Extra node flags (e.g. --experimental-test-coverage) pass straight through, and test
-// files named after them (`npm test -- test/ops.test.js`) run in place of the full list.
+// files named after them (`npm test -- test/proc.test.js`) run in place of the full list.
 import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
