@@ -1182,8 +1182,11 @@ test("cancel force kills a real stub agent whose prompt never finishes", async (
   // The live MCP host serializes tool calls, so force-kill can only be exercised here: a real
   // AcpClient drives infinite-stream-stub.js (handshakes, then streams forever), and the
   // non-serializing InMemoryTransport lets cancel run while delegate is in flight.
+  let promptSent;
+  const sent = new Promise((resolve) => { promptSent = resolve; });
   const runDelegate = (opts) => realRunDelegate({
     ...opts,
+    onPromptSent: (...args) => { promptSent(true); opts.onPromptSent?.(...args); },
     clientFactory: stubClientFactory("infinite-stream-stub.js"),
     idleMs: 0,          // no idle timeout — the stub streams steadily
     hardCapMs: 60000,   // far beyond the test, so the kill is what ends the turn
@@ -1196,15 +1199,9 @@ test("cancel force kills a real stub agent whose prompt never finishes", async (
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
     const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "stream forever" } });
-    // Poll a plain cancel until the session registers (not-found → cancelled).
-    const started = Date.now();
-    let registered = false;
-    while (Date.now() - started < 8000) {
-      const probe = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-infinite" } });
-      if (payload(probe).status !== "not-found") { registered = true; break; }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    assert.ok(registered, "the stub session should register as in-flight");
+    // A cancel landing before the prompt ends the delegation without one, leaving nothing to kill.
+    const started = await Promise.race([sent, new Promise((r) => setTimeout(() => r(false), 8000))]);
+    assert.ok(started, "the stub session should reach its prompt");
 
     const killedAt = Date.now();
     const killRes = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-infinite", force: true } });
