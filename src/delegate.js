@@ -605,11 +605,13 @@ export async function runDelegate({
       if (resumeError) out.protocolWarnings = [`resuming ${resumeSessionId} failed, started a fresh session: ${resumeError}`];
       return out;
     }
-    // A JSON-RPC code means the agent rejected something rather than the bridge breaking — the
-    // distinction a caller needs to tell "fix your arguments" from "retry".
-    const reason = err?.reason || (typeof err?.code === "number" ? "agent-error" : undefined);
+    // A JSON-RPC code means the agent answered with an error, not that the bridge broke: a rejected
+    // argument (-32602) or a failure of its own (-32603).
+    const fromAgent = !err?.reason && typeof err?.code === "number";
+    const reason = err?.reason || (fromAgent ? "agent-error" : undefined);
     failure = { cause: err, reason, notes: [] };
     const { notes } = failure;
+    if (fromAgent) notes.push(` (${err.method ? `${err.method} ` : ""}JSON-RPC ${err.code})`);
     // A bare duration cannot distinguish a wedged agent from a slow command, so name what was
     // outstanding — it also lets a retry resume the work already done.
     const isTimeout = reason === "hard-cap" || reason === "idle-timeout";

@@ -430,6 +430,26 @@ test("runDelegate propagates a set_config_option failure that is not an unknown 
   );
 });
 
+test("an error the agent answers with names the request and its JSON-RPC code", async () => {
+  await assert.rejects(
+    runDelegate({
+      spec: "task", workspace: process.cwd(),
+      clientFactory: () => {
+        const client = fakeFactory({});
+        const prompt = client.prompt.bind(client);
+        // Not a block array, which the fake agent refuses with -32603 off the wire.
+        client.prompt = (sessionId) => prompt(sessionId, "not blocks");
+        return client;
+      },
+    }),
+    (err) => {
+      assert.equal(err.reason, "agent-error");
+      assert.match(err.message, /^Internal error \(session\/prompt JSON-RPC -32603\)/);
+      return true;
+    },
+  );
+});
+
 // Measured on gpt-5.4: reasoning accepts none|low|medium|high|extra-high, context 272k|1m.
 // effort resolves against the list the reply echoes. noOptions models a reply carrying no list.
 const vals = (...v) => v.map((value) => ({ value }));

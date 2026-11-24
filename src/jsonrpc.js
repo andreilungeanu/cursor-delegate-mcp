@@ -93,7 +93,7 @@ export class JsonRpcPeer {
         this.pending.delete(key);
         // cursor-agent puts the reason in error.data.message; error.message is a bare "Invalid params".
         if (msg.error) {
-          p.reject(makeError(undefined, [msg.error.message || "rpc error", msg.error.data?.message].filter(Boolean).join(": "), { code: msg.error.code }));
+          p.reject(makeError(undefined, [msg.error.message || "rpc error", msg.error.data?.message].filter(Boolean).join(": "), { code: msg.error.code, method: p.method }));
         }
         else p.resolve(msg.result);
       }
@@ -113,7 +113,7 @@ export class JsonRpcPeer {
   request(method, params) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(String(id), { resolve, reject });
+      this.pending.set(String(id), { resolve, reject, method });
       this._write({ jsonrpc: "2.0", id, method, params });
     });
   }
