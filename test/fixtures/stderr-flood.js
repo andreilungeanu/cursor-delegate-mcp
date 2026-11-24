@@ -1,4 +1,4 @@
-// Writes 640KB to stderr — ten times AcpClient's 64KB cap — then stays alive, so the ring buffer
+// Writes 640KB to stderr — ten times AcpClient's 64KB cap — then stays alive, so the tail
 // can be read without racing the exit handler, which reads stderrBuffer itself.
 const CHUNK = "x".repeat(20000);
 

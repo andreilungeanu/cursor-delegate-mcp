@@ -49,8 +49,8 @@ export class AcpClient extends EventEmitter {
     this.mode = mode;
     this.onCreatePlan = onCreatePlan;
     this.onTodos = onTodos;
-    this._stderrChunks = [];
-    this._stderrLength = 0;
+    // The stderr tail an exit error quotes; not counted as activity.
+    this.stderrBuffer = "";
     /** @type {Promise<boolean> | null} */
     this._stopping = null;
     /** @type {WirePhase} */
@@ -59,14 +59,6 @@ export class AcpClient extends EventEmitter {
 
   get child() { return this._child; }
 
-  // The stderr tail an exit error quotes. Kept as chunks and joined on read, so a noisy agent costs
-  // a push per chunk; a StringDecoder keeps a multi-byte character split across reads intact.
-  // stderr is not ACP activity, so it does not feed the supervisor.
-  get stderrBuffer() {
-    const joined = this._stderrChunks.join("");
-    return joined.length > STDERR_CAP ? joined.slice(-STDERR_CAP) : joined;
-  }
-
   async start() {
     const { command, args, options } = this.spawnSpec;
     const opts = /** @type {{ shell?: boolean, env?: NodeJS.ProcessEnv }} */ (options);
@@ -74,27 +66,11 @@ export class AcpClient extends EventEmitter {
       throw makeError("spawn-failed", `Failed to spawn agent (${command}): not found on PATH. Install Cursor CLI and run 'cursor-agent login'.`);
     }
     this._child = spawnChild(command, args, opts, { stdio: ["pipe", "pipe", "pipe"] }, this.registry);
-    this._stderrChunks = [];
-    this._stderrLength = 0;
+    this.stderrBuffer = "";
+    // Keeps a UTF-8 character split across reads whole.
     const stderrDecoder = new StringDecoder("utf8");
     this.child.stderr.on("data", (chunk) => {
-      const text = stderrDecoder.write(chunk);
-      if (text) {
-        this._stderrChunks.push(text);
-        this._stderrLength += text.length;
-        // Drop whole chunks from the front only once well past the cap, so the common case
-        // costs one push. The joined tail is trimmed exactly on read.
-        while (this._stderrChunks.length > 1 && this._stderrLength - this._stderrChunks[0].length >= STDERR_CAP) {
-          this._stderrLength -= this._stderrChunks.shift().length;
-        }
-        // A single read larger than the cap (seen on GitHub Windows runners) is sliced too, so
-        // retained memory stays bounded.
-        const overflow = this._stderrLength - STDERR_CAP;
-        if (overflow > 0) {
-          this._stderrChunks[0] = this._stderrChunks[0].slice(overflow);
-          this._stderrLength -= overflow;
-        }
-      }
+      this.stderrBuffer = (this.stderrBuffer + stderrDecoder.write(chunk)).slice(-STDERR_CAP);
     });
     this.child.stderr.on("error", () => {});
     // session/cancel can be written after the agent is gone, and an unhandled pipe 'error' would
