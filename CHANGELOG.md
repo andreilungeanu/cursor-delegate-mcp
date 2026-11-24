@@ -6,6 +6,55 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-24
+
+### Changed
+
+- A stop kills cursor-agent's process tree once and waits up to 5 s for cursor-agent to exit; on
+  Windows `taskkill` first gets up to 5 s of its own. A stop that cannot confirm the exit is final,
+  and the result warns `the bridge stopped cursor-agent (pid <pid>) but could not confirm that
+  cursor-agent and its processes exited; they may still be running.`, where it said the bridge did
+  not see cursor-agent exit and a later stop tried again.
+- A force cancel whose kill cannot confirm the exit reports `cancelled`, and the session is no
+  longer kept for another force.
+- Shutdown stops every agent, waits for the stops, and exits with the code of whatever triggered it
+  first. SIGINT, SIGTERM and SIGHUP trigger it on Windows too. A later signal waits for the same
+  stop, where a second signal killed each agent's process group and exited at once.
+- A stopped task's status message carries a note only when the run started a fresh session after a
+  failed resume. A stop that cannot confirm cursor-agent exited is reported in the delegate result's
+  `protocolWarnings`.
+- An `agent-error` message ends with the request and JSON-RPC code cursor-agent answered with, as in
+  `(session/new JSON-RPC -32603)`, and so does the note of a resume that failed for a session that
+  still exists. The skill reference describes `agent-error` as an error answer named with its code,
+  where it called every such code a rejected argument.
+- The `model` field and the skill reference name only the default model and point to
+  `doctor deep:true` for the ids an account offers.
+
+### Removed
+
+- `CURSOR_DELEGATE_IDLE_MS`, the opt-in mid-turn idle guard (off by default), and its `idle-timeout`
+  reason. doctor no longer reports it.
+- `ACP_LOG_SIZE`. The flight recorder keeps exactly the frames `CURSOR_DELEGATE_TRANSCRIPT` shows,
+  and records only while it is set. doctor no longer reports it.
+- The protocol warning for each malformed plan or todo value. A plan entry or todo without string
+  content is still dropped, and a priority or status outside the ACP values still removed.
+
+### Fixed
+
+- On Windows a `taskkill` that fails or runs past 5 s is followed by a kill of the launcher by its
+  handle, and the result warns that cursor-agent and its processes may still be running. A failed
+  `taskkill` went unreported.
+- `resumeSessionId` is trimmed, and a blank one starts a new session, as in agy-delegate-mcp. Both
+  were sent to cursor-agent as given.
+
+### Internal
+
+- `src/proc.js` and `src/shutdown.js` are the same in agy-delegate-mcp, cursor-delegate-mcp and
+  codex-delegate-mcp.
+- `npm test` runs the test files named on the command line, without a deadline.
+- The result and doctor shapes the tests check are in `test/output-shapes.js`.
+- Tests of limits, options and source layout the code no longer has are removed.
+
 ## [3.1.1] - 2026-11-24
 
 ### Changed
