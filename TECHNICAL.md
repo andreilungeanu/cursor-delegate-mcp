@@ -91,7 +91,7 @@ diagnostic, not fail the call.
 | `src/acp-client.js` | ACP client. |
 | `src/request-router.js` | Permission, plan and todo routing. |
 | `src/jsonrpc.js` | NDJSON JSON-RPC peer. |
-| `src/spawn.js` | `agent acp` launcher resolution. |
+| `src/spawn.js` | `cursor-agent acp` launcher resolution. |
 | `src/session-supervisor.js` | Handshake and hard-cap timeouts. |
 | `src/agent-reported-files.js` | Path normalization for `filesReportedByEditTools`. |
 | `src/doctor.js` | Diagnostics. |
@@ -99,6 +99,7 @@ diagnostic, not fail the call.
 | `src/model-options.js` | Model config-option resolution (`effort`, `context`). |
 | `src/proc.js` | Liveness check and process kill. |
 | `src/shutdown.js` | Stops every agent, then exits, when the host goes away. |
+| `src/tasks.js` | MCP tasks a `delegate` call is answered with. |
 | `src/errors.js` | Reason-tagged errors. |
 | `src/acp-enums.js` | ACP constants. |
 | `src/version.js` | Version read from `package.json`. |
