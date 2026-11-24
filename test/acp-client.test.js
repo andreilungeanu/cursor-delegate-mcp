@@ -300,6 +300,30 @@ function withholdExit(child) {
   });
 }
 
+// Every kill misses: the stub, which reads only stdin, ends only if teardown closes it.
+test("a stop that cannot confirm the agent's exit closes the agent's stdin", async () => {
+  const client = new AcpClient({ spawnSpec: silentStub() });
+  await client.start();
+  const { child } = client;
+  const cp = createRequire(import.meta.url)("node:child_process");
+  const execFile = cp.execFile;
+  const kill = process.kill;
+  cp.execFile = (file, args, opts, cb) => execFile(file === "taskkill" ? process.execPath : file, file === "taskkill" ? ["-e", "process.exit(128)"] : args, opts, cb);
+  syncBuiltinESMExports();
+  process.kill = (pid, signal) => (Math.abs(pid) === child.pid ? true : kill.call(process, pid, signal));
+  const childKill = child.kill.bind(child);
+  child.kill = () => false;
+  try {
+    assert.equal(await client.stop({ timeoutMs: 300 }), false, "a kill that missed was taken for an exit");
+    await until(() => !isChildAlive(child), 5000, "the agent outlived its closed stdin");
+  } finally {
+    cp.execFile = execFile;
+    syncBuiltinESMExports();
+    process.kill = kill;
+    try { childKill("SIGKILL"); } catch {}
+  }
+});
+
 test("stop() retries teardown after a missed exit", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();

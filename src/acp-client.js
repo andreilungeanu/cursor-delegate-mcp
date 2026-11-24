@@ -230,6 +230,8 @@ export class AcpClient extends EventEmitter {
       try {
         this.peer?.rejectAllPending(makeError("agent-exit", "agent process did not exit after stop"));
       } catch {}
+      // An agent the kill missed may still end on stdin EOF, as the ACP wire closing.
+      try { child.stdin?.end(); } catch {}
     }
     try { this.peer?.close(); } catch {}
     return observed;
