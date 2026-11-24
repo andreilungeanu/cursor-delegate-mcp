@@ -145,6 +145,12 @@ function isMissingSession(err) {
     && /\bnot found\b|\bdoes not exist\b|\bunknown session\b|\bno such session\b/i.test(message);
 }
 
+// The request and code of an error the agent answered with, as " (session/new JSON-RPC -32603)"; else "".
+function rpcNote(err) {
+  if (err?.reason || typeof err?.code !== "number") return "";
+  return ` (${err.method ? `${err.method} ` : ""}JSON-RPC ${err.code})`;
+}
+
 async function openSession(client, resumeSessionId, workspace) {
   if (!resumeSessionId) return client.newSession(workspace);
   try {
@@ -154,7 +160,7 @@ async function openSession(client, resumeSessionId, workspace) {
     if (!isMissingSession(err)) {
       throw makeError(
         "resume-failed",
-        `session ${resumeSessionId} could not be loaded: ${err?.message || String(err)}.`
+        `session ${resumeSessionId} could not be loaded: ${err?.message || String(err)}${rpcNote(err)}.`
         + ` The session was not resumed and no fresh session was started — retry, or omit`
         + ` resumeSessionId to start fresh deliberately.`
       );
@@ -611,7 +617,7 @@ export async function runDelegate({
     const reason = err?.reason || (fromAgent ? "agent-error" : undefined);
     failure = { cause: err, reason, notes: [] };
     const { notes } = failure;
-    if (fromAgent) notes.push(` (${err.method ? `${err.method} ` : ""}JSON-RPC ${err.code})`);
+    if (fromAgent) notes.push(rpcNote(err));
     // A bare duration cannot distinguish a wedged agent from a slow command, so name what was
     // outstanding — it also lets a retry resume the work already done.
     const isTimeout = reason === "hard-cap" || reason === "idle-timeout";

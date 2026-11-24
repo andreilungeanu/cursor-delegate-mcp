@@ -1067,7 +1067,7 @@ test("runDelegate fails rather than starting fresh when a resume dies for anothe
     // A restore failure: -32603 carrying both "session" and a sentinel word, which a classifier
     // matching wording without the code would read as missing.
     client.loadSession = async () => {
-      throw rpcError(-32603, 'Failed to load session "old-id": storage backend not found');
+      throw Object.assign(rpcError(-32603, 'Failed to load session "old-id": storage backend not found'), { method: "session/load" });
     };
     return client;
   };
@@ -1077,7 +1077,7 @@ test("runDelegate fails rather than starting fresh when a resume dies for anothe
     }),
     (err) => {
       assert.equal(err.reason, "resume-failed");
-      assert.match(err.message, /storage backend not found/);
+      assert.ok(err.message.includes("storage backend not found (session/load JSON-RPC -32603)."), err.message);
       return true;
     }
   );
