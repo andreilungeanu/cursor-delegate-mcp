@@ -11,7 +11,7 @@ import { z } from "zod";
 import { AcpClient } from "../src/acp-client.js";
 import { isChildAlive } from "../src/proc.js";
 import { runDelegate as rawRunDelegate } from "../src/delegate.js";
-import { delegateOutputShape } from "../src/server.js";
+import { delegateOutputShape } from "./output-shapes.js";
 
 // Every result this suite produces is parsed against a strict copy of delegateOutputShape.
 // Nothing else checks it: the shape is not declared to hosts, so a field added here but

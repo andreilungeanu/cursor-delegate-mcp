@@ -10,7 +10,6 @@ import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION, readPackageVersion } from "./version.js";
 import { children } from "./proc.js";
 import { installSignalCleanup } from "./shutdown.js";
-import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 import { TASKS_EXTENSION, createTaskStore, listsTasks, registerTaskHandlers, runAsTask } from "./tasks.js";
 
 const ICON_BASE = `https://raw.githubusercontent.com/andreilungeanu/cursor-delegate-mcp/v${VERSION}/assets`;
@@ -55,94 +54,6 @@ const taskStore = createTaskStore();
 // Read at connect, so only what decides whether to delegate at all. Call-time facts belong on
 // the parameter descriptions.
 export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: agent/plan/ask reach any file the user account can, and mode instructs the agent rather than limiting it. Scope workspace tightly and review the git diff after every run — filesReportedByEditTools carries only what the agent's edit tools reported; the diff is authoritative.`;
-
-const planEntrySchema = z.object({
-  content: z.string(),
-  priority: z.enum(PLAN_PRIORITIES).optional(),
-  status: z.enum(PLAN_STATUSES).optional(),
-}).passthrough();
-
-// No outputSchema: it requires structuredContent too, and a host that reads both (Codex) puts the
-// payload in context twice. Strict copy in delegate.test.js; field meanings in
-// skills/delegate/reference.md.
-export const delegateOutputShape = {
-  result: z.string(),
-  resultSource: z.enum(["pre-tool-fallback", "none"]).optional(),
-  effectiveModel: z.string().optional(),
-  effectiveEffort: z.record(z.string(), z.string()).optional(),
-  stopReason: z.string().optional(),
-  sessionId: z.string(),
-  filesReportedByEditTools: z.array(z.string()).optional(),
-  resumed: z.boolean().optional(),
-  cancelRequested: z.boolean().optional(),
-  protocolWarnings: z.array(z.string()).optional(),
-  plan: z.object({
-    entries: z.array(planEntrySchema),
-    overview: z.string().optional(),
-    detail: z.string().optional(),
-  }).optional(),
-  todos: z.array(z.object({
-    id: z.string(),
-    content: z.string(),
-    status: z.enum(TODO_STATUSES).optional(),
-  })).optional(),
-  todoProgress: z.object({
-    total: z.number(),
-    completed: z.number(),
-    inProgress: z.number(),
-    pending: z.number(),
-    cancelled: z.number(),
-  }).optional(),
-};
-
-// Same contract as delegateOutputShape; strict copy in doctor.test.js. Relayed agent fields stay
-// unknown so an odd protocolVersion is a diagnostic, not a failed call. Handshake is its own
-// shape because .strict() does not look inside a nested object.
-export const doctorHandshakeShape = {
-  ok: z.boolean(),
-  error: z.string().optional(),
-  protocolVersion: z.unknown().optional(),
-  agentCapabilities: z.unknown().optional(),
-  models: z.array(z.unknown()).optional(),
-  currentModel: z.unknown().optional(),
-  modes: z.array(z.unknown()).optional(),
-  // Built here, not relayed, so it gets a real type.
-  currentModelOptions: z.array(z.object({
-    id: z.string(),
-    name: z.string().optional(),
-    category: z.string().optional(),
-    values: z.array(z.string()),
-    currentValue: z.string().optional(),
-  })).optional(),
-};
-
-export const doctorAgentShape = {
-  found: z.boolean(),
-  command: z.string(),
-  version: z.string().nullable(),
-  error: z.string().optional(),
-  handshake: z.object(doctorHandshakeShape).passthrough().optional(),
-};
-
-// agent is split out for the same reason as handshake.
-export const doctorOutputShape = {
-  plugin: z.object({ version: z.string() }).passthrough(),
-  client: z.object({
-    name: z.string().nullable(),
-    version: z.string().nullable(),
-    capabilities: z.record(z.string(), z.unknown()),
-    protocolVersion: z.string().optional(),
-  }).passthrough(),
-  agent: z.object(doctorAgentShape).passthrough(),
-  runtime: z.object({
-    node: z.string(),
-    platform: z.string(),
-    arch: z.string(),
-    cwd: z.string(),
-    transport: z.literal("stdio"),
-  }),
-  env: z.record(z.string(), z.unknown()),
-};
 
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),

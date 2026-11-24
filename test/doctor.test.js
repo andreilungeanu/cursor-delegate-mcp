@@ -9,7 +9,7 @@ import { z } from "zod";
 import { probeAgentVersion, runDoctor as rawRunDoctor } from "../src/doctor.js";
 import { AcpClient } from "../src/acp-client.js";
 import { createChildRegistry, isChildAlive } from "../src/proc.js";
-import { doctorOutputShape, doctorAgentShape, doctorHandshakeShape } from "../src/server.js";
+import { doctorOutputShape, doctorAgentShape, doctorHandshakeShape } from "./output-shapes.js";
 import { VERSION } from "../src/version.js";
 
 // Every result this suite produces is parsed against a strict copy of doctorOutputShape, for
