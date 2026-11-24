@@ -19,7 +19,7 @@ export const DEFAULT_MODEL = "composer-2.5";
 // whose served model has to be read back off a config reply for effectiveModel.
 const ROUTED_MODEL = "default";
 export const DEFAULT_HANDSHAKE_MS = 60000;
-export const DEFAULT_HEARTBEAT_MS = 30000;
+const DEFAULT_HEARTBEAT_MS = 30000;
 
 // A malformed or non-positive value falls back to the default, so a blank var (Number("") is 0)
 // cannot arm a zero-length deadline.

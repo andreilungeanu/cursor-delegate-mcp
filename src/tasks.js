@@ -40,14 +40,6 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
       if (task.sessionId) sessions.set(task.taskId, task.sessionId);
     }
   };
-  // A fact that changes what to do after a cancel: a resume that fell back to a fresh session.
-  /** @param {Task} task @param {string} text */
-  const note = (task, text) => {
-    if (task.status !== "cancelled") return;
-    const base = task.statusMessage ?? "cancelled";
-    task.statusMessage = `${base}${base.endsWith(".") ? "" : "."} Note: ${text}`;
-    task.lastUpdatedAt = now();
-  };
   return {
     now,
     /** @returns {Task} */
@@ -90,8 +82,9 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
     cancel(task) {
       if (task.status !== "working" || task.turnEnded) return;
       task.status = "cancelled";
-      task.statusMessage = task.sessionId ? `cancelled; resume with resumeSessionId ${task.sessionId}` : "cancelled";
-      if (task.resumeNote) note(task, task.resumeNote);
+      const resume = task.sessionId ? `cancelled; resume with resumeSessionId ${task.sessionId}` : "cancelled";
+      // A resume that fell back changes what to do next, so it stays on the cancelled task.
+      task.statusMessage = task.resumeNote ? `${resume}. Note: ${task.resumeNote}` : resume;
       task.endedAt = task.lastUpdatedAt = now();
       task.ac.abort();
     },
