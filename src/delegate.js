@@ -429,7 +429,7 @@ export async function runDelegate({
   let servedModel;
   let effectiveEffort;
   const contextWarnings = [];
-  // Set before the teardown in finally, which notes an unseen exit on whichever is going out.
+  // Set before the teardown in finally, which notes an unconfirmed stop on whichever is going out.
   /** @type {any} */
   let out;
   /** @type {{ cause: any, reason?: string, notes: string[] } | undefined} */
@@ -630,13 +630,11 @@ export async function runDelegate({
     signal?.removeEventListener("abort", onAbort);
     try { supervisor.finish(); } catch {}
     // Awaited: a host may close stdin on the result, and on Windows the server's exit does not take
-    // a running agent with it (server.smoke.test.js). An exit not seen is noted instead, as is a
-    // stop that rejects.
-    let exited = false;
-    try { exited = await client.stop(); } catch {}
+    // a running agent with it (server.smoke.test.js). A stop that cannot confirm the exit is noted.
+    const exited = await client.stop();
     if (exited === false) {
       const pid = client.child?.pid;
-      const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but could not confirm that it and its processes exited; they may still be running.`;
+      const note = `the bridge stopped cursor-agent${pid ? ` (pid ${pid})` : ""} but could not confirm that cursor-agent and its processes exited; they may still be running.`;
       if (failure) failure.notes.push(` Note: ${note}`);
       else if (out) (out.protocolWarnings ??= []).push(note);
     }

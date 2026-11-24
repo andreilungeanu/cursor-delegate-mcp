@@ -2434,7 +2434,7 @@ test("a stop that could not confirm the agent exited is a protocol warning on th
     spec: "task", workspace: process.cwd(),
     clientFactory: () => { const client = stubClient("sess-x"); client.stop = async () => false; return client; },
   });
-  assert.ok(out.protocolWarnings.some((w) => /could not confirm that it and its processes exited/.test(w)), String(out.protocolWarnings));
+  assert.ok(out.protocolWarnings.some((w) => /could not confirm that cursor-agent and its processes exited/.test(w)), String(out.protocolWarnings));
 });
 
 test("onPromptSent does not fire for a delegation whose model is rejected", async () => {
@@ -2683,7 +2683,7 @@ test("the delegation returns only once the agent has exited", async () => {
   assert.equal(stops, 1, "a seen exit needs no second stop");
 });
 
-test("an agent whose exit the stop does not see is reported", async () => {
+test("an agent the stop could not confirm exited is reported", async () => {
   let stops = 0;
   let stopsAtTurnEnd;
   const factory = (prompt) => () => {
@@ -2702,40 +2702,19 @@ test("an agent whose exit the stop does not see is reported", async () => {
     }),
   });
   assert.equal(stopsAtTurnEnd, 0, "the turn ends before its agent is stopped");
-  assert.equal(stops, 1, "the stop retries an unseen exit itself");
-  assert.ok(out.protocolWarnings?.some((w) => /\(pid 4242\) but could not confirm that it and its processes exited/.test(w)), JSON.stringify(out.protocolWarnings));
+  assert.equal(stops, 1, "the agent is stopped once");
+  assert.ok(out.protocolWarnings?.some((w) => /\(pid 4242\) but could not confirm that cursor-agent and its processes exited/.test(w)), JSON.stringify(out.protocolWarnings));
   await assert.rejects(runDelegate({
     spec: "task", workspace: process.cwd(),
     clientFactory: factory(async () => { throw Object.assign(new Error("boom"), { code: -32603 }); }),
-  }), /could not confirm that it and its processes exited/);
-});
-
-test("a stop that rejects counts as an unseen exit", async () => {
-  const run = async (results) => {
-    let stops = 0;
-    const out = await runDelegate({
-      spec: "task", workspace: process.cwd(),
-      clientFactory: () => {
-        const client = stubClient("sess-reject");
-        client.stop = async () => {
-          const r = results[stops++];
-          if (r instanceof Error) throw r;
-          return r;
-        };
-        return client;
-      },
-    });
-    return { stops, warned: (out.protocolWarnings ?? []).some((w) => /could not confirm that it and its processes exited/.test(w)) };
-  };
-  assert.deepEqual(await run([new Error("kill failed")]), { stops: 1, warned: true });
-  assert.deepEqual(await run([true]), { stops: 1, warned: false });
+  }), /could not confirm that cursor-agent and its processes exited/);
 });
 
 // One case per note: the exit note (thrown before the session, the stop sees no exit), the resume
 // hint (thrown once the session is open), and the reason a JSON-RPC code gives.
 test("every note the bridge adds reaches the caller, whatever the agent's side threw", async () => {
   const cases = [
-    { at: "start", thrown: Object.freeze(Object.assign(new Error("boom"), { reason: "spawn-failed" })), exited: false, reason: "spawn-failed", notes: ["boom", "could not confirm that it and its processes exited"] },
+    { at: "start", thrown: Object.freeze(Object.assign(new Error("boom"), { reason: "spawn-failed" })), exited: false, reason: "spawn-failed", notes: ["boom", "could not confirm that cursor-agent and its processes exited"] },
     { at: "prompt", thrown: Object.freeze(new Error("boom")), notes: ["boom", "Resume with resumeSessionId sess-frozen"] },
     { at: "prompt", thrown: "a bare string", notes: ["a bare string", "Resume with resumeSessionId sess-frozen"] },
     { at: "setMode", thrown: Object.freeze(Object.assign(new Error("Invalid params"), { code: -32602 })), reason: "agent-error", code: -32602, notes: ["Invalid params", "Resume with resumeSessionId sess-frozen"] },
