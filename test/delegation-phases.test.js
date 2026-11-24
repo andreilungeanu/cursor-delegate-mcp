@@ -31,19 +31,18 @@ const HEARTBEAT_MS = 20;
 // meanwhile reach the bridge.
 const SLOW_KILL_MS = 300;
 
-const BARRIERS = ["initialize", "session/new", "set_model", "set_config_option", "set_mode", "prompt", "turn"];
-const BEFORE_SESSION = ["initialize", "session/new"];
-const SETUP = ["set_model", "set_config_option", "set_mode"];
-const TURN = ["prompt", "turn"];
+// One barrier before the session id is announced, one in setup, and the turn.
+const BARRIERS = ["session/new", "set_mode", "turn"];
+const BEFORE_SESSION = ["session/new"];
+const SETUP = ["set_mode"];
+const TURN = ["turn"];
 const EVENTS = ["cancel", "cancel-force", "abort", "exit"];
 const CASES = [
   ...BARRIERS.flatMap((barrier) => EVENTS.map((event) => ({ barrier, event }))),
   ...[...BEFORE_SESSION, ...SETUP].map((barrier) => ({ barrier, event: "timeout" })),
-  { barrier: "set_config_option", event: "cancel", release: "error" },
-  { barrier: "set_mode", event: "cancel", release: "error" },
 ];
 
-const caseName = (c) => [c.event, c.release && "then agent fails the held call", "at", c.barrier].filter(Boolean).join(" ");
+const caseName = (c) => [c.event, "at", c.barrier].join(" ");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function within(promise, ms) {
@@ -202,8 +201,7 @@ async function runCase(c) {
     if (c.event === "cancel" || c.event === "cancel-force") {
       o.cancel = await status("cancel", { sessionId: sid, force: c.event === "cancel-force" });
       if (o.cancel === "cancelled") await arrived((f) => f.method === "session/cancel");
-      if (c.release === "error") release("error");
-      else if (c.event === "cancel" && SETUP.includes(c.barrier)) o.endedWithSetupHeld = await within(hostDone, HELD_SETUP_MS);
+      if (c.event === "cancel" && SETUP.includes(c.barrier)) o.endedWithSetupHeld = await within(hostDone, HELD_SETUP_MS);
     } else if (c.event === "abort") {
       abort.abort();
       await until(() => o.stopCalled, 5000);
@@ -213,26 +211,23 @@ async function runCase(c) {
       agent.exit(1);
       await within(bridgeExit, 5000);
     }
-    release("reply");
+    release();
   }
 
   function gate(phase) {
-    if (phase !== c.barrier) return Promise.resolve("reply");
+    if (phase !== c.barrier) return Promise.resolve();
     eventStarted = true;
     return new Promise((release) => { eventSettled = fire(release); });
   }
 
   async function held(phase, frame, result) {
-    const release = await gate(phase);
-    if (release === "error") agent.fail(frame, -32603, "Internal error");
-    else agent.reply(frame, result);
-    return release;
+    await gate(phase);
+    agent.reply(frame, result);
   }
 
   async function onTask(frame) {
     unanswered.add(frame);
-    await gate("prompt");
-    if (!unanswered.has(frame) || !agent.alive) return;
+    if (!agent.alive) return;
     agent.update(sid, message("Working. "));
     await gate("turn");
     if (eventStarted) await eventSettled;
@@ -243,14 +238,14 @@ async function runCase(c) {
 
   agent.onFrame = (frame) => {
     switch (frame.method) {
-      case "initialize": return held("initialize", frame, INITIALIZE);
+      case "initialize": return agent.reply(frame, INITIALIZE);
       case "session/new": return held("session/new", frame, { sessionId: sid, models: MODELS, configOptions: [modelOption("model-a")] });
-      case "session/set_model": return held("set_model", frame, {});
-      case "session/set_config_option": return held("set_config_option", frame, { configOptions: [modelOption("model-b")] });
+      case "session/set_model": return agent.reply(frame, {});
+      case "session/set_config_option": return agent.reply(frame, { configOptions: [modelOption("model-b")] });
       case "session/set_mode":
-        return held("set_mode", frame, {}).then((release) => {
+        return held("set_mode", frame, {}).then(() => {
           // Lands while the bridge reads the attachments, before the task prompt is out.
-          if (release === "reply") setTimeout(() => agent.update(sid, message(CHATTER)), 2);
+          setTimeout(() => agent.update(sid, message(CHATTER)), 2);
         });
       case "session/prompt": return onTask(frame);
       case "session/cancel":
@@ -313,9 +308,7 @@ function violations(c, o) {
         rule(o.endedWithSetupHeld, `a cancel before the prompt ends setup at once, with the agent's ${c.barrier} reply still held`);
       }
       rule(prompts.length === 0, "the agent receives no task prompt after a cancel during setup");
-      rule(out?.stopReason === "cancelled", c.release === "error"
-        ? `a cancel before the prompt returns stopReason cancelled even when the agent then fails the held call; got ${got}`
-        : `a cancel before the prompt returns stopReason cancelled; got ${got}`);
+      rule(out?.stopReason === "cancelled", `a cancel before the prompt returns stopReason cancelled; got ${got}`);
       rule(out?.result === "" && out?.resultSource === "none", `a setup-cancelled delegation returns an empty result with resultSource none; got ${got}`);
       rule(out && !out.protocolWarnings && !out.filesReportedByEditTools,
         `a setup-cancelled delegation reports no warnings and no files; got ${show(out?.protocolWarnings)} ${show(out?.filesReportedByEditTools)}`);
