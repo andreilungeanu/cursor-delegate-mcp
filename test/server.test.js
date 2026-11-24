@@ -694,6 +694,10 @@ test("server advertises instructions, output schemas, and conservative tool anno
     assert.match(effortDescription, /invalid values fail before the prompt/);
     assert.match(effortDescription, /host's own reasoning setting is unrelated/);
     assert.doesNotMatch(effortDescription, /gpt-5\.x|extra-high/);
+    // The ids on offer differ by account: a fixed list names models an account does not have.
+    const modelDescription = tools.delegate.inputSchema.properties.model.description;
+    assert.match(modelDescription, new RegExp(`${DEFAULT_MODEL.replace(".", "\\.")}.*doctor deep:true`));
+    assert.doesNotMatch(modelDescription, /grok|claude|gpt/);
     // No outputSchema on any tool: declaring one forces structuredContent alongside the text
     // block, which puts the payload in the caller's context twice.
     assert.equal(tools.delegate.outputSchema, undefined);
