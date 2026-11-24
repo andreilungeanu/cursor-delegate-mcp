@@ -43,7 +43,7 @@ Every tool returns its payload as one compact JSON text block and declares no MC
 | `env.ACP_LOG_SIZE` | Flight recorder size (default `2000`). |
 | `env.ACP_AGENT_COMMAND` / `env.ACP_AGENT_ARGS` | Launcher overrides, or `null` when unset. |
 | `env.CURSOR_DELEGATE_TRANSCRIPT` | Transcript frame count, or `null` when unset. |
-| `env.CURSOR_DELEGATE_HANDSHAKE_MS` / `HARD_CAP_MS` / `IDLE_MS` | Timeout knobs, or `null` when unset. |
+| `env.CURSOR_DELEGATE_HANDSHAKE_MS` / `HARD_CAP_MS` | Timeout knobs, or `null` when unset. |
 
 Optional `deep: true` runs a bounded ACP handshake (15 s) and adds `agent.handshake`:
 `{ ok: false, error }` on failure — not logged in, or a timeout — or `{ ok: true,
@@ -83,7 +83,6 @@ diagnostic, not fail the call.
 | `CURSOR_DELEGATE_TRANSCRIPT` | Frames of raw ACP transcript to append to failure messages; unset = none. Contains prompts, tool inputs/outputs and agent messages — use it only when debugging the bridge itself. |
 | `CURSOR_DELEGATE_HANDSHAKE_MS` | Handshake deadline (default 60 s). |
 | `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute delegation cap (default 6 h). |
-| `CURSOR_DELEGATE_IDLE_MS` | Opt-in mid-turn idle guard; unset or `0` = off. |
 | `ACP_E2E` | Set to `1` to run live e2e tests locally. |
 
 ## Source layout
@@ -96,7 +95,7 @@ diagnostic, not fail the call.
 | `src/request-router.js` | Permission, plan and todo routing. |
 | `src/jsonrpc.js` | NDJSON JSON-RPC peer. |
 | `src/spawn.js` | `agent acp` launcher resolution. |
-| `src/session-supervisor.js` | Handshake/idle/hard-cap timeouts. |
+| `src/session-supervisor.js` | Handshake and hard-cap timeouts. |
 | `src/agent-reported-files.js` | Path normalization for `filesReportedByEditTools`. |
 | `src/doctor.js` | Diagnostics. |
 | `src/turn-state.js` | Per-turn accumulation and the `reset()` declaration replay applies. |

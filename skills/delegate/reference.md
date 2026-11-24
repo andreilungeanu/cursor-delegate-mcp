@@ -106,7 +106,6 @@ Errors come back as `delegate failed [<reason>]: …`.
 | `resume-failed` | `resumeSessionId` could not be loaded for a reason other than the agent not having that session — no fresh session was started. | Retry; omit `resumeSessionId` to start fresh deliberately. A session the agent does not have is not this: it starts fresh and reports a `protocolWarnings` entry. |
 | `agent-error` | The agent answered a request with a JSON-RPC error, named with its code. | Read the message; fix the argument if it names one. |
 | `hard-cap` | The 6h absolute cap elapsed. | Resume the id in the message. |
-| `idle-timeout` | Opt-in mid-turn idle guard tripped (off by default). | Resume the id in the message. |
 | `spawn-failed` | The agent process could not be started at all (launcher missing or not executable). | Install Cursor CLI and run `cursor-agent login`; `doctor` shows the launcher resolution. |
 | `agent-exit` | The agent process died; stderr is included. | Resume once; run `doctor` if it repeats. |
 | `handshake-timeout` | No prompt ever went in flight — the agent wedged during setup. Setup runs past `session/new`, so a session may already exist. | Resume the id if the message names one; run `doctor` if it names none, or if resuming repeats the stall. |
@@ -152,11 +151,9 @@ rather than acting on it.
 | Guard | Default | Scope |
 | ----- | ------- | ----- |
 | Handshake deadline | 60 s | Spawn through session setup only, where silence really does mean a wedged agent. |
-| Hard cap | 6 h | Whole delegation, absolute. Stopping the agent afterwards takes up to 4 s more. |
-| Mid-turn idle guard | off | Opt-in; silence during a turn does not settle the session. |
+| Hard cap | 6 h | Whole delegation, absolute. Stopping the agent afterwards takes up to 10 s more. |
 
-Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`,
-`CURSOR_DELEGATE_IDLE_MS` (unset or `0` = disabled). On the other two, a non-positive or
+Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`. A non-positive or
 malformed value falls back to the default. Agent process exit is detected directly and fails
 fast regardless of these.
 

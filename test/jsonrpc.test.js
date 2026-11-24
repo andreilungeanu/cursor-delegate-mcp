@@ -315,8 +315,7 @@ test("malformed inbound line is still recorded", async () => {
 
 test("onActivity fires for a parsed frame and not for anything else on the wire", async () => {
   // The supervisor reads this as "the protocol advanced", and the stall message it feeds calls it
-  // "Last ACP frame". A launcher banner, a blank line and a half-written frame are none of those,
-  // and counting them let a chatty launcher hold the idle guard open indefinitely.
+  // "Last ACP frame". A launcher banner, a blank line and a half-written frame are none of those.
   const input = new PassThrough();
   const output = new PassThrough();
   let count = 0;

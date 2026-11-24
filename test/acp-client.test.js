@@ -369,10 +369,8 @@ test("cancel sends session/cancel as a notification without id", async () => {
 });
 
 test("stderr is captured but is not reported as agent activity", async () => {
-  // The supervisor's clock feeds two strings the caller reads — the heartbeat's "last agent frame
-  // N ago" and the stall error's "Last ACP frame N ago" — and drives the opt-in idle guard. A
-  // launcher writing diagnostics on stderr is not the turn progressing, and while it counted, a
-  // noisy launcher could hold that guard open for as long as it kept talking.
+  // The supervisor's clock feeds the heartbeat's "last agent frame N ago" and the stall error's
+  // "Last ACP frame N ago"; a launcher writing diagnostics on stderr is not the turn progressing.
   const script = 'setInterval(() => process.stderr.write("still booting\\n"), 20);';
   const client = new AcpClient({ spawnSpec: { command: process.execPath, args: ["-e", script] } });
   let activity = 0;

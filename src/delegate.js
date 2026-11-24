@@ -22,7 +22,7 @@ export const DEFAULT_HANDSHAKE_MS = 60000;
 export const DEFAULT_HEARTBEAT_MS = 30000;
 
 // A malformed or non-positive value falls back to the default, so a blank var (Number("") is 0)
-// cannot arm a zero-length deadline. The idle guard is off because its own fallback is 0.
+// cannot arm a zero-length deadline.
 function envMs(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -254,7 +254,7 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
  *   spec?: string, mode?: string, resumeSessionId?: string, workspace?: string,
  *   model?: string, fast?: boolean, effort?: string, context?: string,
  *   contextFiles?: string[], clientFactory?: (opts: any) => any,
- *   idleMs?: number, handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
+ *   handshakeMs?: number, hardCapMs?: number, timeoutMs?: number,
  *   onSessionReady?: (sessionId: string, client: any) => void,
  *   onPromptSent?: (sessionId: string, resumeNote?: string) => void,
  *   onUnseenExit?: (note: string) => void,
@@ -266,7 +266,7 @@ async function applyEffort(client, sessionId, model, value, modelOptions) {
 export async function runDelegate({
   spec, mode = "agent", resumeSessionId, workspace,
   model = DEFAULT_MODEL, fast = false, effort, context, contextFiles, clientFactory,
-  idleMs, handshakeMs, hardCapMs, timeoutMs,
+  handshakeMs, hardCapMs, timeoutMs,
   onSessionReady, onPromptSent, onUnseenExit, onTurnEnd, onProgress, progressThrottleMs = 2000,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   signal,
@@ -283,7 +283,6 @@ export async function runDelegate({
   const promptText = spec;
   const capMs = hardCapMs ?? timeoutMs ?? envMs("CURSOR_DELEGATE_HARD_CAP_MS", DEFAULT_HARD_CAP_MS);
   const shakeMs = handshakeMs ?? envMs("CURSOR_DELEGATE_HANDSHAKE_MS", DEFAULT_HANDSHAKE_MS);
-  const turnIdleMs = idleMs ?? envMs("CURSOR_DELEGATE_IDLE_MS", 0);
   const state = makeTurnState({ onProgress, progressThrottleMs });
 
   // ACP requires string plan content and bounds priority/status. A frame that violates that must
@@ -348,7 +347,7 @@ export async function runDelegate({
 
   const make = clientFactory || ((opts) => new AcpClient(opts));
   const client = make({ mode, onCreatePlan: state.recordCreatePlan, onTodos: state.recordTodos });
-  const supervisor = new SessionSupervisor(client, { idleMs: turnIdleMs, handshakeMs: shakeMs, hardCapMs: capMs });
+  const supervisor = new SessionSupervisor(client, { handshakeMs: shakeMs, hardCapMs: capMs });
   const onAbort = () => supervisor.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -620,7 +619,7 @@ export async function runDelegate({
     if (fromAgent) notes.push(rpcNote(err));
     // A bare duration cannot distinguish a wedged agent from a slow command, so name what was
     // outstanding — it also lets a retry resume the work already done.
-    const isTimeout = reason === "hard-cap" || reason === "idle-timeout";
+    const isTimeout = reason === "hard-cap";
     // A handshake timeout gets the forensics but not the long-command advice: no prompt was sent,
     // so no shell command explains the silence.
     const isStall = isTimeout || reason === "handshake-timeout";
@@ -643,10 +642,8 @@ export async function runDelegate({
     // config value included, not just the stalls.
     if (sessionId) notes.push(` Resume with resumeSessionId ${sessionId}.`);
     if (isTimeout) {
-      // Name the knob that fired: the hard cap does nothing for an idle-timeout.
-      const knob = reason === "idle-timeout" ? "CURSOR_DELEGATE_IDLE_MS" : "CURSOR_DELEGATE_HARD_CAP_MS";
       notes.push(" cursor-agent does not stream shell output over ACP, so a long-running command emits"
-        + ` nothing until it exits. Split the command, run it in the background and poll, or raise ${knob}.`);
+        + " nothing until it exits. Split the command, run it in the background and poll, or raise CURSOR_DELEGATE_HARD_CAP_MS.");
     }
     // Opt-in: raw frames add nothing actionable to the caller's context beyond the forensics
     // above; they help only someone debugging the bridge.

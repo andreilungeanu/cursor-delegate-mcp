@@ -81,8 +81,7 @@ export class JsonRpcPeer {
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
     if (msg === null || typeof msg !== "object" || Array.isArray(msg)) return;
-    // Only a parsed frame is activity; a blank line or launcher banner must not hold the idle
-    // guard open.
+    // Only a parsed frame is activity; a blank line or launcher banner is not.
     this.onActivity();
     const hasId = msg.id !== undefined && msg.id !== null;
     if (hasId && (msg.result !== undefined || msg.error !== undefined)) {

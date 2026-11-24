@@ -7,12 +7,11 @@ import { AcpClient } from "../src/acp-client.js";
 import { SessionSupervisor } from "../src/session-supervisor.js";
 import { runDelegate } from "../src/delegate.js";
 
-// Mid-turn idle detection is opt-in, so tests that exercise it pass idleMs explicitly.
-// handshakeMs is deliberately generous: these tests exercise idle/hard-cap, not the handshake
+// handshakeMs is deliberately generous: these tests exercise the hard cap, not the handshake
 // deadline, so it only needs to outlast a cold subprocess spawn (a Windows CI runner can take
 // well over 400ms just to start node). Tests that actually assert a handshake timeout set their
 // own short handshakeMs.
-const TIMING = { idleMs: 200, handshakeMs: 5000, hardCapMs: 1500 };
+const TIMING = { handshakeMs: 5000, hardCapMs: 1500 };
 
 function stubFactory(stubFile) {
   return ({ mode, onCreatePlan }) => new AcpClient({
@@ -26,45 +25,6 @@ function stubFactory(stubFile) {
   });
 }
 
-test("idle timeout fires on a silent stub without waiting for escalation", async () => {
-  const start = Date.now();
-  await assert.rejects(
-    () => runDelegate({
-      spec: "hang",
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: stubFactory("silent-stub.js"),
-      idleMs: 150,
-      hardCapMs: 10000,
-    }),
-    (err) => {
-      assert.equal(err.reason, "idle-timeout");
-      assert.match(err.message, /idle timeout/i);
-      return true;
-    }
-  );
-  // Generous bound: this only rules out multi-second escalation sleeps, and the elapsed time
-  // includes a cold subprocess spawn that a slow CI runner can stretch to hundreds of ms.
-  assert.ok(Date.now() - start < 2000, "expected prompt rejection, not blocked by escalation sleeps");
-});
-
-// Ticks every 50ms against a 400ms window, so a frame gap has 350ms of slack: at 200ms, a shared
-// macOS runner stalled past the 150ms that left and tripped the guard mid-stream. The 1.2s turn
-// still outlasts the window three times over, so a guard that ignored activity would trip.
-test("idle timeout does not fire while stub streams updates faster than idleMs", async () => {
-  const out = await runDelegate({
-    spec: "stream",
-    mode: "agent",
-    workspace: process.cwd(),
-    clientFactory: stubFactory("streaming-stub.js"),
-    ...TIMING,
-    idleMs: 400,
-    hardCapMs: 10000,
-  });
-  assert.equal(out.stopReason, undefined);
-  assert.match(out.result, /tick-/);
-});
-
 test("hard-cap fires on a stub that streams forever", async () => {
   const start = Date.now();
   await assert.rejects(
@@ -73,7 +33,6 @@ test("hard-cap fires on a stub that streams forever", async () => {
       mode: "agent",
       workspace: process.cwd(),
       clientFactory: stubFactory("infinite-stream-stub.js"),
-      idleMs: 800,
       hardCapMs: 400,
     }),
     (err) => {
@@ -106,7 +65,7 @@ test("handshake exit rejects promptly", async () => {
   assert.ok(Date.now() - start < 2000, "expected fail-fast handshake exit");
 });
 
-test("handshake hang rejects via the handshake deadline, with idle detection off", async () => {
+test("handshake hang rejects via the handshake deadline", async () => {
   const start = Date.now();
   await assert.rejects(
     () => runDelegate({
@@ -114,7 +73,6 @@ test("handshake hang rejects via the handshake deadline, with idle detection off
       mode: "agent",
       workspace: process.cwd(),
       clientFactory: stubFactory("handshake-hang-stub.js"),
-      idleMs: 0,
       handshakeMs: 300,
       hardCapMs: 10000,
     }),
@@ -125,27 +83,6 @@ test("handshake hang rejects via the handshake deadline, with idle detection off
     }
   );
   assert.ok(Date.now() - start < 2000, "expected handshake deadline during handshake");
-});
-
-// The reported bug: cursor-agent emits nothing while a shell command runs, so a healthy
-// long command was indistinguishable from a hang and got killed at 90s.
-// A client-terminal-capability probe (2026-07-21) measured 26.9s of dead wire for a 20s
-// command. Post-handshake silence must no longer settle the session by default.
-test("post-handshake silence does not trip by default", async () => {
-  await assert.rejects(
-    () => runDelegate({
-      spec: "hang",
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: stubFactory("silent-stub.js"),
-      handshakeMs: 10000,
-      hardCapMs: 900,
-    }),
-    (err) => {
-      assert.equal(err.reason, "hard-cap", "silence during the turn must not read as a hang");
-      return true;
-    }
-  );
 });
 
 test("a handshake timeout after session/new hands back the resumable session", async () => {
@@ -216,31 +153,13 @@ test("promptStarted clears the handshake deadline for a later-settling turn", as
   client.on = (...a) => EventEmitter.prototype.on.call(client, ...a);
   client.off = (...a) => EventEmitter.prototype.off.call(client, ...a);
   client.cancel = async () => {};
-  const sup = new SessionSupervisor(client, { handshakeMs: 50, hardCapMs: 10000, idleMs: 0 });
+  const sup = new SessionSupervisor(client, { handshakeMs: 50, hardCapMs: 10000 });
   const res = await sup.supervise(async () => {
     sup.promptStarted();
     await new Promise((r) => setTimeout(r, 200)); // well past the 50ms handshake deadline
     return { stopReason: "end_turn" };
   });
   assert.deepEqual(res, { stopReason: "end_turn" });
-});
-
-test("opt-in idle guard trips on mid-turn silence when configured", async () => {
-  await assert.rejects(
-    () => runDelegate({
-      spec: "hang",
-      mode: "agent",
-      workspace: process.cwd(),
-      clientFactory: stubFactory("silent-stub.js"),
-      idleMs: 200,
-      handshakeMs: 10000,
-      hardCapMs: 10000,
-    }),
-    (err) => {
-      assert.equal(err.reason, "idle-timeout");
-      return true;
-    }
-  );
 });
 
 test("heartbeat progress reports elapsed time and frame age during a silent turn", async () => {
@@ -263,7 +182,7 @@ test("heartbeat progress reports elapsed time and frame age during a silent turn
   assert.match(beats[0], /elapsed, last agent frame \d+s ago/);
 });
 
-test("escalation order idle→cancel→kill with child dead afterward", async () => {
+test("a hard cap sends session/cancel, then kills the agent", async () => {
   const written = [];
   let childRef;
   let exitPromise;
@@ -292,9 +211,9 @@ test("escalation order idle→cancel→kill with child dead afterward", async ()
       clientFactory: factory,
       ...TIMING,
       handshakeMs: 10000,
-      hardCapMs: 10000,
+      hardCapMs: 800,
     }),
-    (err) => err.reason === "idle-timeout"
+    (err) => err.reason === "hard-cap"
   );
 
   await exitPromise;
