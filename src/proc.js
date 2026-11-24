@@ -49,7 +49,11 @@ async function killAndSeeExit(child, timeoutMs) {
   // Runs for an exited child too: on POSIX the commands it spawned stay in its process group. One
   // tree kill at a time: a retry joins the one still running.
   let killed = treeKills.get(child);
-  if (!killed) {
+  if (!killed && unconfirmed.has(child)) {
+    // taskkill already failed on this tree: the launcher's handle is all a retry has left.
+    if (alive) { try { child.kill("SIGKILL"); } catch {} }
+    killed = Promise.resolve();
+  } else if (!killed) {
     killed = treeKill(child.pid, { childAlive: alive }).catch(() => false).then((tidy) => {
       if (tidy) return;
       // The launcher's own handle still kills it, and no reused pid, but what it started may run on:

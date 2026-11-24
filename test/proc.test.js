@@ -132,6 +132,21 @@ test("a taskkill that fails still ends the launcher, by its own handle, and the 
   }
 });
 
+// The launcher's handle kill is made to miss, so the stop's retry finds it alive.
+test("a retry after a failed taskkill does not run taskkill again", win32Only, async () => {
+  const swap = swapTaskkill("process.exit(1)");
+  const tracked = startTracked(createChildRegistry());
+  const kill = tracked.child.kill.bind(tracked.child);
+  tracked.child.kill = () => false;
+  try {
+    assert.equal(await tracked.stop({ timeoutMs: 600 }), false);
+    assert.equal(swap.utilities.length, 1, "the retry started a second taskkill");
+  } finally {
+    swap.restore();
+    kill("SIGKILL");
+  }
+});
+
 test("a taskkill that stalls is stopped, and the launcher killed by its own handle", win32Only, async () => {
   const swap = swapTaskkill("setInterval(() => {}, 1000)");
   const tracked = startTracked(createChildRegistry());
