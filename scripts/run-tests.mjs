@@ -9,8 +9,14 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 const args = process.argv.slice(2);
-// By extension, so a flag's separate value (`--test-name-pattern foo`) is not taken for a file.
-const named = args.filter((arg) => !arg.startsWith("-") && /\.[cm]?js$/.test(arg));
+// By extension, so a flag's separate value (`--test-name-pattern foo`) is not taken for a file, and
+// not after a flag whose value can end in .js: node would discover files, fixtures included.
+const TAKES_JS_VALUE = new Set([
+  "--test-name-pattern", "--test-skip-pattern", "--test-reporter", "--test-reporter-destination",
+  "--test-coverage-include", "--test-coverage-exclude", "--test-global-setup",
+  "--import", "--require", "-r", "--loader", "--experimental-loader",
+]);
+const named = args.filter((arg, i) => !arg.startsWith("-") && /\.[cm]?js$/.test(arg) && !TAKES_JS_VALUE.has(args[i - 1]));
 const testDir = fileURLToPath(new URL("../test/", import.meta.url));
 const files = named.length
   ? []

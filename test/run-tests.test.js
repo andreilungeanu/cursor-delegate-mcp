@@ -24,6 +24,12 @@ test("named test files run in place of the full list", nested, () => {
   assert.match(run.stdout, /^# tests 1$/m);
 });
 
+test("a flag's separate value ending in .js leaves the full list to run", nested, () => {
+  const run = runRunner(["--test-name-pattern", "matches-no-test.js"], { TEST_RUN_DEADLINE_MS: "20000" }, 30000);
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.doesNotMatch(run.stdout, /fixtures/);
+});
+
 test("a run still going at its deadline is stopped with its processes, and fails", nested, async () => {
   const pidFile = join(tmpdir(), `run-tests-leak-${process.pid}-${Date.now()}`);
   const started = Date.now();
