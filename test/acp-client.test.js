@@ -30,6 +30,16 @@ async function until(predicate, timeoutMs, message) {
   }
 }
 
+// An exit a missed kill leaves unanswered fails the test instead of holding the file open.
+async function within(promise, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), timeoutMs); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function fakeSpawn() {
   // fileURLToPath (not .pathname) is required on Windows: pathname yields a
   // leading-slash form ("/D:/...") that node.exe mis-resolves as a relative
@@ -205,9 +215,13 @@ test("stop() terminates a live agent child (regression: Windows orphaned agent)"
   await client.start();
   assert.ok(isChildAlive(client.child), "child must be alive before stop()");
   const exited = new Promise((resolve) => client.child.once("exit", resolve));
-  client.stop();
-  await exited;
-  assert.ok(!isChildAlive(client.child), "child must be dead after stop()");
+  try {
+    client.stop();
+    await within(exited, 10000, "the agent never exited");
+    assert.ok(!isChildAlive(client.child), "child must be dead after stop()");
+  } finally {
+    try { client.child.kill("SIGKILL"); } catch {}
+  }
 });
 
 // The agent spawns its own children; killing one pid orphans them. Windows taskkill /T already
@@ -235,9 +249,10 @@ test("stop() kills the agent's descendants, not only the direct child", async ()
     assert.ok(pidAlive(grandchildPid), "grandchild must be alive before stop()");
     const exited = new Promise((resolve) => client.child.once("exit", resolve));
     client.stop();
-    await exited;
+    await within(exited, 10000, "the agent never exited");
     await until(() => !pidAlive(grandchildPid), 5000, "grandchild survived stop()");
   } finally {
+    try { client.child?.kill("SIGKILL"); } catch {}
     if (grandchildPid && pidAlive(grandchildPid)) { try { process.kill(grandchildPid, "SIGKILL"); } catch {} }
     rmSync(pidFile, { force: true });
   }
@@ -267,16 +282,21 @@ test("stop() is not done until taskkill has finished with the tree", { skip: pro
   } finally {
     cp.execFile = execFile;
     syncBuiltinESMExports();
+    try { client.child?.kill("SIGKILL"); } catch {}
   }
 });
 
 test("stop() is idempotent and reports the exit it observed", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
-  const first = client.stop();
-  assert.equal(client.stop(), first, "a second caller must join the same teardown, not start one");
-  assert.equal(await first, true, "the child was observed to exit");
-  assert.equal(await client.stop(), true, "a later caller gets the same answer");
+  try {
+    const first = client.stop();
+    assert.equal(client.stop(), first, "a second caller must join the same teardown, not start one");
+    assert.equal(await first, true, "the child was observed to exit");
+    assert.equal(await client.stop(), true, "a later caller gets the same answer");
+  } finally {
+    try { client.child.kill("SIGKILL"); } catch {}
+  }
 });
 
 // A real agent cannot swallow SIGKILL, so its exit is hidden, as a failed kill would leave it; the
@@ -328,9 +348,13 @@ test("stop() retries teardown after a missed exit", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
   const reallyExited = withholdExit(client.child);
-  assert.equal(await client.stop({ timeoutMs: 25 }), false, "an exit that never arrives is not observed");
-  (await reallyExited)();
-  assert.equal(await client.stop(), true, "a missed exit is not memoized, so the next stop looks again");
+  try {
+    assert.equal(await client.stop({ timeoutMs: 25 }), false, "an exit that never arrives is not observed");
+    (await within(reallyExited, 10000, "the kill never landed"))();
+    assert.equal(await client.stop(), true, "a missed exit is not memoized, so the next stop looks again");
+  } finally {
+    try { client.child.kill("SIGKILL"); } catch {}
+  }
 });
 
 // With the exit withheld, emitExit never runs either: nothing but stop() rejects session/prompt.
@@ -364,7 +388,8 @@ test("stop() rejects in-flight RPCs when the child does not exit", async () => {
     }
   } finally {
     try { client.peer?.rejectAllPending(new Error("test cleanup")); } catch {}
-    await reallyExited;
+    try { client.child.kill("SIGKILL"); } catch {}
+    await within(reallyExited, 10000, "the kill never landed");
   }
 });
 
