@@ -6,7 +6,7 @@ Delegate edits to Cursor's CLI agent — your agent writes the brief and reviews
 
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
-[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-blue)](https://registry.modelcontextprotocol.io/v0/servers?search=cursor-delegate)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-blue)](https://registry.modelcontextprotocol.io/v0.1/servers?search=cursor-delegate&version=latest)
 [![cursor-delegate-mcp MCP server](https://glama.ai/mcp/servers/andreilungeanu/cursor-delegate-mcp/badges/score.svg)](https://glama.ai/mcp/servers/andreilungeanu/cursor-delegate-mcp)
 [![node](https://img.shields.io/node/v/cursor-delegate-mcp)](https://nodejs.org)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

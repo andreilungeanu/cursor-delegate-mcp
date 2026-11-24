@@ -3,7 +3,7 @@
   "name": "io.github.andreilungeanu/cursor-delegate-mcp",
   "title": "Cursor Delegate",
   "description": "Bridge AI coding hosts to cursor-agent over the Agent Client Protocol.",
-      "version": "3.2.0",
+  "version": "3.2.0",
   "websiteUrl": "https://github.com/andreilungeanu/cursor-delegate-mcp",
   "icons": [
     {
@@ -27,7 +27,7 @@
     {
       "registryType": "npm",
       "identifier": "cursor-delegate-mcp",
-  "version": "3.2.0",
+      "version": "3.2.0",
       "transport": {
         "type": "stdio"
       }
