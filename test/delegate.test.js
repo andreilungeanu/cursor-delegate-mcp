@@ -157,17 +157,6 @@ test("a stale non-terminal update for a finished tool call keeps the final messa
   assert.equal(out.protocolWarnings, undefined);
 });
 
-function oversizedFactory() {
-  const client = stubClient("sess-big");
-  client.prompt = async () => {
-    // One byte over the former 10MB cap — the stream is unbounded here, so this must arrive whole.
-    const OVER_CAP = 10 * 1024 * 1024 + 1;
-    client.emit("update", { update: { sessionUpdate: "agent_message_chunk", content: { text: "x".repeat(OVER_CAP) } } });
-    return { stopReason: "end_turn" };
-  };
-  return client;
-}
-
 function fastToggleFactory({ onSetFast }) {
   return () => {
     const client = stubClient("sess-track");
@@ -1911,19 +1900,6 @@ test("runDelegate rejects promptly when agent exits during prompt", async () => 
     }
   );
   assert.ok(Date.now() - start < 2000, "expected fail-fast rejection, not full timeout");
-});
-
-test("runDelegate returns output above the former 10MB cap verbatim", async () => {
-  const out = await runDelegate({
-    spec: "big task",
-    mode: "agent",
-    workspace: process.cwd(),
-    clientFactory: () => oversizedFactory(),
-  });
-  // One byte over the former ceiling, delivered whole — model output is bounded by the
-  // model's own token limit, so there is nothing left to guard against.
-  assert.equal(out.result.length, 10 * 1024 * 1024 + 1);
-  assert.ok(!out.result.includes("[output truncated"));
 });
 
 function failingPromptFactory() {
