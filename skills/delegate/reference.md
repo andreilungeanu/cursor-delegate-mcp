@@ -8,7 +8,7 @@ Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-a
 | ----- | ------- | ----------- |
 | `spec` | — | The task brief, sent as written. Name files in it for the agent to read, or attach them with `contextFiles`. |
 | `mode` | `agent` | `agent`, `plan`, or `ask`. |
-| `model` | `composer-2.5` | Bare ACP family id (`composer-2.5`, `grok-4.5`, `gpt-5.4`). Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
+| `model` | `composer-2.5` | Bare ACP family id, version included. The ids on offer depend on the account; `doctor deep:true` lists them. Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
 | `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Cursor keeps the tier per model across sessions; the bridge sends it unless the session already opened on that model at that tier. |
 | `workspace` | required | Working directory for the agent. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call. |
 | `resumeSessionId` | — | Resume an existing ACP session. When `delegate` ran as an MCP task, its server-side task id works too, while this server process runs. |
