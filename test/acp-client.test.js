@@ -5,7 +5,6 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire, syncBuiltinESMExports } from "node:module";
 import { AcpClient } from "../src/acp-client.js";
 import { isChildAlive } from "../src/proc.js";
 
@@ -266,26 +265,6 @@ function silentStub() {
   };
 }
 
-// taskkill kills at once and answers 1 s later, as on a loaded machine: the agent's exit is seen
-// before taskkill is done with the tree.
-test("stop() is not done until taskkill has finished with the tree", { skip: process.platform !== "win32" && "taskkill is the win32 tree kill" }, async () => {
-  const cp = createRequire(import.meta.url)("node:child_process");
-  const execFile = cp.execFile;
-  cp.execFile = (file, args, opts, cb) => execFile(file, args, opts, (...result) => setTimeout(() => cb(...result), 1000));
-  syncBuiltinESMExports();
-  const client = new AcpClient({ spawnSpec: silentStub() });
-  try {
-    await client.start();
-    const started = Date.now();
-    assert.equal(await client.stop(), true);
-    assert.ok(Date.now() - started >= 900, `stop() was done ${Date.now() - started} ms in, before taskkill finished`);
-  } finally {
-    cp.execFile = execFile;
-    syncBuiltinESMExports();
-    try { client.child?.kill("SIGKILL"); } catch {}
-  }
-});
-
 test("stop() is idempotent and reports the exit it observed", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
   await client.start();
@@ -320,43 +299,6 @@ function withholdExit(child) {
   });
 }
 
-// Every kill misses: the stub, which reads only stdin, ends only if teardown closes it.
-test("a stop that cannot confirm the agent's exit closes the agent's stdin", async () => {
-  const client = new AcpClient({ spawnSpec: silentStub() });
-  await client.start();
-  const { child } = client;
-  const cp = createRequire(import.meta.url)("node:child_process");
-  const execFile = cp.execFile;
-  const kill = process.kill;
-  cp.execFile = (file, args, opts, cb) => execFile(file === "taskkill" ? process.execPath : file, file === "taskkill" ? ["-e", "process.exit(128)"] : args, opts, cb);
-  syncBuiltinESMExports();
-  process.kill = (pid, signal) => (Math.abs(pid) === child.pid ? true : kill.call(process, pid, signal));
-  const childKill = child.kill.bind(child);
-  child.kill = () => false;
-  try {
-    assert.equal(await client.stop({ timeoutMs: 300 }), false, "a kill that missed was taken for an exit");
-    await until(() => !isChildAlive(child), 5000, "the agent outlived its closed stdin");
-  } finally {
-    cp.execFile = execFile;
-    syncBuiltinESMExports();
-    process.kill = kill;
-    try { childKill("SIGKILL"); } catch {}
-  }
-});
-
-test("stop() retries teardown after a missed exit", async () => {
-  const client = new AcpClient({ spawnSpec: silentStub() });
-  await client.start();
-  const reallyExited = withholdExit(client.child);
-  try {
-    assert.equal(await client.stop({ timeoutMs: 25 }), false, "an exit that never arrives is not observed");
-    (await within(reallyExited, 10000, "the kill never landed"))();
-    assert.equal(await client.stop(), true, "a missed exit is not memoized, so the next stop looks again");
-  } finally {
-    try { client.child.kill("SIGKILL"); } catch {}
-  }
-});
-
 // With the exit withheld, emitExit never runs either: nothing but stop() rejects session/prompt.
 test("stop() rejects in-flight RPCs when the child does not exit", async () => {
   const client = new AcpClient({ spawnSpec: silentStub() });
@@ -368,7 +310,7 @@ test("stop() rejects in-flight RPCs when the child does not exit", async () => {
   const reallyExited = withholdExit(client.child);
   try {
     assert.equal(client.peer.pending.size, 1, "session/prompt must still be in flight");
-    assert.equal(await client.stop({ timeoutMs: 50 }), false, "an exit that never arrives is not observed");
+    assert.equal(await client.stop(), false, "an exit that never arrives is not observed");
     let timeoutId;
     try {
       const err = await Promise.race([

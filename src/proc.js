@@ -7,134 +7,123 @@ export function isChildAlive(child) {
   return child && child.exitCode === null && child.signalCode === null;
 }
 
-// POSIX only: a process group leader (setsid) lets treeKill reach the agent's children. On win32
-// it would mean a new console, and taskkill /T walks the tree anyway. Applied in spawnChild, not
-// in resolveAcpSpawn, so an injected spec gets it too.
+// POSIX only: detached makes the child a process group leader, so treeKill reaches its children.
+// On win32 it would open a separate console, and taskkill /T walks the tree.
 export const DETACHED = process.platform !== "win32";
 
-// On win32 child.kill() reaches only the wrapper; taskkill /T takes the whole tree. False when
-// taskkill failed or stalled; its 128 is no such process, a launcher already gone.
+// How long taskkill may run, and then how long a stop waits for the exit.
+export const KILL_WAIT_MS = 5000;
+
+// Every process below pid, from one ps snapshot. Empty when ps fails: the group kill still runs.
+function descendantPids(pid) {
+  return /** @type {Promise<number[]>} */ (new Promise((resolve) => {
+    execFile("ps", ["-A", "-o", "pid=,ppid="], { timeout: 3000 }, (err, stdout) => {
+      if (err) return resolve([]);
+      /** @type {Map<number, number[]>} */
+      const byParent = new Map();
+      for (const line of String(stdout).split("\n")) {
+        const [p, pp] = line.trim().split(/\s+/).map(Number);
+        if (!p || !Number.isFinite(pp)) continue;
+        if (!byParent.has(pp)) byParent.set(pp, []);
+        byParent.get(pp)?.push(p);
+      }
+      const out = [];
+      const queue = [pid];
+      while (queue.length) {
+        for (const c of byParent.get(queue.shift()) ?? []) {
+          if (!out.includes(c)) { out.push(c); queue.push(c); }
+        }
+      }
+      resolve(out);
+    });
+  }));
+}
+
+// On win32 a plain kill reaches only the launcher; taskkill /T takes the tree. False when taskkill
+// failed or stalled; its 128 is no such process, a launcher already gone.
 export async function treeKill(pid, { childAlive = true } = {}) {
   if (!pid) return true;
   if (process.platform === "win32") {
-    // taskkill /T follows parent links, which an exited leader no longer has, and a reaped pid can
-    // already belong to another process: after the exit there is nothing safe to kill.
+    // An exited leader has no tree left for taskkill to walk, and its pid may be reused.
     if (!childAlive) return true;
     return /** @type {Promise<boolean>} */ (new Promise((resolve) => {
-      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: TASKKILL_MS, killSignal: "SIGKILL" }, (err) => resolve(!err || err.code === 128));
+      execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: KILL_WAIT_MS, killSignal: "SIGKILL" }, (err) => resolve(!err || err.code === 128));
     }));
   }
-  // The negative pid signals the whole group, which outlives its leader, so this runs even after
-  // the child exited: its descendants may still be running.
+  // Commands in a session of their own are outside the group: walked while the child is alive to
+  // hold their parent links.
+  const descendants = childAlive ? await descendantPids(pid) : [];
+  // The group, even after the leader exited: members can outlive it.
   try { process.kill(-pid, "SIGKILL"); } catch {}
-  // Reaches a child that is not a group leader, where the group kill raised ESRCH. Skipped once
-  // the child is gone, since a reaped pid can already belong to something else.
+  for (const d of descendants) {
+    try { process.kill(-d, "SIGKILL"); } catch {}
+    try { process.kill(d, "SIGKILL"); } catch {}
+  }
+  // A child that is not a group leader; skipped once reaped, as its pid may be reused.
   if (childAlive) { try { process.kill(pid, "SIGKILL"); } catch {} }
   return true;
 }
 
-// How long one kill attempt waits for the exit and the tree kill. SIGKILL and taskkill /F land in
-// milliseconds, so this elapses only when the kill failed.
-export const KILL_WAIT_MS = 2000;
-// A taskkill still running by then is stopped, and the launcher killed by its handle instead.
-const TASKKILL_MS = KILL_WAIT_MS;
-
-async function killAndSeeExit(child, timeoutMs) {
-  if (!child.pid) return true;
-  const alive = isChildAlive(child);
-  // Subscribed before the kill, so an instant exit is not missed.
-  const exited = alive
-    ? /** @type {Promise<boolean>} */ (new Promise((resolve) => child.once("exit", () => resolve(true))))
-    : Promise.resolve(true);
-  // Runs for an exited child too: on POSIX the commands it spawned stay in its process group. One
-  // tree kill at a time: a retry joins the one still running.
-  let killed = treeKills.get(child);
-  if (!killed && unconfirmed.has(child)) {
-    // taskkill already failed on this tree: the launcher's handle is all a retry has left.
-    if (alive) { try { child.kill("SIGKILL"); } catch {} }
-    killed = Promise.resolve();
-  } else if (!killed) {
-    killed = treeKill(child.pid, { childAlive: alive }).catch(() => false).then((tidy) => {
-      if (tidy) return;
-      // The launcher's own handle still kills it, and no reused pid, but what it started may run on:
-      // every later stop of this child reports the tree unconfirmed.
-      unconfirmed.add(child);
-      if (isChildAlive(child)) { try { child.kill("SIGKILL"); } catch {} }
-    }).finally(() => treeKills.delete(child));
-    treeKills.set(child, killed);
-  }
-  /** @type {NodeJS.Timeout | undefined} */
-  let timer;
-  const bounded = /** @type {Promise<boolean>} */ (new Promise((resolve) => {
-    timer = setTimeout(() => resolve(false), timeoutMs);
-  }));
-  const observed = await Promise.race([exited, bounded]);
-  // On win32 taskkill can still be at work on the tree once the launcher's exit is seen.
-  const treeKilled = await Promise.race([killed.then(() => true), bounded]);
-  clearTimeout(timer);
-  return observed && treeKilled && !unconfirmed.has(child);
-}
-
-/** @type {WeakMap<import("node:child_process").ChildProcess, Promise<unknown>>} */
-const treeKills = new WeakMap();
-// Children whose tree kill failed, so their exit does not show their processes ended.
-/** @type {WeakSet<import("node:child_process").ChildProcess>} */
-const unconfirmed = new WeakSet();
+/** @type {WeakMap<object, Promise<boolean>>} */
+const stops = new WeakMap();
 
 /**
- * @typedef {{
- *   child: any,
- *   stop: (opts?: { timeoutMs?: number }) => Promise<boolean>,
- *   release: () => void,
- * }} TrackedChild
- * @typedef {{ child?: any, kill: (timeoutMs: number) => Promise<boolean>, spent?: () => boolean }} ChildKill
- * @typedef {ReturnType<typeof createChildRegistry>} ChildRegistry
+ * Kills child's tree, its own handle too when the tree kill fails, and waits for the exit within
+ * KILL_WAIT_MS. True when the exit was seen and the tree kill succeeded. Once per child: every later
+ * call gets the same promise.
+ * @param {any} child
+ * @returns {Promise<boolean>}
  */
+export function stopChild(child) {
+  let stop = stops.get(child);
+  if (!stop) {
+    stop = killAndWait(child);
+    stops.set(child, stop);
+  }
+  return stop;
+}
 
-// The processes still to stop. An entry leaves once a stop saw its exit and its tree kill ended, a
-// stop failed with nothing left to reach, or its owner releases it; after that its pid may be reused.
+async function killAndWait(child) {
+  if (!child.pid) return true;
+  const alive = isChildAlive(child);
+  // Subscribed before the kill, so an immediate exit is not missed.
+  const exited = alive ? new Promise((resolve) => child.once("exit", () => resolve(true))) : Promise.resolve(true);
+  const tidy = await treeKill(child.pid, { childAlive: alive }).catch(() => false);
+  if (!tidy && isChildAlive(child)) { try { child.kill("SIGKILL"); } catch {} }
+  return (await withDeadline(exited, KILL_WAIT_MS, false)) && tidy;
+}
+
+/**
+ * promise's value, or fallback once ms have passed.
+ * @template T @param {Promise<T>} promise @param {number} ms @param {T} fallback @returns {Promise<T>}
+ */
+export function withDeadline(promise, ms, fallback) {
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer;
+  const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** @typedef {ReturnType<typeof createChildRegistry>} ChildRegistry */
+
+// The processes shutdown stops. A child leaves when it exits, as its pid may then be reused.
 export function createChildRegistry() {
-  /** @type {Set<TrackedChild>} */
+  /** @type {Set<any>} */
   const live = new Set();
   let closed = false;
   return {
-    /**
-     * @param {() => ChildKill} start
-     * @returns {TrackedChild}
-     */
+    /** @param {() => any} start a spawned child, or null */
     track(start) {
       if (closed) throw makeError("spawn-failed", "the server is shutting down, so no process was started");
-      const kill = start();
-      /** @type {Promise<boolean> | null} */
-      let stopping = null;
-      // What a stop reports once the entry has left.
-      let outcome = true;
-      const attempt = (timeoutMs) => {
-        try { return Promise.resolve(kill.kill(timeoutMs)).catch(() => false); } catch { return Promise.resolve(false); }
-      };
-      /** @type {TrackedChild} */
-      const entry = {
-        child: kill.child,
-        // An attempt that could not confirm the exit is retried once; a later stop kills again.
-        stop: ({ timeoutMs = KILL_WAIT_MS } = {}) => {
-          if (!live.has(entry)) return Promise.resolve(outcome);
-          stopping ??= attempt(timeoutMs).then((seen) => seen || attempt(timeoutMs)).then((seen) => {
-            stopping = null;
-            if (seen || kill.spent?.()) { live.delete(entry); outcome = seen; }
-            return seen;
-          });
-          return stopping;
-        },
-        // For a child that closed by itself.
-        release: () => { if (!stopping) live.delete(entry); },
-      };
-      live.add(entry);
-      return entry;
+      const child = start();
+      if (!child) return null;
+      live.add(child);
+      child.once("exit", () => live.delete(child));
+      return child;
     },
-    // Each stop sends its kill as it starts, so on POSIX every kill is out before this returns.
     stopAll() {
       closed = true;
-      return Promise.all([...live].map((entry) => entry.stop())).then(() => undefined);
+      return Promise.all([...live].map(stopChild)).then(() => undefined);
     },
   };
 }
@@ -151,8 +140,6 @@ export const children = createChildRegistry();
 export function spawnChild(command, args, options, { stdio }, registry = children) {
   return registry.track(() => {
     const argv = spawnArgv(command, args, options);
-    const child = spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio });
-    // A launcher gone after a failed tree kill: no later kill reaches what it started.
-    return { child, kill: (timeoutMs) => killAndSeeExit(child, timeoutMs), spent: () => unconfirmed.has(child) && !isChildAlive(child) };
+    return spawn(argv.command, argv.args, { ...argv.options, detached: DETACHED, stdio });
   });
 }

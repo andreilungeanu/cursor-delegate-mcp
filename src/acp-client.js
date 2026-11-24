@@ -3,7 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import { JsonRpcPeer } from "./jsonrpc.js";
 import { createRequestRouter } from "./request-router.js";
 import { commandExists, resolveAcpSpawn } from "./spawn.js";
-import { children, isChildAlive, spawnChild } from "./proc.js";
+import { children, isChildAlive, spawnChild, stopChild } from "./proc.js";
 import { VERSION } from "./version.js";
 import { makeError } from "./errors.js";
 
@@ -44,8 +44,8 @@ export class AcpClient extends EventEmitter {
     super();
     this.spawnSpec = spawnSpec || resolveAcpSpawn();
     this.registry = registry;
-    /** @type {import("./proc.js").TrackedChild | null} */
-    this._tracked = null;
+    /** @type {any} */
+    this._child = null;
     this.mode = mode;
     this.onCreatePlan = onCreatePlan;
     this.onTodos = onTodos;
@@ -57,7 +57,7 @@ export class AcpClient extends EventEmitter {
     this._phase = "setup";
   }
 
-  get child() { return this._tracked?.child; }
+  get child() { return this._child; }
 
   // The stderr tail an exit error quotes. Kept as chunks and joined on read, so a noisy agent costs
   // a push per chunk; a StringDecoder keeps a multi-byte character split across reads intact.
@@ -73,7 +73,7 @@ export class AcpClient extends EventEmitter {
     if (opts?.shell && !commandExists(command, opts.env)) {
       throw makeError("spawn-failed", `Failed to spawn agent (${command}): not found on PATH. Install Cursor CLI and run 'cursor-agent login'.`);
     }
-    this._tracked = spawnChild(command, args, opts, { stdio: ["pipe", "pipe", "pipe"] }, this.registry);
+    this._child = spawnChild(command, args, opts, { stdio: ["pipe", "pipe", "pipe"] }, this.registry);
     this._stderrChunks = [];
     this._stderrLength = 0;
     const stderrDecoder = new StringDecoder("utf8");
@@ -200,38 +200,22 @@ export class AcpClient extends EventEmitter {
 
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
-  // Idempotent while teardown is in flight and after a confirmed exit. A stop that could not
-  // confirm it is not memoized, so a later stop kills again. A confirmed exit stays so later callers join.
-  /** @param {{ timeoutMs?: number }} [opts] */
-  stop({ timeoutMs } = {}) {
-    if (!this._stopping) {
-      this._stopping = this._teardown(timeoutMs).then((observed) => {
-        if (!observed) this._stopping = null;
-        return observed;
-      }, (err) => {
-        this._stopping = null;
-        throw err;
-      });
-    }
+  // One stop per client, which every caller joins.
+  stop() {
+    this._stopping ??= this._teardown();
     return this._stopping;
   }
 
-  async _teardown(timeoutMs) {
-    const tracked = this._tracked;
-    if (!tracked) {
+  async _teardown() {
+    const child = this._child;
+    if (!child) {
       try { this.peer?.close(); } catch {}
       return true;
     }
-    const { child } = tracked;
-    const observed = await tracked.stop({ timeoutMs });
-    // On an observed exit, emitExit rejects in-flight RPCs with stderr, and racing it here would
-    // drop that. Only a child still alive after the stop has its RPCs settled here.
-    if (!observed && this._phase !== "exited" && isChildAlive(child)) {
-      try {
-        this.peer?.rejectAllPending(makeError("agent-exit", "agent process did not exit after stop"));
-      } catch {}
-      // An agent the kill missed may still end on stdin EOF, as the ACP wire closing.
-      try { child.stdin?.end(); } catch {}
+    const observed = await stopChild(child);
+    // On an exit, emitExit rejects in-flight RPCs with stderr; rejecting here first would lose it.
+    if (isChildAlive(child)) {
+      try { this.peer?.rejectAllPending(makeError("agent-exit", "agent process did not exit after stop")); } catch {}
     }
     try { this.peer?.close(); } catch {}
     return observed;

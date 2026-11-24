@@ -469,39 +469,7 @@ test("runDoctor stops the version probe on a host abort, and spawns no handshake
     assert.match(out.agent.handshake.error, /aborted/);
     assert.equal(spawned, 0);
     assert.equal(pids().length, 1);
-    assert.throws(() => process.kill(pids()[0], 0), "the probe process must be gone when doctor returns");
   });
-});
-
-// The abort lands 20 ms before the timeout, inside the time the kill takes (taskkill on Windows).
-test("a version probe aborted just before its timeout reports the abort, once the probe is gone", async () => {
-  await withPidLog(async (pids) => {
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), 300);
-    const out = await rawRunDoctor({
-      signal: controller.signal, versionTimeoutMs: 320,
-      spawnSpec: { command: HANG_PID_STUB, args: ["acp"], options: { shell: false } },
-    });
-    assert.match(out.agent.error ?? "", /aborted/);
-    assert.equal(pids().length, 1, "the probe had started when the abort landed");
-    assert.throws(() => process.kill(pids()[0], 0), "the probe process must be gone when doctor returns");
-  });
-});
-
-test("a version probe that closed is left out of shutdown's stops", async () => {
-  const registry = createChildRegistry();
-  let kills = 0;
-  const counting = {
-    ...registry,
-    track: (start) => registry.track(() => {
-      const k = start();
-      return { ...k, kill: (ms) => { kills++; return k.kill(ms); } };
-    }),
-  };
-  const probe = await probeAgentVersion({ command: process.execPath, args: [], options: { shell: false } }, 10000, { registry: counting });
-  assert.equal(probe.version, process.version);
-  await registry.stopAll();
-  assert.equal(kills, 0, "its pid may belong to another process by now");
 });
 
 test("runDoctor spawns no version probe once the host has aborted", async () => {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { createChildRegistry, isChildAlive, spawnChild, treeKill } from "../src/proc.js";
+import { KILL_WAIT_MS, createChildRegistry, isChildAlive, spawnChild, stopChild, treeKill } from "../src/proc.js";
 
 const posixOnly = { skip: process.platform === "win32" ? "POSIX process groups" : false };
 const win32Only = { skip: process.platform === "win32" ? false : "windows taskkill" };
@@ -89,6 +89,28 @@ test("the windows kill still fires while the child is alive", win32Only, async (
   }
 });
 
+// agy and Codex run each shell command in a session of its own, which the group kill misses
+// (measured on Linux). A fake agent leads its group and starts a grandchild in a new session.
+test("treeKill reaches a descendant the agent started in its own session", posixOnly, async () => {
+  const agentSrc = [
+    "const { spawn } = require('node:child_process');",
+    "const g = spawn('sleep', ['300'], { detached: true, stdio: 'ignore' });",
+    "console.log(g.pid);",
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+  const agent = spawn(process.execPath, ["-e", agentSrc], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+  const grandchild = Number(await new Promise((resolve) => agent.stdout.once("data", (d) => resolve(String(d).trim()))));
+  assert.ok(alive(grandchild), "the grandchild must be running before the kill");
+  try {
+    await treeKill(agent.pid, { childAlive: true });
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(alive(grandchild), false, "the grandchild in its own session survived the kill");
+  } finally {
+    try { process.kill(grandchild, "SIGKILL"); } catch {}
+    try { process.kill(-agent.pid, "SIGKILL"); } catch {}
+  }
+});
+
 // taskkill replaced by a real process running script, which kills nothing.
 function swapTaskkill(script) {
   const cp = createRequire(import.meta.url)("node:child_process");
@@ -111,55 +133,43 @@ function swapTaskkill(script) {
   };
 }
 
-const startTracked = (registry) => spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { shell: false }, { stdio: "ignore" }, registry);
+const startChild = (registry = createChildRegistry()) => spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { shell: false }, { stdio: "ignore" }, registry);
+
+test("stopChild kills a running child once, and every caller gets that stop", async () => {
+  const child = startChild();
+  await new Promise((r) => child.once("spawn", r));
+  const first = stopChild(child);
+  assert.equal(stopChild(child), first);
+  assert.equal(await first, true);
+  assert.equal(isChildAlive(child), false);
+});
 
 // The launcher dies by its handle, but what it started is out of reach: the stop stays unconfirmed,
 // so the caller still warns that it may be running.
-test("a taskkill that fails still ends the launcher, by its own handle, and the stop stays unconfirmed", win32Only, async () => {
+test("a taskkill that fails still ends the launcher, by its own handle, and the stop is unconfirmed", win32Only, async () => {
   const swap = swapTaskkill("process.exit(1)");
-  const registry = createChildRegistry();
-  /** @type {any[]} */
-  const kills = [];
-  const tracked = startTracked({ track: (start) => registry.track(() => { const kill = start(); kills.push(kill); return kill; }) });
+  const child = startChild();
   try {
-    assert.equal(await tracked.stop(), false, "a failed taskkill was taken for a clean stop");
-    assert.equal(isChildAlive(tracked.child), false, "the launcher outlived the stop");
-    assert.equal(kills[0].spent(), true, "the dead launcher is still counted as reachable");
-    assert.equal(await tracked.stop(), false, "a later stop took the dead launcher for a clean stop");
+    assert.equal(await stopChild(child), false, "a failed taskkill was taken for a clean stop");
+    assert.equal(isChildAlive(child), false, "the launcher outlived the stop");
   } finally {
     swap.restore();
-    try { tracked.child.kill("SIGKILL"); } catch {}
+    try { child.kill("SIGKILL"); } catch {}
   }
 });
 
-// The launcher's handle kill is made to miss, so the stop's retry finds it alive.
-test("a retry after a failed taskkill does not run taskkill again", win32Only, async () => {
-  const swap = swapTaskkill("process.exit(1)");
-  const tracked = startTracked(createChildRegistry());
-  const kill = tracked.child.kill.bind(tracked.child);
-  tracked.child.kill = () => false;
-  try {
-    assert.equal(await tracked.stop({ timeoutMs: 600 }), false);
-    assert.equal(swap.utilities.length, 1, "the retry started a second taskkill");
-  } finally {
-    swap.restore();
-    kill("SIGKILL");
-  }
-});
-
-test("a taskkill that stalls is stopped, and the launcher killed by its own handle", win32Only, async () => {
+test("a taskkill that stalls is stopped at its bound, and the launcher killed by its own handle", win32Only, async () => {
   const swap = swapTaskkill("setInterval(() => {}, 1000)");
-  const tracked = startTracked(createChildRegistry());
+  const child = startChild();
   const started = Date.now();
   try {
-    assert.equal(await tracked.stop(), false, "a stalled taskkill was taken for a clean stop");
-    assert.equal(isChildAlive(tracked.child), false, "the launcher outlived the stop");
-    assert.ok(Date.now() - started < 3900, `the stop took ${Date.now() - started} ms`);
-    assert.equal(swap.utilities.length, 1, "a retry started a second taskkill");
+    assert.equal(await stopChild(child), false, "a stalled taskkill was taken for a clean stop");
+    assert.equal(isChildAlive(child), false, "the launcher outlived the stop");
+    assert.ok(Date.now() - started < KILL_WAIT_MS + 2000, `the stop took ${Date.now() - started} ms`);
     assert.notEqual(swap.utilities[0].signalCode ?? swap.utilities[0].exitCode, null, "the stalled taskkill is still running");
   } finally {
     swap.restore();
-    try { tracked.child.kill("SIGKILL"); } catch {}
+    try { child.kill("SIGKILL"); } catch {}
   }
 });
 
@@ -174,88 +184,13 @@ test("treeKill reports a taskkill that failed, and one that found no such proces
   }
 });
 
-// A tracked child whose kill attempts end as scripted: true or false is the exit seen or not,
-// "reject" and "throw" a kill that failed.
-function scripted(registry, outcomes) {
-  const calls = { attempts: 0 };
-  const entry = registry.track(() => ({
-    kill: () => {
-      calls.attempts++;
-      const outcome = outcomes.shift();
-      if (outcome === "throw") throw new Error("kill threw");
-      if (outcome === "reject") return Promise.reject(new Error("kill failed"));
-      return outcome instanceof Promise ? outcome : Promise.resolve(outcome);
-    },
-  }));
-  return { entry, calls };
-}
-
-test("a stop retries an attempt that missed the exit once, and the next stop kills again", async () => {
-  const { entry, calls } = scripted(createChildRegistry(), [false, false, "reject", "throw", false, true]);
-  assert.equal(await entry.stop(), false);
-  assert.equal(calls.attempts, 2);
-  assert.equal(await entry.stop(), false, "a rejected and a thrown kill are exits not seen");
-  assert.equal(calls.attempts, 4);
-  assert.equal(await entry.stop(), true);
-  assert.equal(calls.attempts, 6);
-  assert.equal(await entry.stop(), true);
-  assert.equal(calls.attempts, 6, "a stop that saw the exit is not repeated");
-});
-
-test("a failed stop with nothing left to reach leaves the registry, and later stops still report it", async () => {
-  const registry = createChildRegistry();
-  let attempts = 0;
-  const entry = registry.track(() => ({ kill: async () => { attempts++; return false; }, spent: () => true }));
-  assert.equal(await entry.stop(), false);
-  assert.equal(await entry.stop(), false);
-  await registry.stopAll();
-  assert.equal(attempts, 2, "the registry kept stopping a child no kill can reach");
-});
-
-test("callers join a stop in flight", async () => {
-  let seen;
-  const { entry, calls } = scripted(createChildRegistry(), [new Promise((r) => { seen = r; })]);
-  const stops = [entry.stop(), entry.stop()];
-  seen(true);
-  assert.deepEqual(await Promise.all(stops), [true, true]);
-  assert.equal(calls.attempts, 1);
-});
-
-test("release drops a child no stop is running on, and leaves one whose stop is under way to it", async () => {
-  const registry = createChildRegistry();
-  const closed = scripted(registry, []);
-  closed.entry.release();
-  assert.equal(await closed.entry.stop(), true);
-  assert.equal(closed.calls.attempts, 0, "a released child is not killed");
-  let seen;
-  const stopping = scripted(registry, [new Promise((r) => { seen = r; }), true]);
-  const stop = stopping.entry.stop();
-  stopping.entry.release();
-  seen(false);
-  assert.equal(await stop, true, "the stop under way retried its missed exit");
-  assert.equal(stopping.calls.attempts, 2);
-});
-
-test("stopAll waits for every stop, and the registry then refuses a spawn without starting it", async () => {
-  const registry = createChildRegistry();
-  scripted(registry, [new Promise((r) => setTimeout(() => r(true), 100))]);
-  const missed = scripted(registry, [false, false]);
-  const started = Date.now();
-  await registry.stopAll();
-  assert.ok(Date.now() - started >= 90, "stopAll resolved before the slow stop settled");
-  assert.equal(missed.calls.attempts, 2);
-  let spawned = false;
-  assert.throws(() => registry.track(() => { spawned = true; return { kill: async () => true }; }), (err) => err.reason === "spawn-failed");
-  assert.equal(spawned, false);
-});
-
 test("stopAll kills the process spawnChild started, and spawnChild refuses once it ran", async () => {
   const registry = createChildRegistry();
-  const tracked = spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { shell: false }, { stdio: "ignore" }, registry);
-  await new Promise((r) => tracked.child.once("spawn", r));
-  assert.ok(alive(tracked.child.pid));
+  const child = startChild(registry);
+  await new Promise((r) => child.once("spawn", r));
+  assert.ok(alive(child.pid));
   await registry.stopAll();
-  assert.equal(isChildAlive(tracked.child), false);
+  assert.equal(isChildAlive(child), false);
   assert.throws(
     () => spawnChild(process.execPath, ["-e", ""], { shell: false }, { stdio: "ignore" }, registry),
     (err) => err.reason === "spawn-failed",

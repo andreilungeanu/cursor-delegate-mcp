@@ -168,7 +168,7 @@ A delegation is still cancellable at any time via the `cancel` tool or a host in
 `session/cancel` is best-effort and the agent may finish the turn; the session stays
 cancellable afterwards, so a follow-up call with `force: true` kills the process after a
 grace period. `killed` means the process was observed to exit; a force that cannot confirm the
-exit reports `cancelled` and keeps the session cancellable, so force can be retried.
+exit reports `cancelled`.
 `not-running` means the turn already ended — the session is still resumable via
 `resumeSessionId`; `not-found` means the id is not in this process's session history.
 When `delegate` runs as an MCP task, `sessionId` also takes its server-side task id, which reaches

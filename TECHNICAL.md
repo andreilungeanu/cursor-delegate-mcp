@@ -102,6 +102,7 @@ diagnostic, not fail the call.
 | `src/turn-state.js` | Per-turn accumulation and the `reset()` declaration replay applies. |
 | `src/model-options.js` | Model config-option resolution (`effort`, `context`). |
 | `src/proc.js` | Liveness check and process kill. |
+| `src/shutdown.js` | Stops every agent, then exits, when the host goes away. |
 | `src/errors.js` | Reason-tagged errors. |
 | `src/acp-enums.js` | ACP constants. |
 | `src/version.js` | Version read from `package.json`. |

@@ -8,7 +8,8 @@ import { z } from "zod";
 import { DEFAULT_MODEL, runDelegate as runDelegateDefault } from "./delegate.js";
 import { runDoctor as runDoctorDefault } from "./doctor.js";
 import { VERSION, readPackageVersion } from "./version.js";
-import { DETACHED, children } from "./proc.js";
+import { children } from "./proc.js";
+import { installSignalCleanup } from "./shutdown.js";
 import { PLAN_PRIORITIES, PLAN_STATUSES, TODO_STATUSES } from "./acp-enums.js";
 import { TASKS_EXTENSION, createTaskStore, listsTasks, registerTaskHandlers, runAsTask } from "./tasks.js";
 
@@ -344,7 +345,7 @@ export function buildServer({
       const observed = await Promise.all(
         toKill.map((handle) => Promise.resolve(handle.client.stop()).catch(() => false))
       );
-      // "killed" needs an observed exit; without one the handles stay and force can be retried.
+      // "killed" needs an observed exit.
       if (!observed.every(Boolean)) return cancelResult("cancelled", sessionId);
       for (const handle of toKill) unregisterInFlight(flights, sessionId, handle);
       return cancelResult("killed", sessionId);
@@ -400,49 +401,6 @@ if (process.argv[1]) {
   }
 }
 
-// Kill what is still running, then exit, on any way the host has of going away. Returns the
-// shutdown stdin EOF triggers, for a host that goes some other way.
-/** @param {import("./proc.js").ChildRegistry} [registry] @returns {() => void} */
-export function installSignalCleanup(registry = children, {
-  exit = (code) => process.exit(code),
-  setExitCode = (code) => { process.exitCode = code; },
-  schedule = (fn) => setImmediate(fn),
-  stdin = process.stdin,
-} = {}) {
-  let shuttingDown = false;
-  let signalsSeen = 0;
-  // The code shutdown exits with: a signal's, even when it follows the stdin EOF.
-  let exitCode = 0;
-  const shutdown = (code, fromSignal = false) => {
-    // Only a second signal skips the wait for the kills, which the first pass already sent: a
-    // hangup closes stdin and sends SIGHUP, in either order.
-    if (fromSignal) signalsSeen++;
-    if (shuttingDown) {
-      if (fromSignal && signalsSeen === 1) { exitCode = code; setExitCode(code); }
-      return signalsSeen < 2 ? undefined : exit(code);
-    }
-    shuttingDown = true;
-    exitCode = code;
-    // Set now: the loop may run dry before the scheduled exit gets a turn.
-    setExitCode(code);
-    // Waits for the kills: on Windows taskkill is a separate process, and exiting first orphans the
-    // launcher and agent below the shell (measured). Each stop bounds itself, so the wait is finite.
-    // The exit is scheduled onto a clean loop turn rather than run on the settlement stack.
-    const leave = () => schedule(() => exit(exitCode));
-    registry.stopAll().then(leave, leave);
-  };
-  // On POSIX each agent has its own process group, which a signal to this process misses, so the
-  // handler kills them first. SIGHUP too: a closed terminal, whose default leaves them running.
-  if (DETACHED) {
-    const signals = /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]);
-    for (const [signal, code] of signals) process.on(signal, () => shutdown(code, true));
-  }
-  // A stdio host closes stdin before it resorts to a signal. The SDK aborts in-flight requests on
-  // EOF; this also stops their agents directly, waits for the kills, and exits.
-  stdin.on("end", () => shutdown(0));
-  return () => shutdown(0);
-}
-
 if (isMain) {
   // Answered before the transport starts, so an install can be checked without a host. Reads the
   // package.json beside this file: the code actually running, not what a manifest pinned.
@@ -450,7 +408,7 @@ if (isMain) {
   if (argv.includes("--version") || argv.includes("-v")) {
     console.log(readPackageVersion());
   } else {
-    const hostGone = installSignalCleanup();
+    const hostGone = installSignalCleanup(() => children.stopAll());
     const transport = new StdioServerTransport();
     // One factory serves both protocol eras: a 2025-era initialize pins a legacy instance, and only
     // a modern one answers with tasks.

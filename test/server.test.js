@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
-import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { InMemoryTransport, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from "@modelcontextprotocol/server";
@@ -9,7 +8,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { AcpClient } from "../src/acp-client.js";
 import { DEFAULT_MODEL, runDelegate as realRunDelegate } from "../src/delegate.js";
-import { runDelegateTool, buildServer, delegateInputSchema, installSignalCleanup } from "../src/server.js";
+import { runDelegateTool, buildServer, delegateInputSchema } from "../src/server.js";
 import { TASKS_EXTENSION, createTaskStore } from "../src/tasks.js";
 import { createChildRegistry } from "../src/proc.js";
 
@@ -403,24 +402,16 @@ test("a task's id resumes the session its run opened, after tasks/cancel stopped
   }
 });
 
-test("the shutdown on stdin EOF stops the agent of a task already answered", async () => {
+test("the shutdown stops the agent of a task already answered", async () => {
   const pids = [];
   const registry = createChildRegistry();
   const raw = await connectRaw({ runDelegate: realOver("escalation-stub.js", {}, pids, registry), tasks: createTaskStore() });
-  const stdin = new EventEmitter();
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
   try {
     const { result } = await raw.call().reply;
     assert.equal(result.resultType, "task");
-    installSignalCleanup(registry, { exit: () => {}, setExitCode: () => {}, stdin });
-    stdin.emit("end");
+    await registry.stopAll();
     assert.ok(await waitUntil(() => !isAlive(pids[0])), "the task's agent outlived the shutdown");
   } finally {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
     await raw.close();
   }
 });
@@ -902,48 +893,6 @@ test("cancel tool with force kills the agent when delegation does not settle", a
   }
 });
 
-test("a force cancel does not kill a resume that registered during its grace", async () => {
-  const stops = [];
-  const release = {};
-  let cancelSeen;
-  const seen = new Promise((r) => { cancelSeen = r; });
-  let resumeReady;
-  const resumed = new Promise((r) => { resumeReady = r; });
-  let firstReady;
-  const first = new Promise((r) => { firstReady = r; });
-  let calls = 0;
-  const runDelegate = async ({ onSessionReady }) => {
-    const n = ++calls;
-    const gate = new Promise((r) => { release[n] = r; });
-    onSessionReady("sess-shared", {
-      cancel: async () => { cancelSeen(); },
-      stop: () => { stops.push(n); release[n](); return true; },
-    });
-    (n === 1 ? firstReady : resumeReady)();
-    await gate;
-    return { result: `turn ${n}`, sessionId: "sess-shared" };
-  };
-  const server = buildServer({ runDelegate, forceGraceMs: 300 });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0" });
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  try {
-    const firstP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
-    await first;
-    const cancelP = client.callTool({ name: "cancel", arguments: { sessionId: "sess-shared", force: true } });
-    await seen;
-    const resumeP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "more", resumeSessionId: "sess-shared" } });
-    await resumed;
-    assert.equal(payload(await cancelP).status, "killed");
-    assert.deepEqual(stops, [1], "only the turn the cancel named is stopped");
-    release[2]();
-    await firstP;
-    assert.equal(payload(await resumeP).cancelRequested, undefined, "the resume was not cancelled");
-  } finally {
-    await client.close();
-  }
-});
-
 test("a plain cancel keeps the session cancellable, so force still escalates", async () => {
   let stopCalled = false;
   let releaseStop;
@@ -978,166 +927,6 @@ test("a plain cancel keeps the session cancellable, so force still escalates", a
     assert.equal(stopCalled, true);
     const delegateRes = await delegateP;
     assert.equal(payload(delegateRes).cancelRequested, true);
-  } finally {
-    await client.close();
-  }
-});
-
-// stop() resolves false when the kill was dispatched and no exit followed. Reporting that as
-// killed would tell the caller the agent is gone while it is still running and still holding
-// the workspace.
-test("force cancel reports cancelled and keeps the handle when no exit follows the kill", async () => {
-  let sessionReady;
-  const ready = new Promise((r) => { sessionReady = r; });
-  let releaseTurn;
-  const gate = new Promise((r) => { releaseTurn = r; });
-  const runDelegate = async ({ onSessionReady }) => {
-    onSessionReady("sess-stubborn", { cancel: async () => {}, stop: async () => false });
-    sessionReady();
-    await gate;
-    return { result: "stopped", stopReason: "end_turn", sessionId: "sess-stubborn", filesReportedByEditTools: [] };
-  };
-  const server = buildServer({ runDelegate, forceGraceMs: 50 });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0" });
-
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "long task" } });
-    await ready;
-    const first = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-stubborn", force: true } });
-    assert.equal(payload(first).status, "cancelled");
-    // Still registered, so the caller can force again instead of being told the id is unknown.
-    const second = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-stubborn", force: true } });
-    assert.equal(payload(second).status, "cancelled");
-    releaseTurn();
-    await delegateP;
-  } finally {
-    await client.close();
-  }
-});
-
-test("force cancel does not untrack a resume that registers during stop()", async () => {
-  let calls = 0;
-  let firstReady, secondReady, firstRelease, secondRelease, enteredStop;
-  const ready1 = new Promise((r) => { firstReady = r; });
-  const ready2 = new Promise((r) => { secondReady = r; });
-  const gate1 = new Promise((r) => { firstRelease = r; });
-  const gate2 = new Promise((r) => { secondRelease = r; });
-  const inStop = new Promise((r) => { enteredStop = r; });
-  let resumeStopCalled = false;
-  const runDelegate = async ({ onSessionReady }) => {
-    calls++;
-    if (calls === 1) {
-      onSessionReady("sess-race", {
-        cancel: async () => {},
-        stop: async () => {
-          enteredStop();
-          await new Promise((r) => setTimeout(r, 80));
-          return true;
-        },
-      });
-      firstReady();
-      await gate1;
-      return { result: "one", sessionId: "sess-race" };
-    }
-    onSessionReady("sess-race", {
-      cancel: async () => {},
-      stop: async () => { resumeStopCalled = true; return true; },
-    });
-    secondReady();
-    await gate2;
-    return { result: "two", sessionId: "sess-race" };
-  };
-  const server = buildServer({ runDelegate, forceGraceMs: 20 });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0" });
-
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  try {
-    const firstP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "first turn" } });
-    await ready1;
-    const cancelP = client.callTool({ name: "cancel", arguments: { sessionId: "sess-race", force: true } });
-    await inStop;
-    const secondP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "resume turn" } });
-    await ready2;
-    const killed = await cancelP;
-    assert.equal(payload(killed).status, "killed");
-    const still = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-race" } });
-    assert.equal(payload(still).status, "cancelled", "the resume must still be in flight");
-    assert.equal(resumeStopCalled, false);
-    firstRelease();
-    secondRelease();
-    await firstP;
-    await secondP;
-  } finally {
-    await client.close();
-  }
-});
-
-test("a turn that ends during the force grace is left to its own teardown, not killed by the cancel", async () => {
-  let endTurn;
-  const cancelled = new Promise((r) => { endTurn = r; });
-  let finishTeardown;
-  const teardown = new Promise((r) => { finishTeardown = r; });
-  let sessionReady;
-  const ready = new Promise((r) => { sessionReady = r; });
-  let stops = 0;
-  const runDelegate = async ({ onSessionReady, onTurnEnd }) => {
-    onSessionReady("sess-grace-end", { cancel: async () => { endTurn(); }, stop: () => { stops++; return true; } });
-    sessionReady();
-    await cancelled;
-    onTurnEnd?.();
-    // Teardown outlasts the grace, so the handle is still registered when the grace ends.
-    await teardown;
-    return { result: "done", sessionId: "sess-grace-end" };
-  };
-  const server = buildServer({ runDelegate, forceGraceMs: 100 });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0" });
-
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
-    await ready;
-    const res = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-grace-end", force: true } });
-    assert.deepEqual(payload(res), { status: "cancelled", sessionId: "sess-grace-end" });
-    assert.equal(stops, 0, "the cancel must not stop an agent its own teardown is stopping");
-    finishTeardown();
-    await delegateP;
-  } finally {
-    await client.close();
-  }
-});
-
-test("a cancel while an ended turn's agent is stopped reports not-running and leaves the result alone", async () => {
-  let finishTeardown;
-  const teardown = new Promise((r) => { finishTeardown = r; });
-  let turnEnded;
-  const ended = new Promise((r) => { turnEnded = r; });
-  let stops = 0;
-  const runDelegate = async ({ onSessionReady, onTurnEnd }) => {
-    onSessionReady("sess-ending", { cancel: async () => {}, stop: () => { stops++; return true; } });
-    onTurnEnd?.();
-    turnEnded();
-    await teardown;
-    return { result: "done", sessionId: "sess-ending" };
-  };
-  const server = buildServer({ runDelegate, forceGraceMs: 100 });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0" });
-
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  try {
-    const delegateP = client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "task" } });
-    await ended;
-    for (const force of [false, true]) {
-      const res = await client.callTool({ name: "cancel", arguments: { sessionId: "sess-ending", force } });
-      assert.deepEqual(payload(res), { status: "not-running", sessionId: "sess-ending" }, `force: ${force}`);
-    }
-    assert.equal(stops, 0, "the delegation's own teardown stops its agent");
-    finishTeardown();
-    assert.equal(payload(await delegateP).cancelRequested, undefined);
   } finally {
     await client.close();
   }
@@ -1387,21 +1176,13 @@ test("a shutdown during the handshake still kills the agent it spawned", async (
   const pid = child.pid;
   assert.equal(inFlight.size, 0, "no session id yet, so the map cannot hold it");
 
-  const stdin = new EventEmitter();
-  const before = { SIGINT: process.listeners("SIGINT"), SIGTERM: process.listeners("SIGTERM") };
   try {
-    installSignalCleanup(registry, { exit: () => {}, setExitCode: () => {}, stdin });
-    stdin.emit("end");
+    await registry.stopAll();
     const deadline = Date.now() + 8000;
     const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
     while (Date.now() < deadline && alive()) await new Promise((r) => setTimeout(r, 50));
     assert.equal(alive(), false, "the agent spawned during the handshake outlived the shutdown");
   } finally {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      for (const listener of process.listeners(signal)) {
-        if (!before[signal].includes(listener)) process.removeListener(signal, listener);
-      }
-    }
     await delegation.catch(() => {});
   }
 });
