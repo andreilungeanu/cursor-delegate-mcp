@@ -1257,3 +1257,15 @@ for (const [era, versionNegotiation] of ERAS) {
     }
   });
 }
+
+test("every tool rejects an unknown input instead of silently dropping it", () => {
+  const minimal = { delegate: { spec: "x", workspace: "." }, cancel: { sessionId: "s" }, doctor: {} };
+  const tools = buildServer()._registeredTools;
+  assert.deepEqual(Object.keys(tools).sort(), Object.keys(minimal).sort());
+  for (const [name, input] of Object.entries(minimal)) {
+    assert.equal(tools[name].inputSchema.safeParse(input).success, true, name);
+    const typo = tools[name].inputSchema.safeParse({ ...input, resumeThreadId: "lost" });
+    assert.equal(typo.success, false, name);
+    assert.match(typo.error.issues[0].message, /Unrecognized key/);
+  }
+});

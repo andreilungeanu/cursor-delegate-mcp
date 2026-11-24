@@ -20,7 +20,8 @@ for the tool contract. Orchestration guidance is in
 Every tool returns its payload as one compact JSON text block and declares no MCP
 `outputSchema`. Declaring one obliges the server to send the same object again as
 `structuredContent`, and hosts that read both fields put both copies into the model's context.
-`cancel`'s status vocabulary is published in its tool description instead.
+`cancel`'s status vocabulary is published in its tool description instead. Invalid arguments, and
+unknown input fields, are rejected by the MCP SDK before the tool runs.
 
 ### Other tools
 

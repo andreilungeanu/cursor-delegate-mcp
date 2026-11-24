@@ -63,6 +63,7 @@ const taskStore = createTaskStore();
 // the parameter descriptions.
 export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: agent/plan/ask reach any file the user account can, and mode instructs the agent rather than limiting it. Scope workspace tightly and review the git diff after every run — filesReportedByEditTools carries only what the agent's edit tools reported; the diff is authoritative.`;
 
+// Strict: an unknown key is almost always a typo, and a dropped resumeSessionId starts a new session.
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
@@ -74,7 +75,7 @@ export const delegateInputSchema = z.object({
   effort: z.string().trim().min(1).optional().describe("Exact Cursor thinking-effort value for the selected model. Values differ per model and some expose no effort option; invalid values fail before the prompt and name the accepted set. Pass only when the user asks for Cursor effort — the host's own reasoning setting is unrelated."),
   context: z.string().trim().min(1).optional().describe("Context window size; gpt-5.x accepts 272k and 1m. Do not pass speculatively."),
   contextFiles: z.array(z.string()).optional().describe("Paths to attach instead of pasting contents into spec. Text becomes references the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against workspace but are not limited to it. Skips are reported in protocolWarnings, never fatal."),
-});
+}).strict();
 
 /** @returns {(message: string) => void} */
 export function progressNotifier(ctx) {
@@ -226,7 +227,7 @@ export function buildServer({
         // Blank is a malformed call, not a stale id.
         sessionId: z.string().trim().min(1, "sessionId must not be blank").describe("When delegate runs as an MCP task, its server-side task id works too."),
         force: z.boolean().default(false).describe("Kill the agent process if the turn is still running after a short grace period."),
-      }),
+      }).strict(),
       title: "Cancel Cursor delegation",
       annotations: {
         title: "Cancel Cursor delegation",
@@ -283,7 +284,7 @@ export function buildServer({
           .boolean()
           .default(false)
           .describe("Run an ACP handshake (start → initialize → newSession) to verify the agent is usable; adds models, modes and the current model's options."),
-      }),
+      }).strict(),
       title: "Diagnose Cursor delegation setup",
       annotations: {
         title: "Diagnose Cursor delegation setup",
