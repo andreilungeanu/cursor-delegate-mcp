@@ -2,17 +2,8 @@ import readline from "node:readline";
 import { makeError } from "./errors.js";
 
 const FRAME_CAP = 2048;
-const DEFAULT_LOG_SIZE = 2000;
 
-function readLogSize(raw) {
-  if (raw === undefined) return DEFAULT_LOG_SIZE;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return DEFAULT_LOG_SIZE;
-  return Math.floor(n);
-}
-
-// Depth for an unparseable CURSOR_DELEGATE_TRANSCRIPT. Not DEFAULT_LOG_SIZE: that bounds memory,
-// this bounds what lands in the caller's context, so keep it near the old 40-frame dump.
+// Depth for an unparseable CURSOR_DELEGATE_TRANSCRIPT; it bounds what lands in the caller's context.
 const TRANSCRIPT_DEFAULT_FRAMES = 50;
 
 // Frames CURSOR_DELEGATE_TRANSCRIPT asks for: unset or blank is none, a number is the count
@@ -41,10 +32,8 @@ export class JsonRpcPeer {
     this.onActivity = onActivity || (() => {});
     this.nextId = 1;
     this.pending = new Map();
-    // 0 disables recording; an unparseable value is a typo and keeps the default.
-    this._logSize = readLogSize(process.env.ACP_LOG_SIZE);
-    // Only the opt-in failure transcript reads these frames, so record only when it is on.
-    this._recording = this._logSize > 0 && transcriptFrames() > 0;
+    // Only the opt-in failure transcript reads these frames, so only as many as it shows are kept.
+    this._logSize = transcriptFrames();
     this._log = [];
     this.rl = readline.createInterface({ input });
     // readline re-emits the stream's error as its own, which acp-client's stdout handler does not
@@ -53,25 +42,16 @@ export class JsonRpcPeer {
     this.rl.on("line", (line) => this._onLine(line));
   }
 
-  // Overshoots by a quarter and trims in one batch, rather than shifting the array per frame;
-  // readers take the last _logSize.
   _record(dir, line) {
-    if (!this._recording) return;
-    const truncated = line.length > FRAME_CAP ? line.slice(0, FRAME_CAP) : line;
-    this._log.push({ t: Date.now(), dir, line: truncated });
-    if (this._log.length > this._logSize + (this._logSize >> 2)) {
-      this._log = this._log.slice(-this._logSize);
-    }
+    if (!this._logSize) return;
+    this._log.push({ t: Date.now(), dir, line: line.length > FRAME_CAP ? line.slice(0, FRAME_CAP) : line });
+    if (this._log.length > this._logSize) this._log.shift();
   }
 
-  _entries() {
-    return this._log.length > this._logSize ? this._log.slice(-this._logSize) : this._log;
-  }
-
-  getLog() { return [...this._entries()]; }
+  getLog() { return [...this._log]; }
 
   formatLog(n) {
-    const entries = n !== undefined ? this._entries().slice(-n) : this._entries();
+    const entries = n !== undefined ? this._log.slice(-n) : this._log;
     return entries.map((e) => `${new Date(e.t).toISOString()} ${e.dir} ${e.line}`).join("\n");
   }
 

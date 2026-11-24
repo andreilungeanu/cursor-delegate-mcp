@@ -40,7 +40,6 @@ Every tool returns its payload as one compact JSON text block and declares no MC
 | `agent.version` | `--version` output, or `null`. `found: false` means it is not installed; `found: true` with a `null` version means it exists but did not answer — `agent.error` says why. |
 | `agent.error` | Present only when `version` is `null` on a launcher that does exist, e.g. the probe timed out or `--version` exited non-zero. |
 | `runtime` | Node version, platform, architecture, cwd, and stdio transport. |
-| `env.ACP_LOG_SIZE` | Flight recorder size (default `2000`). |
 | `env.ACP_AGENT_COMMAND` / `env.ACP_AGENT_ARGS` | Launcher overrides, or `null` when unset. |
 | `env.CURSOR_DELEGATE_TRANSCRIPT` | Transcript frame count, or `null` when unset. |
 | `env.CURSOR_DELEGATE_HANDSHAKE_MS` / `HARD_CAP_MS` | Timeout knobs, or `null` when unset. |
@@ -71,7 +70,6 @@ diagnostic, not fail the call.
 - **Cross-process resume** via `session/load`; unknown ids fall back to a fresh session.
 - **`filesReportedByEditTools`**: built solely from ACP `diff` content blocks in `tool_call_update`; no git inference.
 - **Long runs**: when the client passes a progress token, the bridge sends a progress notification every 30 s and on agent activity. Copilot CLI restarts its 180 s tool-call timer on each notification, Claude Code its 30 min idle window, and MCP TypeScript SDK clients only with `resetTimeoutOnProgress`. Deadlines that ignore progress: Codex `tool_timeout_sec` (default 300 s), Antigravity `timeoutSeconds` (default 180 s), Claude Code `MCP_TOOL_TIMEOUT` (default about 28 h). The Codex plugin sets `tool_timeout_sec` to 21660 s, so a `CURSOR_DELEGATE_HARD_CAP_MS` above 6 h 1 min still ends at Codex's deadline. The Antigravity plugin likewise sets `timeoutSeconds` to 21660 s. Child exit fails fast with stderr.
-- **`ACP_LOG_SIZE`**: ring buffer of JSON-RPC frames (default `2000`; `0` disables). Bounds what `CURSOR_DELEGATE_TRANSCRIPT` can return, and frames are recorded only while that is set.
 
 ## Environment variables
 
@@ -79,7 +77,6 @@ diagnostic, not fail the call.
 | -------- | ----------- |
 | `ACP_AGENT_COMMAND` | Override agent launcher command. |
 | `ACP_AGENT_ARGS` | Override agent launcher args. |
-| `ACP_LOG_SIZE` | Flight recorder frame count (`0` = off). Recording runs only while `CURSOR_DELEGATE_TRANSCRIPT` is set. |
 | `CURSOR_DELEGATE_TRANSCRIPT` | Frames of raw ACP transcript to append to failure messages; unset = none. Contains prompts, tool inputs/outputs and agent messages — use it only when debugging the bridge itself. |
 | `CURSOR_DELEGATE_HANDSHAKE_MS` | Handshake deadline (default 60 s). |
 | `CURSOR_DELEGATE_HARD_CAP_MS` | Absolute delegation cap (default 6 h). |

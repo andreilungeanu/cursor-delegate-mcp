@@ -164,13 +164,13 @@ test("records inbound and outbound frames with direction tags", async () => {
   peer.close();
 });
 
-test("ring buffer trims to ACP_LOG_SIZE", () => {
-  const prev = process.env.ACP_LOG_SIZE;
-  process.env.ACP_LOG_SIZE = "3";
+test("the recorder keeps the last frames the transcript asks for", () => {
+  const prev = process.env.CURSOR_DELEGATE_TRANSCRIPT;
+  process.env.CURSOR_DELEGATE_TRANSCRIPT = "3";
   try {
     const input = new PassThrough();
     const output = new PassThrough();
-    const peer = recordingPeer(input, output);
+    const peer = new JsonRpcPeer(input, output, {});
     for (let i = 0; i < 5; i++) peer.notify("ping", { n: i });
     const log = peer.getLog();
     assert.equal(log.length, 3);
@@ -178,8 +178,8 @@ test("ring buffer trims to ACP_LOG_SIZE", () => {
     assert.match(log[2].line, /"n":4/);
     peer.close();
   } finally {
-    if (prev === undefined) delete process.env.ACP_LOG_SIZE;
-    else process.env.ACP_LOG_SIZE = prev;
+    if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
+    else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
   }
 });
 
@@ -197,41 +197,6 @@ test("recording stays off until CURSOR_DELEGATE_TRANSCRIPT asks for it", () => {
   } finally {
     if (prev === undefined) delete process.env.CURSOR_DELEGATE_TRANSCRIPT;
     else process.env.CURSOR_DELEGATE_TRANSCRIPT = prev;
-  }
-});
-
-// ACP_LOG_SIZE keeps bounding retention, so 0 still wins over a requested transcript.
-test("ACP_LOG_SIZE=0 disables recording", () => {
-  const prev = process.env.ACP_LOG_SIZE;
-  process.env.ACP_LOG_SIZE = "0";
-  try {
-    const input = new PassThrough();
-    const output = new PassThrough();
-    const peer = recordingPeer(input, output);
-    peer.notify("ping", {});
-    input.write(JSON.stringify({ jsonrpc: "2.0", method: "pong" }) + "\n");
-    assert.equal(peer.getLog().length, 0);
-    assert.equal(peer.formatLog(), "");
-    peer.close();
-  } finally {
-    if (prev === undefined) delete process.env.ACP_LOG_SIZE;
-    else process.env.ACP_LOG_SIZE = prev;
-  }
-});
-
-test("a malformed ACP_LOG_SIZE keeps the default instead of disabling recording", () => {
-  const prev = process.env.ACP_LOG_SIZE;
-  process.env.ACP_LOG_SIZE = "not-a-number";
-  try {
-    const input = new PassThrough();
-    const output = new PassThrough();
-    const peer = recordingPeer(input, output);
-    peer.notify("ping", {});
-    assert.equal(peer.getLog().length, 1, "a typo must not silently turn the transcript off");
-    peer.close();
-  } finally {
-    if (prev === undefined) delete process.env.ACP_LOG_SIZE;
-    else process.env.ACP_LOG_SIZE = prev;
   }
 });
 

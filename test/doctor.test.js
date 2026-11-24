@@ -335,24 +335,16 @@ test("runDoctor deep:true times out a hanging handshake and stops the client", a
   assert.ok(stopCalls >= 1, "expected the hanging client to be stopped");
 });
 
-test("runDoctor reports plugin version and ACP_LOG_SIZE default", async () => {
-  const prev = process.env.ACP_LOG_SIZE;
-  delete process.env.ACP_LOG_SIZE;
-  try {
-    const out = await runDoctor({
-      spawnSpec: stubSpawnSpec(),
-      getClientInfo: () => ({ capabilities: {}, version: {} }),
-    });
-    assert.equal(out.plugin.version, VERSION);
-    assert.equal(out.env.ACP_LOG_SIZE, "2000");
-    assert.ok("ACP_AGENT_COMMAND" in out.env);
-    assert.ok("ACP_AGENT_ARGS" in out.env);
-    assert.ok("CURSOR_DELEGATE_HANDSHAKE_MS" in out.env);
-    assert.ok("CURSOR_DELEGATE_HARD_CAP_MS" in out.env);
-  } finally {
-    if (prev === undefined) delete process.env.ACP_LOG_SIZE;
-    else process.env.ACP_LOG_SIZE = prev;
-  }
+test("runDoctor reports the plugin version and the env knobs", async () => {
+  const out = await runDoctor({
+    spawnSpec: stubSpawnSpec(),
+    getClientInfo: () => ({ capabilities: {}, version: {} }),
+  });
+  assert.equal(out.plugin.version, VERSION);
+  assert.ok("ACP_AGENT_COMMAND" in out.env);
+  assert.ok("ACP_AGENT_ARGS" in out.env);
+  assert.ok("CURSOR_DELEGATE_HANDSHAKE_MS" in out.env);
+  assert.ok("CURSOR_DELEGATE_HARD_CAP_MS" in out.env);
 });
 
 test("runDoctor reads the plugin version fresh rather than from a load-time constant", async () => {
