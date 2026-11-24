@@ -1223,3 +1223,19 @@ test("cancel rejects a blank sessionId and trims one with stray whitespace", asy
     await client.close();
   }
 });
+
+test("delegate trims resumeSessionId and treats a blank one as none", async () => {
+  const seen = [];
+  const runDelegate = async ({ resumeSessionId }) => { seen.push(resumeSessionId); return { result: "ok", sessionId: "s" }; };
+  const server = buildServer({ runDelegate });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "x", resumeSessionId: " sess-1 " } });
+    await client.callTool({ name: "delegate", arguments: { workspace: process.cwd(), spec: "x", resumeSessionId: "   " } });
+    assert.deepEqual(seen, ["sess-1", undefined]);
+  } finally {
+    await client.close();
+  }
+});

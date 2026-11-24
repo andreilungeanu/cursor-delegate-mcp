@@ -58,7 +58,7 @@ export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the d
 export const delegateInputSchema = z.object({
   spec: z.string().trim().min(1, "spec must not be blank").describe("Task brief: goal, scope, fixed decisions quoted exactly, acceptance criteria. Sent as written. Point at files to read rather than pasting code, or attach them with contextFiles."),
   mode: z.enum(["agent", "plan", "ask"]).default("agent").describe("agent implements; plan and ask are instructions to the agent, not limits."),
-  resumeSessionId: z.string().optional().describe("Continue an existing ACP session. When delegate ran as an MCP task, its server-side task id works too."),
+  resumeSessionId: z.string().trim().optional().describe("Continue an existing ACP session. When delegate ran as an MCP task, its server-side task id works too."),
   workspace: z.string().trim().min(1, "workspace must not be blank").describe("The agent's working directory, not a limit. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call."),
   model: z.string().trim().min(1, "model must be a non-empty string").default(DEFAULT_MODEL).describe(`Bare ACP family id, version included, such as ${DEFAULT_MODEL}. The ids on offer depend on the account; doctor deep:true lists them.`),
   fast: z.boolean().default(false).describe("Fast tier; higher cost — only when the user asks."),
@@ -109,7 +109,8 @@ export async function runDelegateTool({
     const out = await runDelegate({
       spec,
       mode,
-      resumeSessionId,
+      // Blank is no resume: hosts fill optional fields with "".
+      resumeSessionId: resumeSessionId || undefined,
       workspace,
       model,
       fast,
