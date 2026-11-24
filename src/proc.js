@@ -115,7 +115,7 @@ export function createChildRegistry() {
       /** @type {TrackedChild} */
       const entry = {
         child: kill.child,
-        // An attempt that missed the exit is retried once; a later stop kills again.
+        // An attempt that could not confirm the exit is retried once; a later stop kills again.
         stop: ({ timeoutMs = KILL_WAIT_MS } = {}) => {
           if (!live.has(entry)) return Promise.resolve(outcome);
           stopping ??= attempt(timeoutMs).then((seen) => seen || attempt(timeoutMs)).then((seen) => {

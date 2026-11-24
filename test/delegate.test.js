@@ -2579,7 +2579,7 @@ test("onPromptSent carries why a resumed id ran as a fresh session, and nothing 
   assert.equal(notes[1], undefined);
 });
 
-test("onUnseenExit carries the note when the stop did not see cursor-agent exit", async () => {
+test("onUnseenExit carries the note when the stop could not confirm cursor-agent exited", async () => {
   const notes = [];
   const out = await runDelegate({
     spec: "task", workspace: process.cwd(),

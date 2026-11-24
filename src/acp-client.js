@@ -200,8 +200,8 @@ export class AcpClient extends EventEmitter {
 
   getTranscript(n) { return this.peer ? this.peer.formatLog(n) : ""; }
 
-  // Idempotent while teardown is in flight and after a confirmed exit. A missed exit is not
-  // memoized, so a later stop kills again. A confirmed exit stays so later callers join.
+  // Idempotent while teardown is in flight and after a confirmed exit. A stop that could not
+  // confirm it is not memoized, so a later stop kills again. A confirmed exit stays so later callers join.
   /** @param {{ timeoutMs?: number }} [opts] */
   stop({ timeoutMs } = {}) {
     if (!this._stopping) {

@@ -40,7 +40,7 @@ export function createTaskStore({ now = Date.now, retainMs = RETAIN_MS } = {}) {
       if (task.sessionId) sessions.set(task.taskId, task.sessionId);
     }
   };
-  // A fact that changes what to do after a cancel, such as an agent the stop did not see exit.
+  // A fact that changes what to do after a cancel, such as an agent the stop could not confirm exited.
   /** @param {Task} task @param {string} text */
   const note = (task, text) => {
     if (task.status !== "cancelled") return;
