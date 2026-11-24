@@ -40,7 +40,8 @@ function descendantPids(pid) {
 }
 
 // On win32 a plain kill reaches only the launcher; taskkill /T takes the tree. False when taskkill
-// failed or stalled; its 128 is no such process, a launcher already gone.
+// failed or stalled. Its 128 is a process that ended before taskkill reached it: the launcher, or a
+// short-lived command during the walk (measured).
 export async function treeKill(pid, { childAlive = true } = {}) {
   if (!pid) return true;
   if (process.platform === "win32") {
