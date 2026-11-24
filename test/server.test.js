@@ -1239,3 +1239,14 @@ test("delegate trims resumeSessionId and treats a blank one as none", async () =
     await client.close();
   }
 });
+
+for (const [era, versionNegotiation] of ERAS) {
+  test(`the tool list is not advertised as changing on a ${era}-era connection`, async () => {
+    const { client, close } = await connectEra(versionNegotiation, {});
+    try {
+      assert.equal(client.getServerCapabilities()?.tools?.listChanged, false);
+    } finally {
+      await close();
+    }
+  });
+}
