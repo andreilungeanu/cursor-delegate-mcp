@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Plugins for asking Cursor for second opinions and handing it coding work through MCP.",
-    "version": "3.2.0"
+    "version": "3.3.0"
   },
   "plugins": [
     {
       "name": "cursor-delegate",
       "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits.",
-      "version": "3.2.0",
+      "version": "3.3.0",
       "source": "./"
     }
   ]

@@ -1,6 +1,6 @@
 {
   "name": "cursor-delegate",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits.",
   "author": {
     "name": "Andrei Lungeanu",
@@ -15,7 +15,7 @@
   "mcpServers": {
     "cursor-delegate": {
       "command": "npx",
-      "args": ["-y", "npm:cursor-delegate-mcp@3.2.0"],
+      "args": ["-y", "npm:cursor-delegate-mcp@3.3.0"],
       "tool_timeout_sec": 21660
     }
   },

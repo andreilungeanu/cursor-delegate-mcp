@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-25
+
+### Added
+
+- Server info carries a title, a description and the repository URL, and each tool has a title.
+  The server advertises `tools.listChanged: false`.
+
+### Changed
+
+- `delegate`, `cancel` and `doctor` reject an unknown input field instead of dropping it. A
+  misspelled `resumeSessionId` started a new session.
+- The delegate skill covers second opinions and model comparisons as well as handoff, at about a
+  third of its former length. It no longer scales delegation by task size or carries a Security
+  section. `reference.md` keeps result fields and failure reasons; the effort-option rules, the
+  progress format and the timeout overrides moved to TECHNICAL.md, and the `contextFiles` trust
+  note to SECURITY.md.
+- The `delegate` description and the server instructions open with asking Cursor as well as
+  delegating to it: `mode: "ask"` gives a second opinion, and parallel calls with the same brief
+  compare views.
+- The plugin, marketplace, npm and MCP Registry descriptions name both uses.
+- The MCP SDK is pinned to 2.4.0.
+
+### Fixed
+
+- The README's MCP Registry badge points at the v0.1 search, and `server.json` is indented
+  consistently.
+
 ## [3.2.0] - 2026-11-24
 
 ### Changed
