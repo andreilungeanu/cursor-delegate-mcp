@@ -5,13 +5,13 @@
     "email": "andrei@lungeanu.ro"
   },
   "metadata": {
-    "description": "Plugins for delegating coding work to Cursor through MCP.",
+    "description": "Plugins for asking Cursor for second opinions and handing it coding work through MCP.",
     "version": "3.2.0"
   },
   "plugins": [
     {
       "name": "cursor-delegate",
-      "description": "Delegate local coding work to Cursor's CLI agent through MCP and ACP.",
+      "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits.",
       "version": "3.2.0",
       "source": "./"
     }

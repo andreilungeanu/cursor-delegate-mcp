@@ -10,7 +10,7 @@
     {
       "name": "cursor-delegate",
       "source": "./",
-      "description": "MCP server bridging AI coding hosts to cursor-agent over ACP.",
+      "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits.",
       "license": "MIT",
       "keywords": ["mcp", "cursor", "acp", "claude-code", "codex", "copilot"]
     }

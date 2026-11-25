@@ -3,12 +3,12 @@
   "name": "delegate-to-cursor",
   "displayName": "Delegate to Cursor",
   "version": "3.2.0",
-  "description": "Delegate coding tasks to cursor-agent over ACP, with structured results, plan mode, and clarification handling.",
+  "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits by Cursor's CLI agent.",
   "logo": "assets/logo-light.png",
   "suggestedPrompts": [
     "Delegate this implementation to Cursor and review the diff.",
     "Ask Cursor to draft a plan for this change.",
-    "Ask Cursor a question about this code, then review the git diff — every mode can edit files."
+    "Ask Cursor what it thinks about this approach."
   ],
   "author": {
     "name": "Andrei Lungeanu",

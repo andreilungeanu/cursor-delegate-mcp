@@ -3,7 +3,7 @@
   "version": "3.2.0",
   "mcpName": "io.github.andreilungeanu/cursor-delegate-mcp",
   "type": "module",
-  "description": "Delegate multi-file coding work from Claude Code, Codex, Copilot, or any MCP client to Cursor's CLI agent — structured results, plan mode, and changed files.",
+  "description": "Ask Cursor what it thinks, or hand it the work. Second opinions from Composer and Grok, plans and edits by Cursor's CLI agent, inside Claude Code, Codex or any MCP client.",
   "license": "MIT",
   "author": "Andrei Lungeanu <andrei@lungeanu.ro>",
   "repository": {

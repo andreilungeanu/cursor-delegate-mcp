@@ -21,7 +21,7 @@ const SERVER_ICONS = [
 const SERVER_INFO = {
   name: "cursor-delegate-mcp",
   title: "Cursor Delegate",
-  description: "Bridge AI coding hosts to cursor-agent over the Agent Client Protocol.",
+  description: "Ask Cursor's CLI agent for a second opinion, or hand it plans and edits.",
   version: VERSION,
   websiteUrl: "https://github.com/andreilungeanu/cursor-delegate-mcp",
   icons: SERVER_ICONS,
