@@ -1,6 +1,6 @@
 {
   "name": "cursor-delegate",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Turn your agent into a council: ask Composer and Grok for second opinions, then hand them plans and edits.",
   "author": {
     "name": "Andrei Lungeanu",

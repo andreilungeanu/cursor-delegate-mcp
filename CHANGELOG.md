@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-11-25
+
 ### Added
 
 - `doctor` reports whether `cursor-agent` is logged in (`auth.status`, from `cursor-agent status`),
@@ -22,6 +24,8 @@ All notable changes to this project are documented here. The format follows
   (`default`, `defaultAvailable`, `current`, `available`, `currentModelOptions`).
 - `doctor` leaves out what rarely changes a diagnosis: the client's capabilities, the runtime
   section, the agent's ACP protocol version and capabilities, and unset environment variables.
+- The package, plugin and server descriptions present the plugin as bringing Composer and Grok
+  into a council: second opinions first, then handoff.
 
 ## [3.3.0] - 2026-11-25
 

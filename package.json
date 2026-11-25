@@ -1,6 +1,6 @@
 {
   "name": "cursor-delegate-mcp",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "mcpName": "io.github.andreilungeanu/cursor-delegate-mcp",
   "type": "module",
   "description": "Turn your coding agent into a council: bring Composer and Grok into the conversation for second opinions, then hand them plans and edits. MCP server and plugin for Cursor's CLI agent.",

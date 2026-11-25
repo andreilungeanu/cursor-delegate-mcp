@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Plugins that bring Cursor's CLI agent into your coding agent's council through MCP.",
-    "version": "3.3.0"
+    "version": "3.4.0"
   },
   "plugins": [
     {
       "name": "cursor-delegate",
       "description": "Turn your agent into a council: ask Composer and Grok for second opinions, then hand them plans and edits.",
-      "version": "3.3.0",
+      "version": "3.4.0",
       "source": "./"
     }
   ]
