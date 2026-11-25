@@ -3,7 +3,7 @@
   "name": "cursor-delegate",
   "displayName": "Cursor Delegate",
   "version": "3.3.0",
-  "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits.",
+  "description": "Turn your agent into a council: ask Composer and Grok for second opinions, then hand them plans and edits.",
   "author": {
     "name": "Andrei Lungeanu",
     "email": "andrei@lungeanu.ro"

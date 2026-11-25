@@ -5,13 +5,13 @@
     "email": "andrei@lungeanu.ro"
   },
   "metadata": {
-    "description": "Plugins for asking Cursor for second opinions and handing it coding work through MCP.",
+    "description": "Plugins that bring Cursor's CLI agent into your coding agent's council through MCP.",
     "version": "3.3.0"
   },
   "plugins": [
     {
       "name": "cursor-delegate",
-      "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits.",
+      "description": "Turn your agent into a council: ask Composer and Grok for second opinions, then hand them plans and edits.",
       "version": "3.3.0",
       "source": "./"
     }

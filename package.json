@@ -3,7 +3,7 @@
   "version": "3.3.0",
   "mcpName": "io.github.andreilungeanu/cursor-delegate-mcp",
   "type": "module",
-  "description": "Ask Cursor what it thinks, or hand it the work. Second opinions from Composer and Grok, plans and edits by Cursor's CLI agent, inside Claude Code, Codex or any MCP client.",
+  "description": "Turn your coding agent into a council: bring Composer and Grok into the conversation for second opinions, then hand them plans and edits. MCP server and plugin for Cursor's CLI agent.",
   "license": "MIT",
   "author": "Andrei Lungeanu <andrei@lungeanu.ro>",
   "repository": {

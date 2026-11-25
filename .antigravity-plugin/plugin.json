@@ -3,7 +3,7 @@
   "name": "delegate-to-cursor",
   "displayName": "Delegate to Cursor",
   "version": "3.3.0",
-  "description": "Ask Cursor what it thinks, or hand it the work: second opinions from Composer and Grok, plans and edits by Cursor's CLI agent.",
+  "description": "Turn your coding agent into a council: ask Composer and Grok for second opinions, then hand them plans and edits run by Cursor's CLI agent.",
   "logo": "assets/logo-light.png",
   "suggestedPrompts": [
     "Delegate this implementation to Cursor and review the diff.",

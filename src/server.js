@@ -21,7 +21,7 @@ const SERVER_ICONS = [
 const SERVER_INFO = {
   name: "cursor-delegate-mcp",
   title: "Cursor Delegate",
-  description: "Ask Cursor's CLI agent for a second opinion, or hand it plans and edits.",
+  description: "Bring Cursor's CLI agent into your agent's council for second opinions, plans and edits.",
   version: VERSION,
   websiteUrl: "https://github.com/andreilungeanu/cursor-delegate-mcp",
   icons: SERVER_ICONS,
