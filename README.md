@@ -1,8 +1,6 @@
 # Cursor Delegate
 
-**Stop burning your frontier agent's limits on boilerplate.** 
-
-Delegate edits to Cursor's CLI agent — your agent writes the brief and reviews the diff.
+**Ask Cursor what it thinks. Or hand it the work.**
 
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
@@ -14,42 +12,59 @@ Delegate edits to Cursor's CLI agent — your agent writes the brief and reviews
 
 <img src="assets/logo-light.png" alt="Cursor Delegate logo" width="150" align="left" hspace="15">
 
-Use your best coding agent where its judgment matters most: understanding the task, shaping the plan, and reviewing the result.
-
-Cursor Delegate is the MCP bridge that lets Claude Code, ChatGPT/Codex, Copilot — or any MCP client — hand implementation to **Cursor's CLI agent**, then get a clean, structured result back for review.
+Cursor Delegate is the MCP bridge to **Cursor's CLI agent**. From Claude Code, ChatGPT/Codex, Copilot or any MCP client, your agent can ask Composer or Grok for a second opinion, put one question to several models at once, or hand Cursor a plan to build, and get a structured result back from each call.
 
 <br clear="left">
 
 ![Demo](assets/demo.gif)
 
-## 🧠 Frontier quality, kept
+## 🧠 Get a second opinion
 
-Your assistant does what frontier models are for: understands the task, writes a precise brief, reviews the finished diff. **Composer 2.5** runs the implementation loop under that brief. The bundled skill puts the review step in the loop — the agent that scoped the work reads the changed files back before reporting.
+> Ask Grok what it thinks about moving the session store to SQLite.
 
-## ⚡ Done faster
+Cursor reads the repo and answers in `ask` mode, and your agent sets that answer beside its own. You see where the two disagree before you choose a direction.
 
-Composer 2.5 is built for throughput on multi-file edits. The whole delegation is one call — brief in, result out — so you review a finished diff instead of babysitting edits landing file by file.
+Ask several at once, and your agent sends each the same brief in parallel, compares the answers, and checks the claims that matter:
 
-## 🔋 Your limits stop being the bottleneck
+> Ask Composer and Grok whether we should split this service, and tell me where they disagree.
 
-Composer and Grok draw from the **Cursor Models usage pool**, separate from third-party model usage on [supported Cursor plans](https://cursor.com/help/models-and-usage/usage-limits). Your Claude or Codex subscription handles the brief and review while Cursor runs the implementation. If you pay per token on API, implementation moves onto the Cursor capacity you already have.
+With [Codex Delegate](https://github.com/andreilungeanu/codex-delegate-mcp) or [Antigravity Delegate](https://github.com/andreilungeanu/agy-delegate-mcp) installed too, the same prompt reaches GPT or Gemini models.
+
+## 🛠️ Hand off the work
+
+> Delegate to Cursor: migrate src/api from callbacks to async/await and update the tests. Plan it first.
+
+Your agent writes the brief, Cursor edits the files, and your agent reads the diff and runs the tests before it reports back.
+
+- 📋 **Plan, approve, build** — `plan` mode returns Cursor's plan; once you approve, the same session implements it.
+- 💬 **No stalled runs** — when Cursor needs a decision, it ends the turn and returns the question as a normal result. Your agent answers by resuming the same session.
+- 🧵 **Resume, even on another model** — follow up in the same session with `resumeSessionId`; `effectiveModel` tells you when a different model served the turn.
 
 ![You and your agent plan and review; the MCP delegate tool hands the brief to cursor-agent (Composer 2.5), which implements and edits your workspace; a clean result comes back with what changed, which files, and the plan, for your agent to review](assets/flow.png)
 
-![Delegate result payload](assets/result-json.png)
-
 ## Features
 
-- 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, Google Antigravity, or GitHub Copilot CLI and just say *"delegate this to Cursor"*. The shared skill teaches your agent how to delegate well.
-- 💬 **No stalled runs** — if Cursor needs to clarify, it ends the turn and returns the question as a normal result. Your agent reads it and answers by resuming the same session — nothing blocks on a modal waiting for input.
-- ⏳ **Runs in the background in Claude Code** — in an interactive Claude Code CLI session, `delegate` runs as an MCP task: the call returns once Cursor has the prompt, and the result arrives as a task notification when Cursor finishes.
-- 📦 **Clean, named results** — final answer, changed files, session id, and the plan, returned as one compact JSON payload. Nothing to scrape.
-- 📋 **Plan first** — `plan` mode: Cursor drafts a plan, you review it, then the same session implements it.
-- 🔍 **Ask anything** — `ask` mode: Q&A over your codebase.
+- 📦 **Clean, named results** — final answer and session id, plus the files the edit tools reported, the plan, and todo progress when work is left unfinished, returned as one compact JSON payload. Nothing to scrape.
+- ⏳ **Runs in the background in Claude Code** — in the main session of the interactive Claude Code CLI, `delegate` runs as an MCP task: the call returns once Cursor has the prompt, and the result arrives as a task notification when Cursor finishes. Calls from subagents wait for the result.
+- 🖼️ **Attach what prose can't point at** — `contextFiles` sends screenshots, mockups and other files along with the brief.
+- 🔋 **Runs on Cursor's usage pool** — Composer and Grok draw from the **Cursor Models usage pool**, separate from third-party model usage on [supported Cursor plans](https://cursor.com/help/models-and-usage/usage-limits), and separate from your host's chat quota.
+- 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, Google Antigravity, or GitHub Copilot CLI and just say *"ask Cursor"* or *"delegate this to Cursor"*. The shared skill teaches your agent to write the brief and review the result.
 - 🩺 **Self-diagnosing** — a `doctor` tool that tells you exactly what's missing if setup isn't right.
 - 🔌 **Portable** — plain stdio MCP, so it runs anywhere: VS Code, JetBrains, Windsurf, Visual Studio, OpenCode, Antigravity, and more.
 
 `plan` and `ask` are instructions to the agent, and `workspace` is its working directory — [Security](SECURITY.md) and the [delegate reference](skills/delegate/reference.md) spell out what the bridge enforces and what it reports back.
+
+![Delegate result payload](assets/result-json.png)
+
+## The Delegate family
+
+Each plugin works on its own. Install the ones your subscriptions cover, and your agent can ask them the same question in one turn.
+
+| Plugin | Brings in | Stands out for |
+| --- | --- | --- |
+| [Codex Delegate](https://github.com/andreilungeanu/codex-delegate-mcp) | OpenAI Codex CLI · GPT models | native code review, schema-validated plans |
+| **Cursor Delegate** (this one) | Cursor CLI · Composer, Grok | plan then build in one session, todo progress, image attachments |
+| [Antigravity Delegate](https://github.com/andreilungeanu/agy-delegate-mcp) | Antigravity CLI · Gemini | steering a running turn, structured questions, plan artifacts |
 
 ## Install
 
