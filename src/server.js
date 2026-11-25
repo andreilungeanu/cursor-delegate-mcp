@@ -61,7 +61,7 @@ const taskStore = createTaskStore();
 
 // Read at connect, so only what decides whether to delegate at all. Call-time facts belong on
 // the parameter descriptions.
-export const SERVER_INSTRUCTIONS = `Delegate coding work to Cursor through the delegate tool. Every permission the agent requests is auto-approved, in every mode: agent/plan/ask reach any file the user account can, and mode instructs the agent rather than limiting it. Scope workspace tightly and review the git diff after every run — filesReportedByEditTools carries only what the agent's edit tools reported; the diff is authoritative.`;
+export const SERVER_INSTRUCTIONS = `Ask Cursor or hand it coding work through the delegate tool. Every permission the agent requests is auto-approved, in every mode: agent/plan/ask reach any file the user account can, and mode instructs the agent rather than limiting it. Scope workspace tightly and review the git diff after every run — filesReportedByEditTools carries only what the agent's edit tools reported; the diff is authoritative.`;
 
 // Strict: an unknown key is almost always a typo, and a dropped resumeSessionId starts a new session.
 export const delegateInputSchema = z.object({
@@ -197,7 +197,7 @@ export function buildServer({
     "delegate",
     {
       description:
-        `Delegate a coding task to cursor-agent over ACP. Never shell out to cursor-agent — use this tool only. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Keep model (${DEFAULT_MODEL}), fast and effort at their defaults unless the user explicitly asks. See the delegate skill.`,
+        `Ask cursor-agent a question or delegate coding work to it over ACP. Never shell out to cursor-agent — use this tool only. mode ask gives a second opinion; parallel calls with the same brief compare views. Auto-approves every permission the agent requests, in any mode and anywhere on disk. Clarifying questions arrive as prose in result — resume with resumeSessionId to answer. Keep model (${DEFAULT_MODEL}), fast and effort at their defaults unless the user explicitly asks. If the delegate skill is installed, load it before handing off implementation.`,
       inputSchema: delegateInputSchema,
       title: "Delegate coding task to Cursor",
       annotations: {
