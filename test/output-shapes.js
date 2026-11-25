@@ -40,16 +40,27 @@ export const delegateOutputShape = {
   }).optional(),
 };
 
-// Relayed agent fields stay unknown, so an odd protocolVersion is a diagnostic, not a failed call.
-// Handshake is its own shape because .strict() does not look inside a nested object.
-export const doctorHandshakeShape = {
+// Relayed agent fields stay unknown, so an odd model id is a diagnostic, not a failed call. Each
+// nested object is its own shape because .strict() does not look inside a nested object.
+export const doctorAgentShape = {
+  found: z.boolean(),
+  command: z.string(),
+  version: z.string().nullable(),
+  error: z.string().optional(),
+  latestVersion: z.string().optional(),
+};
+
+export const doctorSessionShape = {
   ok: z.boolean(),
   error: z.string().optional(),
-  protocolVersion: z.unknown().optional(),
-  agentCapabilities: z.unknown().optional(),
-  models: z.array(z.unknown()).optional(),
-  currentModel: z.unknown().optional(),
   modes: z.array(z.unknown()).optional(),
+};
+
+export const doctorModelsShape = {
+  default: z.string(),
+  defaultAvailable: z.boolean().nullable(),
+  current: z.unknown(),
+  available: z.array(z.string()),
   // Built here, not relayed, so it gets a real type.
   currentModelOptions: z.array(z.object({
     id: z.string(),
@@ -57,33 +68,21 @@ export const doctorHandshakeShape = {
     category: z.string().optional(),
     values: z.array(z.string()),
     currentValue: z.string().optional(),
-  })).optional(),
+  })),
 };
 
-export const doctorAgentShape = {
-  found: z.boolean(),
-  command: z.string(),
-  version: z.string().nullable(),
-  error: z.string().optional(),
-  handshake: z.object(doctorHandshakeShape).passthrough().optional(),
-};
-
-// agent is split out for the same reason as handshake.
 export const doctorOutputShape = {
-  plugin: z.object({ version: z.string() }).passthrough(),
+  plugin: z.object({ name: z.literal("cursor-delegate-mcp"), version: z.string() }).strict(),
   client: z.object({
     name: z.string().nullable(),
     version: z.string().nullable(),
-    capabilities: z.record(z.string(), z.unknown()),
     protocolVersion: z.string().optional(),
-  }).passthrough(),
+  }).strict(),
   agent: z.object(doctorAgentShape).passthrough(),
-  runtime: z.object({
-    node: z.string(),
-    platform: z.string(),
-    arch: z.string(),
-    cwd: z.string(),
-    transport: z.literal("stdio"),
-  }),
-  env: z.record(z.string(), z.unknown()),
+  auth: z.object({ status: z.enum(["ok", "logged-out", "unknown"]), plan: z.string().optional() }).strict(),
+  workspace: z.object({ path: z.string(), exists: z.boolean(), isDirectory: z.boolean() }).strict(),
+  env: z.record(z.string(), z.string()).optional(),
+  warnings: z.array(z.string()),
+  session: z.object(doctorSessionShape).passthrough().optional(),
+  models: z.object(doctorModelsShape).passthrough().optional(),
 };

@@ -278,12 +278,13 @@ export function buildServer({
     "doctor",
     {
       description:
-        "Setup diagnostics: plugin version, MCP client capabilities, cursor-agent launcher resolution. Run when delegation fails or agent.found is false.",
+        "Diagnose cursor-agent, login, plan and workspace (default: server cwd); warnings lists what needs action. Run when delegation fails.",
       inputSchema: z.object({
         deep: z
           .boolean()
           .default(false)
-          .describe("Run an ACP handshake (start → initialize → newSession) to verify the agent is usable; adds models, modes and the current model's options."),
+          .describe("Also open an ACP session: adds the models this account offers, the default model check, modes and the current model's options."),
+        workspace: z.string().optional(),
       }).strict(),
       title: "Diagnose Cursor delegation setup",
       annotations: {
@@ -294,8 +295,8 @@ export function buildServer({
         openWorldHint: false,
       },
     },
-    async ({ deep }, ctx) => {
-      const out = await runDoctor({ deep, signal: ctx?.mcpReq?.signal, getClientInfo: () => clientInfoOf(server, ctx) });
+    async ({ deep, workspace }, ctx) => {
+      const out = await runDoctor({ deep, workspace: workspace || process.cwd(), signal: ctx?.mcpReq?.signal, getClientInfo: () => clientInfoOf(server, ctx) });
       return { content: [{ type: "text", text: JSON.stringify(out) }] };
     }
   );

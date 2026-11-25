@@ -1078,15 +1078,11 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
   const runDoctor = async (opts) => {
     captured = opts;
     return {
-      plugin: { version: "test" },
-      client: {
-        name: "doctor-test-client",
-        version: "9.9",
-        capabilities: {},
-      },
+      plugin: { name: "cursor-delegate-mcp", version: "test" },
+      client: { name: "doctor-test-client", version: "9.9" },
       agent: { found: true, command: "cursor-agent acp", version: "fake-agent 2.0.0" },
-      runtime: { node: "22.0.0", platform: "test", arch: "test", cwd: "/test", transport: "stdio" },
-      env: {},
+      auth: { status: "ok" },
+      warnings: [],
     };
   };
   const server = buildServer({ runDoctor });
@@ -1095,13 +1091,14 @@ test("doctor tool passes deep and client info through to runDoctor", async () =>
 
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
-    const res = await client.callTool({ name: "doctor", arguments: { deep: true } });
+    const res = await client.callTool({ name: "doctor", arguments: { deep: true, workspace: "/some/workspace" } });
     assert.equal(captured.deep, true);
+    assert.equal(captured.workspace, "/some/workspace");
     const info = captured.getClientInfo();
     assert.equal(info.version.name, "doctor-test-client");
     assert.equal(info.version.version, "9.9");
     assert.ok(info.capabilities, "expected client capabilities to be exposed");
-    assert.equal(payload(res).runtime.transport, "stdio");
+    assert.deepEqual(payload(res).auth, { status: "ok" });
   } finally {
     await client.close();
   }

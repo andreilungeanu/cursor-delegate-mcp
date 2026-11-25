@@ -29,32 +29,39 @@ unknown input fields, are rejected by the MCP SDK before the tool runs.
 
 ## `doctor` tool
 
+`doctor` reports what a diagnosis needs and lists what needs action in `warnings`; sections with
+nothing to report are left out. It makes no model call.
+
 | Field | Description |
 | ----- | ----------- |
-| `plugin.version` | Installed plugin version. |
+| `plugin.name` / `plugin.version` | Installed plugin, version read fresh on each call. |
 | `client.name` / `client.version` | MCP client identity; `null` when the host sent none. |
-| `client.capabilities` | Raw client capabilities. |
 | `client.protocolVersion` | MCP revision the host speaks: `2026-07-28`, or the 2025-era version it negotiated. Absent when unknown. |
 | `agent.found` | Whether the launcher could be spawned at all. |
 | `agent.command` | Resolved launcher command line, with `ACP_AGENT_COMMAND` / `ACP_AGENT_ARGS` applied. |
 | `agent.version` | `--version` output, or `null`. `found: false` means it is not installed; `found: true` with a `null` version means it exists but did not answer — `agent.error` says why. |
 | `agent.error` | Present only when `version` is `null` on a launcher that does exist, e.g. the probe timed out or `--version` exited non-zero. |
-| `runtime` | Node version, platform, architecture, cwd, and stdio transport. |
-| `env.ACP_AGENT_COMMAND` / `env.ACP_AGENT_ARGS` | Launcher overrides, or `null` when unset. |
-| `env.CURSOR_DELEGATE_TRANSCRIPT` | Transcript frame count, or `null` when unset. |
-| `env.CURSOR_DELEGATE_HANDSHAKE_MS` / `HARD_CAP_MS` | Timeout knobs, or `null` when unset. |
+| `agent.latestVersion` | Present when `cursor-agent about` names a newer release than the installed one. |
+| `auth.status` | `ok`, `logged-out` or `unknown`, from `cursor-agent status`. Probed only when `--version` answered. |
+| `auth.plan` | Subscription tier from `cursor-agent about`. |
+| `workspace` | `path` (the `workspace` argument, default the server's cwd), `exists`, `isDirectory`. |
+| `env` | The launcher and timeout variables that are set, by name. Absent when none is. |
+| `warnings` | One sentence per thing to act on: launcher missing or silent, not logged in, a newer CLI, a missing workspace, a failed handshake, a default model the account lacks. |
 
-Optional `deep: true` runs a bounded ACP handshake (15 s) and adds `agent.handshake`:
-`{ ok: false, error }` on failure — not logged in, or a timeout — or `{ ok: true,
-protocolVersion, agentCapabilities, models, currentModel, currentModelOptions, modes }` on
-success. `models` and `modes` are the ids this agent offers for a new session; `protocolVersion`
-and `currentModel` are `null` when the agent reported none. `currentModelOptions` is
-`{ id, name?, category?, values, currentValue? }[]` for `currentModel` only — any other model
-needs a `set_model` this handshake does not send.
+`deep: true` also opens an ACP session (start → initialize → newSession, bounded at 15 s) in the
+workspace and adds:
+
+| Field | Description |
+| ----- | ----------- |
+| `session` | `{ ok: true, modes }`, or `{ ok: false, error }` — not logged in, or a timeout. `modes` are the ids this agent offers for a new session. |
+| `models.available` | The model ids this account offers. |
+| `models.current` | The model a new session opens on; `null` when the agent reported none. |
+| `models.default` / `models.defaultAvailable` | The model a delegation that names none asks for, and whether `available` holds it (`null` when the agent listed no models). |
+| `models.currentModelOptions` | `{ id, name?, category?, values, currentValue? }[]` for `models.current` only — any other model needs a `set_model` this handshake does not send. |
 
 Fields relayed verbatim from the agent are typed as unknown in the schema on purpose: doctor is
-what you run when the agent is already misbehaving, so a weird `protocolVersion` must read as a
-diagnostic, not fail the call.
+what you run when the agent is already misbehaving, so an odd value must read as a diagnostic,
+not fail the call.
 
 ## ACP behavior (verified)
 

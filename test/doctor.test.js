@@ -9,20 +9,19 @@ import { z } from "zod";
 import { probeAgentVersion, runDoctor as rawRunDoctor } from "../src/doctor.js";
 import { AcpClient } from "../src/acp-client.js";
 import { createChildRegistry, isChildAlive } from "../src/proc.js";
-import { doctorOutputShape, doctorAgentShape, doctorHandshakeShape } from "./output-shapes.js";
+import { doctorOutputShape, doctorAgentShape, doctorSessionShape, doctorModelsShape } from "./output-shapes.js";
 import { VERSION } from "../src/version.js";
+import { DEFAULT_MODEL } from "../src/delegate.js";
 
 // Every result this suite produces is parsed against a strict copy of doctorOutputShape, for
 // the reason delegate.test.js does the same: the shape is not declared to hosts, so a field
 // added to the result but forgotten there would drift undocumented and no test would fail.
-// agent and handshake are each made strict, because .strict() does not look inside a nested
-// object and both levels have drifted — agent in 1.14.0, handshake with currentModelOptions.
+// Each nested object is made strict too, because .strict() does not look inside one.
 const strictOutput = z.object({
   ...doctorOutputShape,
-  agent: z.object({
-    ...doctorAgentShape,
-    handshake: z.object(doctorHandshakeShape).strict().optional(),
-  }).strict(),
+  agent: z.object(doctorAgentShape).strict(),
+  session: z.object(doctorSessionShape).strict().optional(),
+  models: z.object(doctorModelsShape).strict().optional(),
 }).strict();
 const runDoctor = async (opts) => {
   const out = await rawRunDoctor(opts);
@@ -48,7 +47,7 @@ test("runDoctor reports agent.found, command, and version for a present launcher
   assert.equal(out.agent.found, true);
   assert.match(out.agent.command, /agent-stub\.js/);
   assert.equal(out.agent.version, "fake-agent 2.0.0");
-  assert.equal(out.agent.handshake, undefined);
+  assert.equal(out.session, undefined);
 });
 
 test("runDoctor reports agent.version null when the command fails", async () => {
@@ -75,7 +74,7 @@ test("runDoctor times out a launcher that never answers --version", async () => 
   const started = Date.now();
   const out = await runDoctor({
     spawnSpec: { command: hangPath, args: ["acp"], options: { shell: false } },
-    versionTimeoutMs: 250,
+    probeTimeoutMs: 250,
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
   assert.ok(Date.now() - started < 8000, "the probe must time out, not hang");
@@ -151,7 +150,7 @@ test("runDoctor reads the version of a launcher that floods stderr", async () =>
   const started = Date.now();
   const out = await runDoctor({
     spawnSpec: { command: floodPath, args: ["acp"], options: { shell: false } },
-    versionTimeoutMs: 4000,
+    probeTimeoutMs: 4000,
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
   assert.ok(Date.now() - started < 4000, "the probe must not reach its timeout");
@@ -160,7 +159,7 @@ test("runDoctor reads the version of a launcher that floods stderr", async () =>
   assert.equal(out.agent.error, undefined);
 });
 
-test("runDoctor reports raw client capabilities and identity from injected getClientInfo", async () => {
+test("runDoctor reports the client's identity and protocol revision, not its capabilities", async () => {
   const withElicit = await runDoctor({
     spawnSpec: stubSpawnSpec(),
     getClientInfo: () => ({
@@ -169,16 +168,12 @@ test("runDoctor reports raw client capabilities and identity from injected getCl
       protocolVersion: "2026-07-28",
     }),
   });
-  assert.deepEqual(withElicit.client.capabilities, { elicitation: {} });
-  assert.equal(withElicit.client.protocolVersion, "2026-07-28");
-  assert.equal(withElicit.client.name, "test-client");
-  assert.equal(withElicit.client.version, "1.0");
+  assert.deepEqual(withElicit.client, { name: "test-client", version: "1.0", protocolVersion: "2026-07-28" });
 
   const withoutElicit = await runDoctor({
     spawnSpec: stubSpawnSpec(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.deepEqual(withoutElicit.client.capabilities, {});
   assert.equal("protocolVersion" in withoutElicit.client, false, "absent, not null, when the host named none");
 });
 
@@ -200,7 +195,8 @@ test("runDoctor deep:false does not run handshake", async () => {
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
   assert.equal(handshakeCalls, 0);
-  assert.equal(out.agent.handshake, undefined);
+  assert.equal(out.session, undefined);
+  assert.equal(out.models, undefined);
 });
 
 test("runDoctor deep:true runs handshake via clientFactory", async () => {
@@ -221,14 +217,13 @@ test("runDoctor deep:true runs handshake via clientFactory", async () => {
     workspace: process.cwd(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.deepEqual(out.agent.handshake, {
-    ok: true,
-    protocolVersion: null,
-    agentCapabilities: {},
-    models: [],
-    currentModel: null,
+  assert.deepEqual(out.session, { ok: true, modes: [] });
+  assert.deepEqual(out.models, {
+    default: DEFAULT_MODEL,
+    defaultAvailable: null,
+    current: null,
+    available: [],
     currentModelOptions: [],
-    modes: [],
   });
   assert.ok(calls.includes("start"));
   assert.ok(calls.includes("initialize"));
@@ -236,9 +231,7 @@ test("runDoctor deep:true runs handshake via clientFactory", async () => {
   assert.ok(calls.includes("stop"));
 });
 
-// The test above leaves configOptions unset, so it only ever proves the empty case. This drives
-// the filter and map that build the field: model and mode are reported as their own handshake
-// keys, so they are dropped here, and each remaining option keeps only its string values.
+// model and mode are reported as models.current and session.modes, so they are dropped here.
 test("runDoctor deep:true reports currentModelOptions without the model and mode keys", async () => {
   const clientFactory = () => ({
     start: async () => {},
@@ -259,7 +252,7 @@ test("runDoctor deep:true reports currentModelOptions without the model and mode
     workspace: process.cwd(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.deepEqual(out.agent.handshake.currentModelOptions, [
+  assert.deepEqual(out.models.currentModelOptions, [
     { id: "fast", values: ["false", "true"] },
     // 7 is dropped: a non-string value is not something a caller can pass back.
     { id: "thinking", values: ["high"] },
@@ -289,7 +282,7 @@ test("runDoctor deep:true reports option name, category and current value when s
     workspace: process.cwd(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.deepEqual(out.agent.handshake.currentModelOptions, [
+  assert.deepEqual(out.models.currentModelOptions, [
     {
       id: "reasoning_effort", name: "Effort", category: "thought_level",
       values: ["low", "medium", "high", "xhigh"], currentValue: "high",
@@ -311,8 +304,10 @@ test("runDoctor deep:true reports handshake error without throwing", async () =>
     clientFactory,
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.equal(out.agent.handshake.ok, false);
-  assert.match(out.agent.handshake.error, /not logged in/);
+  assert.equal(out.session.ok, false);
+  assert.match(out.session.error, /not logged in/);
+  assert.ok(out.warnings.some((w) => /handshake failed: not logged in/.test(w)));
+  assert.equal(out.models, undefined);
 });
 
 test("runDoctor deep:true times out a hanging handshake and stops the client", async () => {
@@ -330,21 +325,22 @@ test("runDoctor deep:true times out a hanging handshake and stops the client", a
     handshakeTimeoutMs: 50,
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.equal(out.agent.handshake.ok, false);
-  assert.match(out.agent.handshake.error, /timed out after 50ms/);
+  assert.equal(out.session.ok, false);
+  assert.match(out.session.error, /timed out after 50ms/);
   assert.ok(stopCalls >= 1, "expected the hanging client to be stopped");
 });
 
-test("runDoctor reports the plugin version and the env knobs", async () => {
+test("runDoctor reports the plugin version, and the env knobs only when set", async () => {
   const out = await runDoctor({
     spawnSpec: stubSpawnSpec(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
+    env: { ACP_AGENT_ARGS: "acp --x", HARD_CAP_UNRELATED: "1" },
   });
   assert.equal(out.plugin.version, VERSION);
-  assert.ok("ACP_AGENT_COMMAND" in out.env);
-  assert.ok("ACP_AGENT_ARGS" in out.env);
-  assert.ok("CURSOR_DELEGATE_HANDSHAKE_MS" in out.env);
-  assert.ok("CURSOR_DELEGATE_HARD_CAP_MS" in out.env);
+  assert.deepEqual(out.env, { ACP_AGENT_ARGS: "acp --x" });
+
+  const quiet = await runDoctor({ spawnSpec: stubSpawnSpec(), env: {} });
+  assert.equal("env" in quiet, false);
 });
 
 test("runDoctor reads the plugin version fresh rather than from a load-time constant", async () => {
@@ -358,19 +354,48 @@ test("runDoctor reads the plugin version fresh rather than from a load-time cons
   assert.equal(out.plugin.version, "9.9.9-fresh");
 });
 
-test("runDoctor reports portable runtime diagnostics", async () => {
-  const out = await runDoctor({
-    getClientInfo: () => ({ capabilities: { elicitation: {} }, version: { name: "host", version: "1" } }),
-    spawnSpec: stubSpawnSpec(),
-  });
-
-  assert.equal(out.runtime.transport, "stdio");
-  assert.equal(out.runtime.node, process.versions.node);
-  assert.equal(out.runtime.platform, process.platform);
-  assert.deepEqual(out.client.capabilities, { elicitation: {} });
+test("runDoctor flags a workspace that is not there", async () => {
+  const out = await runDoctor({ spawnSpec: stubSpawnSpec(), workspace: join(tmpdir(), "no-such-workspace-xyz") });
+  assert.equal(out.workspace.exists, false);
+  assert.ok(out.warnings.some((w) => w.startsWith("workspace does not exist")));
 });
 
-test("runDoctor deep:true reports the negotiated capability matrix", async () => {
+const ACCOUNT_STUB = fileURLToPath(new URL("./fixtures/account-stub.js", import.meta.url));
+const accountSpec = (mode) => ({ command: process.execPath, args: [ACCOUNT_STUB, mode, "acp"], options: { shell: false } });
+
+test("runDoctor reads login and plan from the CLI, and no email", async () => {
+  const out = await runDoctor({ spawnSpec: accountSpec("signed-in") });
+  assert.deepEqual(out.auth, { status: "ok", plan: "Plus" });
+  assert.deepEqual(out.warnings, []);
+  assert.equal("latestVersion" in out.agent, false);
+  assert.doesNotMatch(JSON.stringify(out), /someone@example\.com/);
+});
+
+test("runDoctor reports a logged-out CLI with what to run", async () => {
+  const out = await runDoctor({ spawnSpec: accountSpec("logged-out") });
+  assert.deepEqual(out.auth, { status: "logged-out" });
+  assert.ok(out.warnings.includes("cursor-agent is not logged in. Run `cursor-agent login`."));
+});
+
+test("runDoctor names a newer CLI release", async () => {
+  const out = await runDoctor({ spawnSpec: accountSpec("outdated") });
+  assert.equal(out.agent.latestVersion, "2026.11.30-aaaaaaa");
+  assert.ok(out.warnings.includes("cursor-agent 2026.11.30-aaaaaaa is available. Run `cursor-agent update`."));
+});
+
+test("runDoctor reads login as unknown from a CLI that does not answer status", async () => {
+  const out = await runDoctor({ spawnSpec: stubSpawnSpec() });
+  assert.deepEqual(out.auth, { status: "unknown" });
+  assert.deepEqual(out.warnings, []);
+});
+
+test("runDoctor warns about a launcher it cannot find", async () => {
+  const out = await runDoctor({ spawnSpec: { command: "nonexistent-agent-xyz-12345", args: ["acp"], options: {} } });
+  assert.deepEqual(out.auth, { status: "unknown" });
+  assert.ok(out.warnings.some((w) => /not found/.test(w)));
+});
+
+test("runDoctor deep:true reports the models and modes the session offers", async () => {
   const clientFactory = () => ({
     start: async () => {},
     initialize: async function () {
@@ -391,12 +416,26 @@ test("runDoctor deep:true reports the negotiated capability matrix", async () =>
     workspace: process.cwd(),
     getClientInfo: () => ({ capabilities: {}, version: {} }),
   });
-  assert.equal(out.agent.handshake.ok, true);
-  assert.equal(out.agent.handshake.protocolVersion, 1);
-  assert.equal(out.agent.handshake.currentModel, "composer-2.5");
-  assert.deepEqual(out.agent.handshake.models, ["composer-2.5", "claude-opus-4-8"]);
-  assert.deepEqual(out.agent.handshake.modes, ["agent", "plan", "ask"]);
-  assert.equal(out.agent.handshake.agentCapabilities.sessionCapabilities.list !== undefined, true);
+  assert.deepEqual(out.session, { ok: true, modes: ["agent", "plan", "ask"] });
+  assert.equal(out.models.current, "composer-2.5");
+  assert.deepEqual(out.models.available, ["composer-2.5", "claude-opus-4-8"]);
+  assert.equal(out.models.defaultAvailable, true);
+  assert.equal(out.warnings.length, 0);
+});
+
+test("runDoctor deep:true warns when the account does not offer the default model", async () => {
+  const clientFactory = () => ({
+    start: async () => {},
+    initialize: async () => {},
+    newSession: async function () {
+      this.sessionModels = { currentModelId: "grok-4.7", availableModels: [{ modelId: "grok-4.7" }] };
+      return { sessionId: "s" };
+    },
+    stop: () => {},
+  });
+  const out = await runDoctor({ deep: true, spawnSpec: stubSpawnSpec(), clientFactory });
+  assert.equal(out.models.defaultAvailable, false);
+  assert.ok(out.warnings.some((w) => w.startsWith(`The default model ${DEFAULT_MODEL} is not among the models this account offers`)));
 });
 
 // Runs fn with CURSOR_TEST_PIDLOG set, handing it the pids hang-pid-stub.js has logged so far.
@@ -436,8 +475,8 @@ test("runDoctor deep stops the agent at once when the host aborts", async () => 
     })),
   });
   assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
-  assert.equal(out.agent.handshake.ok, false);
-  assert.match(out.agent.handshake.error, /aborted/);
+  assert.equal(out.session.ok, false);
+  assert.match(out.session.error, /aborted/);
   assert.ok(!isChildAlive(client.child));
 });
 
@@ -446,7 +485,7 @@ test("runDoctor stops the version probe on a host abort, and spawns no handshake
     const controller = new AbortController();
     let spawned = 0;
     const run = rawRunDoctor({
-      deep: true, signal: controller.signal, versionTimeoutMs: 10000, handshakeTimeoutMs: 10000,
+      deep: true, signal: controller.signal, probeTimeoutMs: 10000, handshakeTimeoutMs: 10000,
       spawnSpec: { command: HANG_PID_STUB, args: ["acp"], options: { shell: false } },
       clientFactory: () => { spawned++; throw new Error("no agent may be spawned after the abort"); },
     });
@@ -456,8 +495,8 @@ test("runDoctor stops the version probe on a host abort, and spawns no handshake
     const out = await run;
     assert.ok(Date.now() - started < 3000, `doctor took ${Date.now() - started} ms after the abort`);
     assert.match(out.agent.error ?? "", /aborted/);
-    assert.equal(out.agent.handshake.ok, false);
-    assert.match(out.agent.handshake.error, /aborted/);
+    assert.equal(out.session.ok, false);
+    assert.match(out.session.error, /aborted/);
     assert.equal(spawned, 0);
     assert.equal(pids().length, 1);
   });
