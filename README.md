@@ -45,7 +45,7 @@ Your agent writes the brief, Cursor edits the files, and your agent reads the di
 ## Features
 
 - 📦 **Clean, named results** — final answer and session id, plus the files the edit tools reported, the plan, and todo progress when work is left unfinished, returned as one compact JSON payload. Nothing to scrape.
-- ⏳ **Runs in the background in Claude Code** — in the main session of the interactive Claude Code CLI, `delegate` runs as an MCP task: the call returns once Cursor has the prompt, and the result arrives as a task notification when Cursor finishes. Calls from subagents wait for the result.
+- ⏳ **Runs in the background, with MCP Tasks** — `delegate` serves the MCP Tasks extension (`io.modelcontextprotocol/tasks`), so a host that speaks it gets a task back once Cursor has the prompt and the result when Cursor finishes. In the main session of the interactive Claude Code CLI, you keep working and the result arrives as a task notification; calls from subagents wait for the result.
 - 🖼️ **Attach what prose can't point at** — `contextFiles` sends screenshots, mockups and other files along with the brief.
 - 🔋 **Runs on Cursor's usage pool** — Composer and Grok draw from the **Cursor Models usage pool**, separate from third-party model usage on [supported Cursor plans](https://cursor.com/help/models-and-usage/usage-limits), and separate from your host's chat quota.
 - 🤝 **Native plugins** — install into Claude Code, ChatGPT/Codex, Google Antigravity, or GitHub Copilot CLI and just say *"ask Cursor"* or *"delegate this to Cursor"*. The shared skill teaches your agent to write the brief and review the result.
