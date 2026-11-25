@@ -10,7 +10,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![tests](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/andreilungeanu/cursor-delegate-mcp/actions/workflows/test.yml)
 
-<img src="assets/logo-light.png" alt="Cursor Delegate logo" width="150" align="left" hspace="15">
+<img src="assets/logo-light.png" alt="Cursor Delegate logo" width="105" align="left" hspace="15">
 
 Cursor Delegate is the MCP bridge to **Cursor's CLI agent**. From Claude Code, ChatGPT/Codex, Copilot or any MCP client, your agent can ask Composer or Grok for a second opinion, put one question to several models at once, or hand Cursor a plan to build, and get a structured result back from each call.
 
