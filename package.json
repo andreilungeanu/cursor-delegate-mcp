@@ -54,6 +54,7 @@
     "test": "node scripts/run-tests.mjs",
     "test:pack": "node test/npm-package-smoke.mjs",
     "start": "node src/server.js",
+    "bench": "node benches/delegate.bench.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -61,8 +62,10 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@codspeed/tinybench-plugin": "^6.1.1",
     "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "^26.1.1",
+    "tinybench": "^5.1.0",
     "typescript": "^7.0.2"
   }
 }

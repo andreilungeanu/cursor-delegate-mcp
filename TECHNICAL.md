@@ -131,6 +131,17 @@ claude --plugin-dir .
 claude plugin validate .
 ```
 
+### Benchmarks
+
+`benches/` measures the bridge's own work on a delegation with tinybench: whole `delegate` turns
+through the real `AcpClient`, with cursor-agent replaced by an in-memory agent
+(`benches/fake-agent.mjs`), plus the JSON-RPC framing and the turn state alone. `npm run bench`
+times them locally. In CI, the `codspeed` workflow runs the same command under
+[CodSpeed](https://app.codspeed.io/andreilungeanu/cursor-delegate-mcp) in CPU simulation mode
+and reports each pull request's performance change against `main`. To measure locally the same
+way, install the [CodSpeed CLI](https://codspeed.io/docs/cli) and run
+`codspeed run -m simulation -- npm run bench`.
+
 ## Publishing (maintainers)
 
 1. Public repo: [andreilungeanu/cursor-delegate-mcp](https://github.com/andreilungeanu/cursor-delegate-mcp)
