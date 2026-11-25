@@ -23,6 +23,8 @@ is authoritative.
 - Review the git diff before committing, after every run — including `plan` and `ask` ones.
 - Run verification (tests, lint) after delegation — the delegate skill asks Claude to do
   this, but automated gates in CI are still your backstop.
+- `contextFiles` resolve against `workspace` and may point outside it. The bridge forwards
+  attachments as they are; treat them as untrusted.
 - Do not commit secrets (`.env`, credentials, tokens). The bridge does not redact them from
   agent context.
 

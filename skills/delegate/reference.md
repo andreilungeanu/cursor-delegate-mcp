@@ -1,184 +1,64 @@
-# delegate tool reference
+# delegate reference
 
-Architecture: MCP host → MCP `delegate` → cursor-delegate-mcp → **cursor-agent** over ACP.
+What a result field or failure `reason` means and what to do next.
 
-## Input
+## Inputs
 
-| Field | Default | Description |
-| ----- | ------- | ----------- |
-| `spec` | — | The task brief, sent as written. Name files in it for the agent to read, or attach them with `contextFiles`. |
-| `mode` | `agent` | `agent`, `plan`, or `ask`. |
-| `model` | `composer-2.5` | Bare ACP family id, version included. The ids on offer depend on the account; `doctor deep:true` lists them. Rejected before the turn starts if the agent does not offer it; the error names the ids it does. |
-| `fast` | `false` | `false` = standard tier; `true` = higher costs — ONLY when user asks. Cursor keeps the tier per model across sessions; the bridge sends it unless the session already opened on that model at that tier. |
-| `workspace` | required | Working directory for the agent. Smallest directory holding the task's files; with no such directory the project root is the floor. Must already exist; never create one for the call. |
-| `resumeSessionId` | — | Resume an existing ACP session. When `delegate` ran as an MCP task, its server-side task id works too, while this server process runs. |
-| `effort` | — | Exact thinking-effort value, sent under whichever option id the selected model declares. Values are case-sensitive and model-specific; some models expose no effort option. |
-| `context` | — | Context window size, same channel. gpt-5.x accepts `272k` and `1m`. |
-| `contextFiles` | — | Paths to attach instead of pasting contents into `spec`. Text files become `resource_link`s the agent may open; images (png/jpg/gif/webp, <5MB) are sent inline. Relative paths resolve against `workspace` but are **not restricted to it**; paths outside it may arrive unreadable agent-side. Attachments are untrusted — the bridge does not scan for prompt injection. Skips are reported in `protocolWarnings`, never fatal. |
+`model` takes a bare ACP family id, not the CLI's tier-suffixed `--list-models` strings: the
+CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `effort: "high"`, and `-fast` is `fast: true`.
+`doctor` with `deep: true` lists the ids this account offers.
 
-ACP model ids are bare families, not the CLI's tier-suffixed `--list-models` strings: the
-CLI's `gpt-5.4-high` is `model: "gpt-5.4"` plus `effort: "high"`, and `-fast` is
-`fast: true`. A suffixed id fails with `Invalid model value`; `doctor` with `deep: true`
-lists the ids this agent offers.
+`effort` is matched exactly against the selected model's effort option. Values are
+case-sensitive and differ per model; some models have no effort option. Do not pass `context`
+speculatively.
 
-Config option ids and values differ per model and are known only once one is selected. The bridge
-matches `effort` exactly against the selected model's live options and sends it under the id that
-advertised that value. An option counts as effort when the agent marks it with ACP's
-`thought_level` category, or, for an agent that sends no category, when its id or name says so
-(`effort`, `reasoning`, `reasoning_effort`, `thinking`, `thought_level`). A value the effort
-option does not advertise, or a model with no option recognized as effort, fails as
-`invalid-effort`; a missing or unusable option list fails as `effort-options-unavailable`. Both
-happen before `session/prompt`. For `invalid-effort` with `Accepted`, retry with the returned
-`resumeSessionId`, the complete original `spec`, and a corrected value. With `Advertised`, no
-option was recognized as effort, and the message lists what the model offers instead.
-For `effort-options-unavailable`, keep the same session and complete spec but do not guess a value.
-Do not pass `context` speculatively.
+`contextFiles` resolve against `workspace` but are not limited to it; paths outside it may
+arrive unreadable on the agent side. Skipped files are reported in `protocolWarnings`.
 
-## Return value
+## Result
 
-| Field | Description |
-| ----- | ----------- |
-| `result` | Final agent text: the complete stream for tool-free turns, or only text emitted after the final tool completes. Empty when no final message was emitted. |
-| `resultSource` | Present only as a caveat on `result`; **absent on the happy path**, where `result` is simply the answer. `"pre-tool-fallback"` (no final message closed the turn; `result` is the last message before the agent's final tool call — read `protocolWarnings` before trusting it) or `"none"` (no message; `result` is empty). A refusal is not a caveat here — it ends the turn cleanly and its text is the `result`; judge by the diff. |
-| `stopReason` | Present only when it is not the ordinary `end_turn` — a refusal, a cancel, or an output cap. Absence means the turn ended normally. |
-| `sessionId` | Session id for resume. |
-| `effectiveModel` | The model id the agent served, present **only when it differs** from the requested `model` (e.g. a cross-model resume). Also absent when the agent reported no model; some models report none, and `default` (Auto) never reports one — it advertises no config options, so the served model is not readable. |
-| `effectiveEffort` | The current value of each option recognized as effort, keyed by option id, as the agent reported it when the prompt went out — e.g. `{"reasoning_effort": "high"}`, or `{"thinking": "false", "effort": "high"}` for a model with a toggle beside a level. Present whenever known, even when `effort` was omitted: the model then runs at the level Cursor saved for it, which is not a default. Absent when the agent did not confirm a value, so never read absence as a level. |
-| `filesReportedByEditTools` | Files the agent reported editing (native ACP diff events). Omitted when empty — absence means no edit tool reported a change, **not** that nothing changed: shell-driven edits leave no diff event; the git diff is authoritative. |
-| `resumed` | Present and **`true` only** when a resume took (the returned session id matched `resumeSessionId`). Absent for a fresh session or a resume that fell back — the fallback is explained in `protocolWarnings`. |
-| `cancelRequested` | `true` when a cancel was issued mid-run. Distinguishes a clean finish from one where the agent ignored the cancel and completed anyway. |
-| `todos` / `todoProgress` | The agent's own task list and its counts. See the caveat below. |
-| `plan` | Agent mode only, when the agent filed a plan. Absent in `plan`/`ask`, where `result` is the plan. |
-| `protocolWarnings` | Non-fatal diagnostics that did not justify failing the call: dropped or sanitized ACP fields, a failed resume, ignored model options, skipped `contextFiles`. Read it whenever it is present. |
-
-### `todos` / `todoProgress` — absence means nothing
-
-Both fields are **omitted entirely** when the agent tracked no todos, rather than reported as
-zeros. Most correct, complete turns emit no todo frames at all — short tasks especially. When
-todos were tracked, `todoProgress` is always returned; the full `todos` list is returned
-**only when `completed < total`** — on a fully-completed turn it would just restate the
-counts entry by entry. Cancelled items count toward `total` but not `completed`, so they
-keep the list. So:
-
-- `todoProgress` present with `completed < total` is direct evidence of unfinished or
-  cancelled work, and `todos` is present alongside it naming exactly what remains — read it
-  before resuming.
-- `todoProgress` present and complete means everything tracked was done; no list follows.
-- Both absent is **not** evidence of anything, and must not be read as incompleteness.
-
-`todoProgress` is `{total, completed, inProgress, pending, cancelled}`. `cancelled` is a
-separate bucket (Cursor todo arrays include that status); it is not folded into `pending`.
-
-### `plan` object (agent mode only)
-
-| Field | Description |
-| ----- | ----------- |
-| `plan.entries` | Structured steps from `session/update:plan`. |
-| `plan.overview` | One-line summary from `cursor/create_plan` (may be absent). |
-| `plan.detail` | Markdown plan body from `cursor/create_plan` (may be absent). |
-
-In `plan`/`ask` the whole object is dropped: `result` is the agent's own plan message, and the
-plan lives in the agent's session — resume to act on it.
-
-## Mode behavior
-
-`mode` is set on the agent via `session/set_mode`, and the bridge auto-approves **every**
-`session/request_permission` regardless of it. `plan` and `ask` describe how the agent behaves,
-not what the bridge permits, so **review the git diff after every run**, whatever mode you
-asked for.
-
-- **`agent`** — implements; auto-approves writes; accepts `cursor/create_plan` if emitted.
-- **`plan`** — plan only; the sole mode-dependent gate is rejecting `cursor/create_plan`
-  acceptance.
-- **`ask`** — read-only Q&A over the codebase, by agent convention.
+| Field | Meaning |
+| ----- | ------- |
+| `result` | The final agent text: the whole stream for a tool-free turn, otherwise the text after the last tool call. In `plan` and `ask`, the plan or the answer. A clarifying question also arrives here and ends the turn; answer it by resuming with free text, not limited to the options listed. |
+| `resultSource` | Absent on the happy path. `"pre-tool-fallback"`: no final message closed the turn, so `result` is the last message before the final tool call; read `protocolWarnings` before trusting it. `"none"`: no message, `result` is empty. A refusal is not a `resultSource` caveat: its text is the `result` and `stopReason` is set; judge by the diff. |
+| `stopReason` | Present only when the turn did not end normally: a refusal, a cancel, or an output cap. |
+| `sessionId` | Pass as `resumeSessionId` to continue. For a `delegate` run as an MCP task, the task id works too while this server process runs. |
+| `resumed` | `true` only when a resume took. Absent after a fresh session or a resume that fell back; `protocolWarnings` says why, which separates a stale id from a typo. |
+| `filesReportedByEditTools` | Files the agent's edit tools reported. Absent when none did, which does not mean nothing changed: shell edits leave no record. The git diff is authoritative. |
+| `todoProgress` / `todos` | `{total, completed, inProgress, pending, cancelled}` when the agent tracked todos. `todos` lists the items only when `completed < total`. Both absent is the normal case and means nothing. |
+| `effectiveModel` | The model the agent served, only when it differs from `model` (for example, a resume on another model). Also absent when the agent reported no model id, which some models do and `default` (Auto) always does; absence does not confirm `model` served. |
+| `effectiveEffort` | The value of each effort option as the agent reported it when the prompt went out, keyed by option id: `{"reasoning_effort": "high"}`. Absent when unconfirmed; never read absence as a level. |
+| `cancelRequested` | A cancel was issued mid-run. Tells a clean finish from one where the agent ignored the cancel. |
+| `plan` | `agent` mode only, when the agent filed one: `{entries, overview?, detail?}`. |
+| `protocolWarnings` | Non-fatal diagnostics: dropped or sanitized fields, a failed resume, ignored model options, skipped `contextFiles`. Read it whenever present. |
 
 ## Failures
 
 Errors come back as `delegate failed [<reason>]: …`.
 
-| Reason | Meaning | Action |
-| ------ | ------- | ------ |
-| `invalid-spec` | `spec` was blank. Nothing was spawned. | Fix the argument. |
-| `invalid-workspace` | `workspace` was omitted, blank, does not exist, or is not a directory. Nothing was spawned. | Fix the argument. |
-| `unknown-model` | `model` is not offered by this agent; the message names the valid ids. | Fix the argument. |
-| `invalid-effort` | `effort` is not an exact value the selected model's effort option advertises (`Accepted: [...]`), or no option the model advertises was recognized as effort (`Advertised: [...]`). No prompt was sent. | With `Accepted`, retry the named session with the complete original `spec` and one of those values. With `Advertised`, retrying will not help: if none of the listed options is an effort setting, omit the `effort` field entirely and do not send the string `"none"`; if one is, report that the bridge failed to recognize it. |
-| `effort-options-unavailable` | The selected model did not report a usable effort option list, or rejected an option it had just advertised. No prompt was sent. | Retry the named session once with the complete original `spec`; if it repeats, run `doctor` and report the capability failure rather than guessing. |
-| `resume-failed` | `resumeSessionId` could not be loaded for a reason other than the agent not having that session — no fresh session was started. | Retry; omit `resumeSessionId` to start fresh deliberately. A session the agent does not have is not this: it starts fresh and reports a `protocolWarnings` entry. |
-| `agent-error` | The agent answered a request with a JSON-RPC error, named with its code. | Read the message; fix the argument if it names one. |
-| `hard-cap` | The 6h absolute cap elapsed. | Resume the id in the message. |
-| `spawn-failed` | The agent process could not be started at all (launcher missing or not executable). | Install Cursor CLI and run `cursor-agent login`; `doctor` shows the launcher resolution. |
-| `agent-exit` | The agent process died; stderr is included. | Resume once; run `doctor` if it repeats. |
-| `handshake-timeout` | No prompt ever went in flight — the agent wedged during setup. Setup runs past `session/new`, so a session may already exist. | Resume the id if the message names one; run `doctor` if it names none, or if resuming repeats the stall. |
+| Reason | Next step |
+| ------ | --------- |
+| `invalid-spec`, `invalid-workspace` | Fix the argument; nothing was spawned. |
+| `unknown-model` | The agent does not offer `model`; the message names the ids it does. Fix `model`. |
+| `invalid-effort` | No prompt was sent. With `Accepted: [...]`, retry the named session with the complete original `spec` and a listed value. With `Advertised: [...]`, no option was recognized as effort: if none of them is an effort setting, omit `effort` (do not send `"none"`); if one is, report that the bridge failed to recognize it. |
+| `effort-options-unavailable` | No prompt was sent. Retry the named session once with the complete original `spec`; if it repeats, run `doctor` and report it rather than guessing a value. |
+| `resume-failed` | The session could not be loaded and nothing was started. Retry, or omit `resumeSessionId` to start fresh. (A session the agent does not have is not this: it starts fresh with a `protocolWarnings` entry.) |
+| `agent-error` | The agent returned a JSON-RPC error. Fix the argument if the message names one. |
+| `hard-cap` | The 6 h cap elapsed. Resume the id in the message. |
+| `spawn-failed` | cursor-agent could not be started. Install the Cursor CLI and run `cursor-agent login`; `doctor` shows the launcher resolution. |
+| `agent-exit` | The agent process died; stderr is included. Resume once; run `doctor` if it repeats. |
+| `handshake-timeout` | The agent wedged during setup. Resume the id if the message names one; otherwise, or if it repeats, run `doctor`. |
 
-Timeout and exit failures additionally name the last tool call, how long the wire has
-been quiet, the turn title, todo progress, files reported edited, and a `resumeSessionId` —
-plus a note if an earlier resume had already failed, meaning none of that work was in
-context. The raw ACP transcript is not included: nothing in it changes what you can do, and
-it is large. Set `CURSOR_DELEGATE_TRANSCRIPT=<frames>` to append it when debugging the bridge
-itself.
+Timeout and exit failures also name the last tool call, the time since the last frame, the turn
+title, todo progress, files reported edited and the `resumeSessionId`, plus a note if an earlier
+resume had failed, meaning none of that work was in context.
 
-## Resume
+## Running turns
 
-Cross-process resume via `session/load`. Unknown ids fall back to a fresh session; any other load
-failure is `resume-failed` and starts nothing.
+cursor-agent sends nothing while a shell command runs, so mid-turn silence is normal and is not
+timed out. Only the 60 s setup deadline and the 6 h cap apply.
 
-## Progress
-
-Thinking, streamed response sentences, tool starts, todo-list changes, and the turn title the
-agent picks (`turn titled: …`) arrive as ephemeral MCP progress notifications, or as the task's
-status message when `delegate` runs as an MCP task — separate from `result`. The title is a live
-label for telling concurrent delegations apart and is also named in timeout errors; it is not
-returned in the result, where it can even contradict the answer.
-
-While a turn is running, a `still working — <elapsed>, last agent frame <age> ago, running: <tool>`
-heartbeat is emitted periodically, with a `todo i/n: …` segment when the agent tracks todos. A
-large frame age is normal during a long shell command; it is not by itself a sign of trouble.
-
-## Clarifying questions
-
-Measured behavior: cursor-agent asks in prose and ends the turn. Answer by resuming the same
-session with free text in `spec` — you are not limited to any options it listed. There is no
-structured question path: cursor-agent never exposes its AskQuestion tool over ACP, so the
-bridge does not implement `cursor/ask_question`.
-
-## Timeouts
-
-cursor-agent does not stream shell output over ACP: a command emits nothing until it exits, so
-mid-turn silence carries no information about liveness. The bridge therefore reports silence
-rather than acting on it.
-
-| Guard | Default | Scope |
-| ----- | ------- | ----- |
-| Handshake deadline | 60 s | Spawn through session setup only, where silence really does mean a wedged agent. |
-| Hard cap | 6 h | Whole delegation, absolute. Stopping the agent afterwards takes up to 10 s more. |
-
-Overrides: `CURSOR_DELEGATE_HANDSHAKE_MS`, `CURSOR_DELEGATE_HARD_CAP_MS`. A non-positive or
-malformed value falls back to the default. Agent process exit is detected directly and fails
-fast regardless of these.
-
-A delegation is still cancellable at any time via the `cancel` tool or a host interrupt.
-
-## Other tools
-
-**`cancel`** — `{sessionId, force?}` → `status: "cancelled" | "killed" | "not-running" | "not-found"`.
-`session/cancel` is best-effort and the agent may finish the turn; the session stays
-cancellable afterwards, so a follow-up call with `force: true` kills the process after a
-grace period. `killed` means the process was observed to exit; a force that cannot confirm the
-exit reports `cancelled`.
-`not-running` means the turn already ended — the session is still resumable via
-`resumeSessionId`; `not-found` means the id is not in this process's session history.
-When `delegate` runs as an MCP task, `sessionId` also takes its server-side task id, which reaches
-only that task's turn; a session id reaches every turn running on it.
-
-**`doctor`** — `{deep?}`. Always reports plugin version, MCP client `capabilities`,
-launcher resolution and `agent.found`, plus runtime info. With
-`deep: true` it adds `agent.handshake`: `{ok, protocolVersion, agentCapabilities, models,
-currentModel, currentModelOptions, modes}`, or `{ok: false, error}` — not logged in, or a
-timeout. `agent.handshake.models` is the authoritative list to check after an `unknown-model`
-failure; `currentModelOptions` is `{id, name?, category?, values, currentValue?}[]` for
-`currentModel` only, not for a `model` you are about to pass; `protocolVersion` and `currentModel` are `null` when the agent reported
-none.
-
-`agent.version` is the launcher's `--version` output, or `null`. `found: false` means it is not
-installed; `found: true` with a `null` version means it exists but did not answer, and
-`agent.error` says why (e.g. the probe timed out).
+`cancel` is advisory and the agent may finish the turn. The session stays cancellable, so call
+again with `force: true` to kill the process after a grace period; a force that cannot confirm
+the exit reports `cancelled`. For an MCP task, the task id reaches only that task's turn; a
+session id reaches every turn on the session.

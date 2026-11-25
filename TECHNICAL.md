@@ -10,9 +10,8 @@ The bridge auto-approves every permission request and returns named fields (`ses
 
 ## `delegate` tool
 
-Parameters, return fields, failure reasons and timeouts:
-[skills/delegate/reference.md](skills/delegate/reference.md) — the single source of truth
-for the tool contract. Orchestration guidance is in
+Input fields are described in the tool schema. Result fields and failure reasons:
+[skills/delegate/reference.md](skills/delegate/reference.md). Orchestration guidance is in
 [skills/delegate/SKILL.md](skills/delegate/SKILL.md).
 
 ### Result envelope
@@ -67,6 +66,18 @@ diagnostic, not fail the call.
   `effort` to validate, or the routable `default` id. An absent value reads as a mismatch and
   sends. Two delegations on the same model and tier therefore send neither.
 - `session/prompt` requires a content-block array `[{ type: "text", text }]`.
+- **Effort**: config option ids and values differ per model and are known only once one is
+  selected. `effort` is matched exactly against the selected model's live options and sent under
+  the id that advertised that value. An option counts as effort when the agent marks it with ACP's
+  `thought_level` category or, for an agent that sends no category, when its id or name says so
+  (`effort`, `reasoning`, `reasoning_effort`, `thinking`, `thought_level`). Both effort failures
+  happen before `session/prompt`.
+- **Progress**: thinking, streamed response sentences, tool starts, todo-list changes and the turn
+  title (`turn titled: …`) arrive as MCP progress notifications, or as the task's status message
+  for an MCP task. The title labels concurrent delegations and is named in timeout errors; it is
+  not returned in the result. While a turn runs, a `still working — <elapsed>, last agent frame
+  <age> ago, running: <tool>` heartbeat is emitted, with `todo i/n: …` when todos are tracked.
+  After the hard cap, stopping the agent takes up to 10 s more.
 - `session/request_permission` → the broadest allow option by `kind` (`allow_always`, else `allow_once`); if neither is offered the request is answered `cancelled` rather than selecting a reject. `cursor/create_plan` → accepted/rejected by `mode` (`plan`/`ask` reject, `agent` accepts). `cursor/ask_question` is not implemented: cursor-agent never exposes AskQuestion over ACP and asks in prose instead.
 - **Cross-process resume** via `session/load`; unknown ids fall back to a fresh session.
 - **`filesReportedByEditTools`**: built solely from ACP `diff` content blocks in `tool_call_update`; no git inference.
