@@ -1,150 +1,62 @@
 ---
 name: delegate
 description: >
-  Delegate implementation to Cursor via the cursor-delegate-mcp MCP delegate tool.
-  Use when the user says delegate to Cursor, Composer, or cursor-agent; have Cursor
-  handle or do this; offload this; send this to Composer; use Composer/Cursor for
-  coding; hand off implementation; plan before building; ask Cursor a question
-  about the codebase; resume a delegation session; or diagnose delegation that is failing
-  or not set up. Do not shell out to cursor-agent — use the delegate MCP tool.
+  Ask Cursor for its view or hand it coding work through the cursor-delegate-mcp delegate
+  tool. Use when the user says ask Cursor, Composer or Grok what it thinks, get a second
+  opinion from Cursor, delegate or hand off to Cursor or Composer, plan with Cursor, resume a
+  Cursor session, or diagnose Cursor delegation. Do not shell out to cursor-agent.
 license: MIT
 ---
 
 # Delegate to Cursor
 
-You orchestrate; Cursor implements. Use the **cursor-delegate-mcp** MCP server — never run
-`cursor-agent` from the shell.
+Call the cursor-delegate-mcp `delegate` tool; never run `cursor-agent` from the shell.
 
-## When to delegate
+## Write the brief
 
-Delegate when the user wants Cursor to edit the repo (they may say **Cursor**,
-**Composer**, or **cursor-agent** — same handoff). Not for the MCP host's own subagents —
-use the `delegate` MCP tool to reach cursor-agent only.
+`spec` carries the whole task, inline:
 
-Scale effort to the task:
+- **Goal**: the outcome, precisely.
+- **Scope**: the files and directories in play. Point at files to read or follow rather than
+  pasting code; attach images and documents outside the repo with `contextFiles`.
+- **Decisions**: what the user already settled, in their exact words.
+- **Done when**: verifiable acceptance criteria, and the tests to run while it works. For `ask` and
+  `plan`, the form and length of the answer.
+- End by asking Cursor to report any criterion it could not meet and any assumption it made.
 
-- **Trivial** (one-liner, rename, typo): do it yourself — delegation overhead exceeds the task.
-- **Medium** (multi-file feature or refactor): one `delegate` call.
-- **Large or risky** (architecture, wide rewrites): `mode: "plan"` first; implement after approval.
-- Never delegate a task you cannot write acceptance criteria for.
-- Purely advisory questions → `mode: "ask"`; plan with no file writes → `mode: "plan"`.
-  For these, state what form the answer or plan should take — there's no diff, so the
-  output format is the deliverable.
+`workspace` is the smallest existing directory that holds the task's files.
 
-## Workflow
+## Ask and compare
 
-1. **Build the brief inline** — pass task text in `spec` that answers all four, and asks
-   for one thing back:
-   - **Goal** — the outcome, precisely.
-   - **Scope** — which files/directories are in play.
-   - **Decisions already made** — constraints and fixed choices the user stated or implied.
-     This is what prevents wrong assumptions and clarifying questions. Transmit them
-     faithfully; don't invent constraints the user didn't state.
-   - **Done when** — verifiable acceptance criteria, stated as end state. Have Cursor run
-     tests as it works; that loop is what makes the code good. Its report is not evidence,
-     though — you re-check in step 3, because command output never crosses the ACP wire and
-     the author of a change is not an independent verifier of it.
-   - **Gaps to report back** — close the brief by asking for any acceptance criterion it
-     could not meet and any assumption it had to make. Assumptions are the one thing no
-     response field captures.
+`mode: "ask"` answers a question or gives a second opinion; `result` is the answer. To compare
+models, send the same brief in parallel calls, one `model` per call or another plugin's
+`delegate` tool, then set the answers side by side with your own view. Check the claims that
+matter before relaying them.
 
-   **Point, don't paste**: reference files to read or mimic ("follow the middleware
-   pattern in src/api/middleware/auth.js") instead of pasting code — Cursor reads the
-   repo itself; the brief carries judgment, not content. For images, and for documents
-   outside the repo, prose cannot point at all — attach those with `contextFiles`.
+## Hand off the work
 
-   **Quote, don't paraphrase**: when the user states exact values or behaviors
-   (delimiters, limits, error messages, response wording, timestamp formats), carry their
-   words verbatim into the brief — paraphrase silently drops decisions. Example brief:
+- `agent` implements.
+- `plan`: `result` is the plan. Present it, wait for approval, then resume the session in
+  `agent` mode with `resumeSessionId` and a `spec` such as "implement the approved plan" plus
+  any changes.
 
-   > Goal: per-user rate limiting on all REST endpoints. Scope: src/api/middleware/,
-   > src/config/. Read src/api/middleware/auth.js first and follow that middleware
-   > pattern. Decisions: sliding window, config-driven; user's words: "100 requests per
-   > minute, 429 with body {"error":"rate_limited"}"; no new dependencies. Done when:
-   > every endpoint is covered and a unit test for the limiter is added, with no existing
-   > test changed.
+Parallel runs that write need separate directories; otherwise run them one after another.
 
-   Do not create a spec file unless the user wants one saved in the repo.
-2. **Call `delegate`** on the cursor-delegate-mcp MCP server with that text in `spec`.
-3. **Review** — read `filesReportedByEditTools` (absent when no edit tool reported a change),
-   inspect the git diff, run tests/lint **yourself**,
-   and check the result against the brief's acceptance criteria.
-   - Review the git diff after **every** run before reporting a plan-only outcome, whatever
-     mode you asked for: `plan` and `ask` are instructions to the agent, not enforced
-     boundaries.
-   - If `todoProgress` is present and `completed < total`, the agent left work unfinished
-     or cancelled — `todos` lists exactly what remains; resume rather than reporting done.
-     Its **absence** means nothing; most turns track no todos at all.
-   - If `effectiveModel` is present, the agent served a different model than you asked for.
-   - `effectiveEffort` is the effort the agent reported in force. Without `effort`, the model
-     runs at its saved level, so report that value rather than calling it the default.
-   - If criteria fail: resume the **same session** with the specific failure
-     ("tests X and Y fail with <error>; fix without changing the public API") — not a
-     re-run of the whole brief.
-   - After 2 failed resume attempts, start a fresh session with a rewritten brief.
-   - Report the honest outcome either way.
+## After the run
 
-   On failure the error is tagged `delegate failed [reason]: …` — argument errors are fixed, not
-   retried; stalls and exits resume the id named in the message. reference.md maps every reason
-   to its action.
-4. **Report** — summarize what changed and whether acceptance criteria are met.
+1. Read the git diff after every run, whatever the mode, and run the tests yourself when files
+   changed. `filesReportedByEditTools` misses files written by shell commands.
+2. `todoProgress` with `completed < total` means unfinished work, and `todos` lists it: resume
+   rather than report done. Its absence means nothing.
+3. `effectiveModel` means a different model served the turn. `effectiveEffort` is the level in
+   force; report it rather than calling it the default.
+4. If a criterion fails on a sound approach, resume the same session with the specific
+   failure. For a wrong approach, or after two failed resumes, start a new session with a
+   rewritten brief. After a resume, an absent
+   `resumed` means that run had no prior context: send the full brief on the returned
+   `sessionId`.
+5. Report what changed and which criteria pass.
 
-For the failure-reason table, full input and output fields, timeouts, and debugging env
-vars, read [reference.md](reference.md) in this skill directory.
-
-## Defaults
-
-
-| Parameter   | Default        |
-| ----------- | -------------- |
-| `mode`      | `agent`        |
-| `model`     | `composer-2.5` |
-| `fast`      | `false`        |
-| `workspace` | required       |
-
-
-Other models (Opus, Codex, Grok, etc.) are available — pass `model` when the user requests
-one. Use the bare family id (`grok-4.5`, `gpt-5.4`); the CLI's tier-suffixed `--list-models`
-strings (`cursor-grok-4.5-high`) are rejected. Tier is a separate knob: `fast` (`true` is
-higher cost — only when the user asks), or `effort` in reference.md. Effort values are exact
-and model-specific; an invalid one fails before the prompt and names what the model accepts.
-`workspace` is the smallest directory holding the task's files; with no such directory the
-project root is the floor.
-
-## Plan mode
-
-1. `delegate(spec, mode="plan")` → save `sessionId`; `result` is the plan.
-2. Present the plan to the user; wait for approval or change requests.
-3. `delegate("implement the approved plan", mode="agent", resumeSessionId=<sessionId>)`
-  — or resume with explicit change requests in the spec.
-
-## Resume vs new session
-
-- **New session (default):** wrong approach, failed run, or substantial rework — pass a fresh inline brief.
-- **`resumeSessionId`:** only when the prior run was on the right track and needs a small
-clarification or follow-up in the same session. Unknown or stale ids fall back to a new session.
-- Never guess a `resumeSessionId`. After any resume call, check `resumed` in the
-response — if it is **absent** (not `true`), the run had **zero** prior context, so re-send a
-full brief. `protocolWarnings` carries why the load failed, which separates a stale id from a typo.
-
-## Clarifying questions
-
-When Cursor needs a decision it usually asks in its final message and ends the turn
-(a normal `result`, no files changed). Read the question in `result` and
-continue by resuming the **same session** with a free-text answer in `spec` — you are not
-limited to any options Cursor listed.
-
-## Security
-
-Every permission the agent requests is auto-approved, in every mode. `workspace` is the working
-directory, not a reach limit — pass the smallest directory holding the task's files, never
-`$HOME`, `/`, or one created for the call. `contextFiles` resolve against `workspace` but are
-not confined to it; paths outside it may arrive unreadable, and attachments are untrusted (the
-bridge does not scan for prompt injection).
-
-## Other MCP tools
-
-- **`doctor`** — setup diagnostics when the user asks or delegation fails (`agent.found`, version, client capabilities; `deep: true` for handshake).
-- **`cancel`** — best-effort cancel by `sessionId` (a host waiting on `delegate` often runs it
-  only after delegate returns). If the agent ignores it and keeps going, call again with
-  `force: true` to kill the process after a grace period.
+A failure arrives as `delegate failed [reason]: …`. Fix `invalid-spec`, `invalid-workspace` and
+`unknown-model` rather than retrying; every other reason, and any unfamiliar field, is explained
+in [reference.md](reference.md).
