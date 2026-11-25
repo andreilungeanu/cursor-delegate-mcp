@@ -56,15 +56,17 @@ Your agent writes the brief, Cursor edits the files, and your agent reads the di
 
 ![Delegate result payload](assets/result-json.png)
 
-## The Delegate family
+## Your agent and its peers
 
-Each plugin works on its own. Install the ones your subscriptions cover, and your agent can ask them the same question in one turn.
+Each plugin works on its own, and they are built to work together. Install the ones your subscriptions cover, and the agent you already use can bring Gemini 4 Neon, Carbon or Hydrogen, GPT-6.2 Sol or Astra, and Grok 4.7 or Composer 2.5 into the same conversation as peers. One question goes to all of them in parallel, and your agent sets their answers beside its own.
 
-| Plugin | Brings in | Stands out for |
-| --- | --- | --- |
-| [Codex Delegate](https://github.com/andreilungeanu/codex-delegate-mcp) | OpenAI Codex CLI · GPT models | native code review, schema-validated plans |
-| **Cursor Delegate** (this one) | Cursor CLI · Composer, Grok | plan then build in one session, todo progress, image attachments |
-| [Antigravity Delegate](https://github.com/andreilungeanu/agy-delegate-mcp) | Antigravity CLI · Gemini | steering a running turn, structured questions, plan artifacts |
+> Ask Gemini Neon, Codex Sol and Grok 4.7 how they would restructure the auth module, then tell me where they agree.
+
+- [Codex Delegate](https://github.com/andreilungeanu/codex-delegate-mcp) — the OpenAI Codex CLI: GPT-6.2 Sol, GPT-6.2 Astra and the other Codex models
+- **Cursor Delegate** (this one) — Cursor's CLI agent: Grok 4.7, Composer 2.5
+- [Antigravity Delegate](https://github.com/andreilungeanu/agy-delegate-mcp) — Google Antigravity's CLI: Gemini 4 Neon, Carbon, Argon and Hydrogen
+
+Model names are examples; each CLI offers what your account includes.
 
 ## Install
 
