@@ -1,6 +1,6 @@
 # Cursor Delegate
 
-**Ask Cursor what it thinks. Or hand it the work.**
+**Turn your coding agent into a council. Bring Composer and Grok into the conversation, then hand them the work.**
 
 [![npm version](https://img.shields.io/npm/v/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
 [![npm downloads](https://img.shields.io/npm/dt/cursor-delegate-mcp)](https://www.npmjs.com/package/cursor-delegate-mcp)
